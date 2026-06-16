@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Akayashuu/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts"
 )
 
 func TestNewBackendSelection(t *testing.T) {

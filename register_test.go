@@ -3,7 +3,7 @@ package claude
 import (
 	"testing"
 
-	"github.com/Akayashuu/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts"
 )
 
 func TestSelfRegisteredAsBackend(t *testing.T) {

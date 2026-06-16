@@ -7,7 +7,7 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/Akayashuu/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts"
 )
 
 // Config configures a Claude backend. Kind selects the response strategy:

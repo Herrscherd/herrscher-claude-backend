@@ -1,7 +1,7 @@
-module github.com/Akayashuu/herrscher-claude-backend
+module github.com/Herrscherd/herrscher-claude-backend
 
 go 1.23
 
-require github.com/Akayashuu/herrscher-contracts v0.0.0
+require github.com/Herrscherd/herrscher-contracts v0.0.0
 
-replace github.com/Akayashuu/herrscher-contracts => ../herrscher-contracts
+replace github.com/Herrscherd/herrscher-contracts => ../herrscher-contracts

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/Akayashuu/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts"
 )
 
 // streamBase normalizes a base command for persistent stream-json mode by

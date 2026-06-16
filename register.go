@@ -3,7 +3,7 @@ package claude
 import (
 	"context"
 
-	"github.com/Akayashuu/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts"
 )
 
 // init self-registers the Claude backend into the global plugin registry. A

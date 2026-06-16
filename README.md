@@ -12,7 +12,7 @@ progress events along the way. The core that drives it has no idea Claude exists
 > [host](../herrscher-host/README.md)
 
 ```
-require github.com/Akayashuu/herrscher-contracts
+require github.com/Herrscherd/herrscher-contracts
 // the ONLY dependency — no core, no gateway, no host
 ```
 
