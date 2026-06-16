@@ -95,11 +95,11 @@ var effortPresets = []string{"low", "medium", "high", "xhigh", "max"}
 // CommandPresets returns the ready-made /session cmd choices (the model × effort
 // matrix) targeting binary bin, as label→command, for the host's autocomplete.
 // It does NOT include the "Default" entry (the host prepends that).
-func CommandPresets(bin string) []contracts.AutocompleteChoice {
-	out := make([]contracts.AutocompleteChoice, 0, len(modelPresets)*len(effortPresets))
+func CommandPresets(bin string) []contracts.Choice {
+	out := make([]contracts.Choice, 0, len(modelPresets)*len(effortPresets))
 	for _, m := range modelPresets {
 		for _, e := range effortPresets {
-			out = append(out, contracts.AutocompleteChoice{
+			out = append(out, contracts.Choice{
 				Label: m.label + " · " + e,
 				Value: bin + " --model " + m.model + " --effort " + e,
 			})
