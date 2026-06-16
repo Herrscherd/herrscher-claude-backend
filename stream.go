@@ -56,6 +56,19 @@ func withAttachments(text string, paths []string) string {
 	return b.String()
 }
 
+// withContext prepends memory-recalled background to the turn, fenced so the
+// model reads it as context rather than as the user's words. Empty context (no
+// Memory plugin wired) returns text untouched.
+func withContext(ctx, text string) string {
+	if ctx == "" {
+		return text
+	}
+	// Neutralize any closing fence the recalled text carries so a recorded
+	// message can't break out of <memory> and forge instructions to the model.
+	ctx = strings.ReplaceAll(ctx, "</memory>", "</ memory>")
+	return "<memory>\n" + ctx + "\n</memory>\n\n" + text
+}
+
 // userLine marshals one Claude Code stream-json user message, newline-terminated
 // for writing to the process stdin.
 func userLine(text string) ([]byte, error) {
@@ -286,7 +299,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		}
 		r.sess = s
 	}
-	content := withAttachments(p.Content, p.Attachments)
+	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
 	tr, err := r.sess.Send(content, onEvent)
 	if err != nil {
 		// Process likely died: restart with the last session id and retry once.
