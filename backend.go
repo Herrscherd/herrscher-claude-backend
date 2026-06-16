@@ -65,9 +65,10 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 // it would split $PATH.
 func runCmd(ctx context.Context, cmdStr string, p contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
-	args := append(fields[1:], p.Content)
+	content := withContext(p.Context, p.Content)
+	args := append(fields[1:], content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
-	cmd.Stdin = strings.NewReader(p.Content)
+	cmd.Stdin = strings.NewReader(content)
 	cmd.Env = append(os.Environ(),
 		"DCTL_MSG="+p.Content,
 		"DCTL_AUTHOR="+p.Author,
