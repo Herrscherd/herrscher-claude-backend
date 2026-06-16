@@ -15,6 +15,13 @@ func init() {
 		Manifest: contracts.Manifest{
 			Kind:     "claude",
 			Category: contracts.CategoryBackend,
+			Config: []contracts.Setting{
+				{Key: "cmd", Env: "CLAUDE_CMD", Help: "base command to run the agent", Default: "claude"},
+				{Key: "model", Env: "CLAUDE_MODEL", Help: "model override"},
+				{Key: "stream", Env: "CLAUDE_STREAM", Help: "stream-json mode (false to disable)", Default: "true"},
+				{Key: "dir", Env: "CLAUDE_DIR", Help: "working directory"},
+				{Key: "kind", Env: "CLAUDE_KIND", Help: "backend kind"},
+			},
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
