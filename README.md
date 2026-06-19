@@ -1,15 +1,18 @@
 # herrscher-claude-backend
 
 **The model edge.** This is the only module in the Herrscher platform that knows how
-to talk to Claude. It implements the [`contracts.Backend`](../herrscher-contracts/README.md)
-port: given one neutral `Prompt`, it returns a reply and streams intermediate
-progress events along the way. The core that drives it has no idea Claude exists.
+to talk to Claude. It implements the
+[`contracts.Backend`](https://github.com/Herrscherd/herrscher-contracts) port: given
+one neutral `Prompt`, it returns a reply and streams intermediate progress events
+along the way. The core that drives it has no idea Claude exists.
 
-> Part of the [Herrscher](../herrscher-host/README.md) family:
-> [contracts](../herrscher-contracts/README.md) ·
-> [core](../herrscher-core/README.md) · **claude-backend** ·
-> [discord-gateway](../herrscher-discord-gateway/README.md) ·
-> [host](../herrscher-host/README.md)
+> Part of the Herrscher family: **claude-backend** ·
+> [contracts](https://github.com/Herrscherd/herrscher-contracts) ·
+> [discord-gateway](https://github.com/Herrscherd/herrscher-discord-gateway) ·
+> [obsidian-memory](https://github.com/Herrscherd/herrscher-obsidian-memory) ·
+> [orchestrator](https://github.com/Herrscherd/herrscher-orchestrator) ·
+> [herrscher](https://github.com/Herrscherd/herrscher) (the umbrella binary that
+> imports them all).
 
 ```
 require github.com/Herrscherd/herrscher-contracts
@@ -159,6 +162,6 @@ go vet ./...
 go test ./...   # 12 tests
 ```
 
-Go 1.23. Depends only on `herrscher-contracts` (wired locally via a `replace`
-directive). It is a library — the [host](../herrscher-host/README.md) is the only
-binary that imports it.
+Go 1.25. Depends only on the published `herrscher-contracts`. It is a library — the
+[herrscher](https://github.com/Herrscherd/herrscher) umbrella is the only binary that
+imports it.
