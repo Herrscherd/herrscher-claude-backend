@@ -274,8 +274,7 @@ func (s *streamSession) Send(text string, onEvent func(contracts.BackendEvent)) 
 	return tr, nil
 }
 
-// oneShotResponder runs cmdStr fresh for every message (legacy behavior, used
-// for arbitrary non-claude commands when --stream=false).
+// oneShotResponder runs cmdStr fresh for every message.
 type oneShotResponder struct {
 	run func(ctx context.Context, p contracts.Prompt) (string, error)
 }

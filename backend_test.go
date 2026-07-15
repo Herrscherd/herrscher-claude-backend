@@ -17,3 +17,17 @@ func TestRunCmdPreservesChildEnvironment(t *testing.T) {
 		t.Fatalf("CLAUDE_BACKEND_SENTINEL = %q, want preserved", got)
 	}
 }
+
+func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
+	got, err := runCmd(context.Background(), "printf %s", contracts.Prompt{
+		Content:     "look",
+		Attachments: []string{"/tmp/a.png"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "look\n\n[Image jointe : /tmp/a.png]"
+	if got != want {
+		t.Fatalf("prompt = %q, want %q", got, want)
+	}
+}

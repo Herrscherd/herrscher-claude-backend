@@ -63,7 +63,7 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 // environment unchanged.
 func runCmd(ctx context.Context, cmdStr string, p contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
-	content := withContext(p.Context, p.Content)
+	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
 	args := append(fields[1:], content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)

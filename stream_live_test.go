@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// TestStreamSessionLiveTwoTurns exercises the real persistent-process path:
-// one claude stream-json process answering two sequential Send calls (as the
-// bridge does). Skipped unless CLAUDE_BACKEND_LIVE=1 (it spends real model quota).
+// TestStreamSessionLiveTwoTurns exercises one Claude stream-json process
+// answering two sequential Send calls. Skipped unless CLAUDE_BACKEND_LIVE=1
+// (it spends real model quota).
 func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	if os.Getenv("CLAUDE_BACKEND_LIVE") != "1" {
 		t.Skip("set CLAUDE_BACKEND_LIVE=1 to run the live claude smoke test")

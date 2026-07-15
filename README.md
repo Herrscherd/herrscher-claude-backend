@@ -84,7 +84,7 @@ The events it emits map cleanly onto the progress view in the core:
 `toolDetail` extracts the single most informative input field per tool (the
 `command` for Bash, `file_path` for Read/Edit, and so on).
 
-### `oneshot` — run a command per message (legacy / generic)
+### `oneshot` — run a command per message
 
 `oneShotResponder` runs `Cmd` fresh for every message. `runCmd` splits `Cmd` on
 whitespace, appends the message text as the final argument, and pipes the full
@@ -115,20 +115,20 @@ The host needs to offer `/session create cmd:` suggestions, but the *core* must 
 model-agnostic — so the catalog lives here and is injected upward.
 
 ```go
-func CommandPresets(bin string) []contracts.AutocompleteChoice
+func CommandPresets(bin string) []contracts.Choice
 ```
 
 It returns the full **model × effort** matrix as `label → command` autocomplete
 choices targeting binary `bin` (e.g. `claude --model claude-opus-4-8 --effort low`).
 The host passes the result into `serve.Options.CmdPresets`.
 
-| Models | Effort levels |
-|--------|---------------|
-| Opus 4.8 · 200k (`claude-opus-4-8`) | low |
-| Opus 4.8 · 1M (`claude-opus-4-8[1m]`) | medium |
-| Sonnet 4.6 (`claude-sonnet-4-6`) | high |
-| Haiku 4.5 (`claude-haiku-4-5-20251001`) | xhigh |
-| | max |
+The catalog contains these models, each offered at every effort level
+(`low`, `medium`, `high`, `xhigh`, `max`):
+
+- Opus 4.8 · 200k (`claude-opus-4-8`)
+- Opus 4.8 · 1M (`claude-opus-4-8[1m]`)
+- Sonnet 4.6 (`claude-sonnet-4-6`)
+- Haiku 4.5 (`claude-haiku-4-5-20251001`)
 
 The `[1m]` suffix selects the 1M-token context window; its absence means the
 standard 200k.
@@ -153,7 +153,7 @@ standard 200k.
 ```bash
 go build ./...
 go vet ./...
-go test ./...   # 12 tests
+go test ./...   # 17 tests
 ```
 
 Go 1.25. Depends only on the published `herrscher-contracts`. It is a library — the
