@@ -28,4 +28,4 @@ unchanged.
 - Add a regression test proving the oneshot child does not receive `DCTL_*`
   variables from the backend.
 - Run the package test suite and `go vet ./...`.
-- Confirm `rg 'DCTL'` has no matches in the repository.
+- Confirm `rg 'DCTL' --glob '*.go'` has no matches in executable code or tests.

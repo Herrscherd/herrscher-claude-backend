@@ -86,15 +86,9 @@ The events it emits map cleanly onto the progress view in the core:
 
 ### `oneshot` — run a command per message (legacy / generic)
 
-`oneShotResponder` runs `Cmd` fresh for every message. It's the escape hatch for
-arbitrary, non-Claude programs. `runCmd` splits `Cmd` on whitespace, appends the
-message text as the final argument, pipes it on stdin, and exposes the full prompt
-through environment variables:
-
-```
-DCTL_MSG, DCTL_AUTHOR, DCTL_MESSAGE_ID, DCTL_CHANNEL,
-DCTL_ATTACHMENTS   // local image paths joined by os.PathListSeparator, like $PATH
-```
+`oneShotResponder` runs `Cmd` fresh for every message. `runCmd` splits `Cmd` on
+whitespace, appends the message text as the final argument, and pipes the full
+prompt on stdin. The child process inherits the backend environment unchanged.
 
 `oneshot` requires a non-empty `Cmd`; `NewBackend` returns an error otherwise.
 
@@ -108,7 +102,7 @@ references the local Claude can open with its Read tool:
 ```
 look at this
 
-[Image jointe : /tmp/dctl-attachments/<session>/a.png]
+[Image jointe : /tmp/claude-backend-attachments/<session>/a.png]
 ```
 
 The same helper is shared by both strategies.

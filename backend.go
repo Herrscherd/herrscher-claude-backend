@@ -59,23 +59,15 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 }
 
 // runCmd executes cmdStr (split on whitespace) with the message text appended
-// as the final argument, piped on stdin, and exposed via DCTL_* env vars.
-// DCTL_ATTACHMENTS lists local image paths joined by the OS path-list separator
-// (':' on Unix), the same convention as $PATH, so a consumer splits it the way
-// it would split $PATH.
+// as the final argument and piped on stdin. The child inherits the backend's
+// environment unchanged.
 func runCmd(ctx context.Context, cmdStr string, p contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
 	content := withContext(p.Context, p.Content)
 	args := append(fields[1:], content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
-	cmd.Env = append(os.Environ(),
-		"DCTL_MSG="+p.Content,
-		"DCTL_AUTHOR="+p.Author,
-		"DCTL_MESSAGE_ID="+p.MessageID,
-		"DCTL_CHANNEL="+p.ChannelID,
-		"DCTL_ATTACHMENTS="+strings.Join(p.Attachments, string(os.PathListSeparator)),
-	)
+	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
