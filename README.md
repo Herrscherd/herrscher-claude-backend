@@ -36,7 +36,7 @@ type Config struct {
     Cmd     string // base command (split on whitespace)
     Model   string // --model value (stream mode)
     Dir     string // working directory ("" = cwd)
-    Verbose bool   // backend diagnostics on stderr
+    Verbose bool   // reserved; backend diagnostics on stderr (not yet consulted)
 }
 ```
 
@@ -140,7 +140,8 @@ standard 200k.
 | File | Contents |
 |------|----------|
 | `backend.go` | `Config`, `NewBackend`, `resolveBackend`, `runCmd`, the model/effort presets, `CommandPresets` |
-| `stream.go` | the stream-json protocol: `streamBase`, `streamArgv`, `userLine`, `readTurn`, `toolDetail`, `withAttachments`, `streamSession`, `streamResponder`, `oneShotResponder` |
+| `register.go` | `init()` self-registration into the contracts plugin registry (Manifest + settings cmd/model/stream/dir/kind → `Config`) |
+| `stream.go` | the stream-json protocol: `streamBase`, `streamArgv`, `userLine`, `readTurn`, `toolDetail`, `withAttachments`, `withContext`/`memoryFence`, `streamSession`, `streamResponder`, `oneShotResponder` |
 
 > There is no tmux backend. The interactive-TUI strategy was removed; the generic
 > select-menu / choice machinery it once needed still lives in the core for future
