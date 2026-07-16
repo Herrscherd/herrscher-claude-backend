@@ -69,7 +69,10 @@ func runCmd(ctx context.Context, cmdStr string, p contracts.Prompt) (string, err
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Env = os.Environ()
 	out, err := cmd.CombinedOutput()
-	return string(out), err
+	if err != nil {
+		return string(out), fmt.Errorf("oneshot backend %q: %w", fields[0], err)
+	}
+	return string(out), nil
 }
 
 // modelPresets are the models offered as ready-made cmd choices, friendly label

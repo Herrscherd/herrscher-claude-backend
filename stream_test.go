@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Herrscherd/herrscher-contracts"
 )
@@ -105,7 +106,7 @@ func TestStreamSessionSend(t *testing.T) {
 
 	s := newStreamSession(stdinW, stdoutR)
 	var got []contracts.BackendEvent
-	tr, err := s.Send("hello", func(e contracts.BackendEvent) { got = append(got, e) })
+	tr, err := s.Send(context.Background(), "hello", func(e contracts.BackendEvent) { got = append(got, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,6 +118,26 @@ func TestStreamSessionSend(t *testing.T) {
 	}
 	if len(got) < 1 || got[0].Kind != "tool" || got[0].Tool != "Bash" {
 		t.Fatalf("expected a Bash tool event, got %+v", got)
+	}
+}
+
+func TestReadTurnCtxCancelAborts(t *testing.T) {
+	// A reader that blocks forever mimics a wedged turn (no `result` emitted).
+	pr, _ := io.Pipe()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		_, err := readTurn(ctx, bufio.NewReader(pr), nil)
+		done <- err
+	}()
+	cancel()
+	select {
+	case err := <-done:
+		if err != context.Canceled {
+			t.Fatalf("err = %v, want context.Canceled", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("readTurn did not abort on ctx cancel")
 	}
 }
 
@@ -151,7 +172,7 @@ func TestReadTurnSuccess(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"PONG","total_cost_usd":0.0136,"session_id":"sess-1"}`,
 	}, "\n") + "\n"
 
-	tr, err := readTurn(bufio.NewReader(strings.NewReader(canned)), nil)
+	tr, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +192,7 @@ func TestReadTurnSuccess(t *testing.T) {
 
 func TestReadTurnError(t *testing.T) {
 	canned := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}` + "\n"
-	tr, err := readTurn(bufio.NewReader(strings.NewReader(canned)), nil)
+	tr, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +208,7 @@ func TestReadTurnHandlesHugeLine(t *testing.T) {
 	huge := strings.Repeat("x", 200_000)
 	canned := `{"type":"system","subtype":"init","session_id":"s","blob":"` + huge + `"}` + "\n" +
 		`{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"s"}` + "\n"
-	tr, err := readTurn(bufio.NewReader(strings.NewReader(canned)), nil)
+	tr, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), nil)
 	if err != nil {
 		t.Fatalf("huge line should not error: %v", err)
 	}
@@ -206,7 +227,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 	}, "\n") + "\n"
 
 	var got []contracts.BackendEvent
-	tr, err := readTurn(bufio.NewReader(strings.NewReader(canned)), func(e contracts.BackendEvent) { got = append(got, e) })
+	tr, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), func(e contracts.BackendEvent) { got = append(got, e) })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +253,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 func TestReadTurnNilCallback(t *testing.T) {
 	canned := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"x"}}]}}` + "\n" +
 		`{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"
-	tr, err := readTurn(bufio.NewReader(strings.NewReader(canned)), nil)
+	tr, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), nil)
 	if err != nil {
 		t.Fatalf("nil callback must not panic: %v", err)
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -142,52 +143,104 @@ type streamEvent struct {
 	} `json:"message"`
 }
 
+// readLine is one line delivered by the background reader goroutine.
+type readLine struct {
+	data []byte
+	err  error
+}
+
 // readTurn consumes stream-json events until the terminal `result` event. When
 // onEvent is non-nil it emits a BackendEvent per intermediate assistant block
 // (tool uses and text) and a terminal "result" event carrying cost. It uses
 // ReadBytes (not bufio.Scanner) because the system/init event can exceed
 // Scanner's 64 KB cap.
-func readTurn(r *bufio.Reader, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+//
+// Reading runs in a goroutine so a wedged turn (the process stops emitting a
+// `result`) is abortable: when ctx is cancelled readTurn returns ctx.Err()
+// instead of blocking forever. The caller must then drop the session, since the
+// orphaned read goroutine only exits once the process is killed.
+func readTurn(ctx context.Context, r *bufio.Reader, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	lines := make(chan readLine, 1)
+	go func() {
+		for {
+			data, err := r.ReadBytes('\n')
+			select {
+			case lines <- readLine{data, err}:
+			case <-ctx.Done():
+				return
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
 	for {
-		line, err := r.ReadBytes('\n')
-		if len(line) > 0 {
-			var ev streamEvent
-			if json.Unmarshal(line, &ev) == nil {
-				switch ev.Type {
-				case "assistant":
-					if onEvent != nil {
-						for _, b := range ev.Message.Content {
-							switch b.Type {
-							case "text":
-								if t := strings.TrimSpace(b.Text); t != "" {
-									onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
-								}
-							case "tool_use":
-								onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
-							}
-						}
-					}
-				case "result":
-					if onEvent != nil {
-						onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError})
-					}
-					tr := turnResult{
-						Text:      ev.Result,
-						CostUSD:   ev.TotalCostUSD,
-						SessionID: ev.SessionID,
-						IsError:   ev.IsError,
-					}
-					if ev.IsError {
-						tr.ErrMsg = ev.Result
-					}
+		select {
+		case <-ctx.Done():
+			return turnResult{}, ctx.Err()
+		case ln := <-lines:
+			if len(ln.data) > 0 {
+				if tr, done := parseTurnLine(ln.data, onEvent); done {
 					return tr, nil
 				}
 			}
-		}
-		if err != nil {
-			return turnResult{}, err
+			if ln.err != nil {
+				return turnResult{}, ln.err
+			}
 		}
 	}
+}
+
+// parseTurnLine decodes one stream-json line. It peeks the `type` field first
+// and only unmarshals the full nested body for the events we act on ("assistant"
+// with a live onEvent, and "result"), so ignored line types skip the Content
+// slice allocation. done is true only on the terminal `result` event.
+func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool) {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if json.Unmarshal(line, &head) != nil {
+		return turnResult{}, false
+	}
+	switch head.Type {
+	case "assistant":
+		if onEvent == nil {
+			return turnResult{}, false
+		}
+		var ev streamEvent
+		if json.Unmarshal(line, &ev) != nil {
+			return turnResult{}, false
+		}
+		for _, b := range ev.Message.Content {
+			switch b.Type {
+			case "text":
+				if t := strings.TrimSpace(b.Text); t != "" {
+					onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
+				}
+			case "tool_use":
+				onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
+			}
+		}
+	case "result":
+		var ev streamEvent
+		if json.Unmarshal(line, &ev) != nil {
+			return turnResult{}, false
+		}
+		if onEvent != nil {
+			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError})
+		}
+		tr := turnResult{
+			Text:      ev.Result,
+			CostUSD:   ev.TotalCostUSD,
+			SessionID: ev.SessionID,
+			IsError:   ev.IsError,
+		}
+		if ev.IsError {
+			tr.ErrMsg = ev.Result
+		}
+		return tr, true
+	}
+	return turnResult{}, false
 }
 
 // streamSession wraps a live `claude` stream-json process: one turn at a time
@@ -236,14 +289,14 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("claude stream: stdin pipe: %w", err)
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("claude stream: stdout pipe: %w", err)
 	}
 	if err := cmd.Start(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("claude stream: start: %w", err)
 	}
 	s := newStreamSession(stdin, stdout)
 	s.cmd = cmd
@@ -253,8 +306,9 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 
 // Send writes one user message and reads back the full assistant turn, emitting
 // intermediate events to onEvent (nil = none). An error means the stream closed
-// (process died) — the caller should restart.
-func (s *streamSession) Send(text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+// (process died) or ctx was cancelled/timed out — the caller should restart or,
+// on ctx.Err(), drop the wedged session.
+func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	line, err := userLine(text)
@@ -264,7 +318,7 @@ func (s *streamSession) Send(text string, onEvent func(contracts.BackendEvent)) 
 	if _, err := s.stdin.Write(line); err != nil {
 		return turnResult{}, err
 	}
-	tr, err := readTurn(s.out, onEvent)
+	tr, err := readTurn(ctx, s.out, onEvent)
 	if err != nil {
 		return tr, err
 	}
@@ -298,6 +352,9 @@ type streamResponder struct {
 func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	if r.sess == nil {
 		s, err := startStreamSession(r.ctx, r.base, r.model, "", r.dir)
 		if err != nil {
@@ -306,8 +363,16 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		r.sess = s
 	}
 	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
-	tr, err := r.sess.Send(content, onEvent)
+	tr, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
+		if ctx.Err() != nil {
+			// Request cancelled or timed out: the turn is wedged. Kill the session
+			// (also unblocking its orphaned read goroutine) and drop it so the next
+			// request starts fresh instead of colliding with the dead turn.
+			_ = r.sess.Close()
+			r.sess = nil
+			return "", err
+		}
 		// Process likely died: restart with the last session id and retry once.
 		// Tell the consumer to discard any partial-turn events emitted before the
 		// crash so the retried turn isn't double-counted.
@@ -321,7 +386,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 			return "", startErr
 		}
 		r.sess = s
-		if tr, err = r.sess.Send(content, onEvent); err != nil {
+		if tr, err = r.sess.Send(ctx, content, onEvent); err != nil {
 			return "", err
 		}
 	}
