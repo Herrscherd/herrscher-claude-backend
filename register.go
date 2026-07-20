@@ -25,11 +25,12 @@ func init() {
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
-				Kind:   cfg.Get("kind"),
-				Stream: cfg.Get("stream") != "false",
-				Cmd:    cfg.Get("cmd"),
-				Model:  cfg.Get("model"),
-				Dir:    cfg.Get("dir"),
+				Kind:     cfg.Get("kind"),
+				Stream:   cfg.Get("stream") != "false",
+				Cmd:      cfg.Get("cmd"),
+				Model:    cfg.Get("model"),
+				Dir:      cfg.Get("dir"),
+				ResumeID: cfg.Get("resume"),
 			})
 		},
 	})

@@ -341,12 +341,13 @@ func (o *oneShotResponder) Close() error { return nil }
 // streamResponder keeps one persistent claude stream-json process alive across
 // messages. On process death it restarts with --resume and retries once.
 type streamResponder struct {
-	ctx   context.Context
-	base  []string
-	model string
-	dir   string
-	mu    sync.Mutex
-	sess  *streamSession
+	ctx      context.Context
+	base     []string
+	model    string
+	dir      string
+	resumeID string // id to resume on the FIRST start ("" = fresh session)
+	mu       sync.Mutex
+	sess     *streamSession
 }
 
 func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
@@ -356,7 +357,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		return "", err
 	}
 	if r.sess == nil {
-		s, err := startStreamSession(r.ctx, r.base, r.model, "", r.dir)
+		s, err := startStreamSession(r.ctx, r.base, r.model, r.resumeID, r.dir)
 		if err != nil {
 			return "", err
 		}
@@ -394,6 +395,21 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		return tr.Text, errFromTurn(tr)
 	}
 	return tr.Text, nil
+}
+
+// ResumeToken returns the backend's current claude session id — the stable id
+// for this conversation, for the host to persist and pass back via --resume.
+// Before the first turn it returns the id supplied at construction. Implements
+// contracts.ResumeAware.
+func (r *streamResponder) ResumeToken() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.sess == nil {
+		return r.resumeID
+	}
+	r.sess.mu.Lock()
+	defer r.sess.mu.Unlock()
+	return r.sess.sessID
 }
 
 func (r *streamResponder) Close() error {

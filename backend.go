@@ -24,6 +24,8 @@ type Config struct {
 	Model   string // --model value (stream)
 	Dir     string // working dir ("" = cwd)
 	Verbose bool   // reserved for backend diagnostics on stderr
+
+	ResumeID string // claude session id to resume on first start ("" = fresh)
 }
 
 // resolveBackend picks the backend kind. An explicit kind always wins. When
@@ -52,7 +54,7 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 			return runCmd(ctx, cmdStr, p)
 		}}, nil
 	default: // "stream"
-		r := &streamResponder{ctx: ctx, base: streamBase(strings.Fields(c.Cmd)), model: c.Model}
+		r := &streamResponder{ctx: ctx, base: streamBase(strings.Fields(c.Cmd)), model: c.Model, resumeID: c.ResumeID}
 		r.dir = c.Dir
 		return r, nil
 	}
