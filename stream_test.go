@@ -220,6 +220,7 @@ func TestReadTurnHandlesHugeLine(t *testing.T) {
 func TestReadTurnEmitsEvents(t *testing.T) {
 	canned := strings.Join([]string{
 		`{"type":"system","subtype":"init","session_id":"s"}`,
+		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"je réfléchis"}]},"session_id":"s"}`,
 		`{"type":"assistant","message":{"content":[{"type":"text","text":"je regarde"}]},"session_id":"s"}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"git status"}}]},"session_id":"s"}`,
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"file_path":"stream.go"}}]},"session_id":"s"}`,
@@ -235,6 +236,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 		t.Fatalf("text = %q, want done", tr.Text)
 	}
 	want := []contracts.BackendEvent{
+		{Kind: "thinking", Detail: "je réfléchis"},
 		{Kind: "text", Detail: "je regarde"},
 		{Kind: "tool", Tool: "Bash", Detail: "git status"},
 		{Kind: "tool", Tool: "Read", Detail: "stream.go"},

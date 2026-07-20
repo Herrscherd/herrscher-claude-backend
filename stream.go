@@ -106,10 +106,11 @@ type turnResult struct {
 
 // contentBlock is one block of an assistant message's content array.
 type contentBlock struct {
-	Type  string          `json:"type"` // "text" | "tool_use" | "thinking" | ...
-	Text  string          `json:"text"`
-	Name  string          `json:"name"`  // tool name (tool_use)
-	Input json.RawMessage `json:"input"` // tool input (tool_use)
+	Type     string          `json:"type"` // "text" | "tool_use" | "thinking" | ...
+	Text     string          `json:"text"`
+	Thinking string          `json:"thinking"` // reasoning text (thinking)
+	Name     string          `json:"name"`     // tool name (tool_use)
+	Input    json.RawMessage `json:"input"`    // tool input (tool_use)
 }
 
 // toolDetail extracts the most informative single field from a tool's input
@@ -213,6 +214,10 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 		}
 		for _, b := range ev.Message.Content {
 			switch b.Type {
+			case "thinking":
+				if t := strings.TrimSpace(b.Thinking); t != "" {
+					onEvent(contracts.BackendEvent{Kind: "thinking", Detail: t})
+				}
 			case "text":
 				if t := strings.TrimSpace(b.Text); t != "" {
 					onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
