@@ -398,9 +398,14 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 	tr, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
 		if ctx.Err() != nil {
-			// Request cancelled or timed out: the turn is wedged. Kill the session
-			// (also unblocking its orphaned read goroutine) and drop it so the next
-			// request starts fresh instead of colliding with the dead turn.
+			// Request cancelled, timed out, or interrupted: the turn is wedged. Kill
+			// the session (also unblocking its orphaned read goroutine) and drop it.
+			// Preserve the conversation id so the NEXT turn resumes this same
+			// conversation via --resume rather than starting a brand-new session —
+			// the interrupted partial turn is discarded, matching esc-to-interrupt.
+			if r.sess.sessID != "" {
+				r.resumeID = r.sess.sessID
+			}
 			_ = r.sess.Close()
 			r.sess = nil
 			return "", err
