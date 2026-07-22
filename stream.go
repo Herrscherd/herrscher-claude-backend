@@ -102,6 +102,8 @@ type turnResult struct {
 	SessionID string
 	IsError   bool
 	ErrMsg    string
+	InTokens  int
+	OutTokens int
 }
 
 // contentBlock is one block of an assistant message's content array.
@@ -141,7 +143,18 @@ type streamEvent struct {
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Message      struct {
 		Content []contentBlock `json:"content"`
+		Usage   *usage         `json:"usage"` // present on assistant lines
 	} `json:"message"`
+	Usage *usage `json:"usage"` // present on the terminal result line
+}
+
+// usage is Claude's per-message token accounting, emitted on assistant lines
+// (cumulative for the turn so far) and on the terminal result line (final).
+type usage struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
 // readLine is one line delivered by the background reader goroutine.
@@ -226,19 +239,32 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 				onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
 			}
 		}
+		if u := ev.Message.Usage; u != nil {
+			onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens})
+		}
 	case "result":
 		var ev streamEvent
 		if json.Unmarshal(line, &ev) != nil {
 			return turnResult{}, false
 		}
+		u := ev.Usage
+		if u == nil {
+			u = ev.Message.Usage
+		}
+		var inTok, outTok int
+		if u != nil {
+			inTok, outTok = u.InputTokens, u.OutputTokens
+		}
 		if onEvent != nil {
-			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError})
+			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: inTok, OutTokens: outTok})
 		}
 		tr := turnResult{
 			Text:      ev.Result,
 			CostUSD:   ev.TotalCostUSD,
 			SessionID: ev.SessionID,
 			IsError:   ev.IsError,
+			InTokens:  inTok,
+			OutTokens: outTok,
 		}
 		if ev.IsError {
 			tr.ErrMsg = ev.Result
