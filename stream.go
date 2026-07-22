@@ -369,6 +369,10 @@ func (o *oneShotResponder) Respond(ctx context.Context, p contracts.Prompt, _ fu
 }
 func (o *oneShotResponder) Close() error { return nil }
 
+// NativeSkills reports that the claude CLI loads skills itself, so the host must
+// not inject its own skill menu for this backend. Implements contracts.SkillNative.
+func (o *oneShotResponder) NativeSkills() bool { return true }
+
 // streamResponder keeps one persistent claude stream-json process alive across
 // messages. On process death it restarts with --resume and retries once.
 type streamResponder struct {
@@ -447,6 +451,10 @@ func (r *streamResponder) ResumeToken() string {
 	defer r.sess.mu.Unlock()
 	return r.sess.sessID
 }
+
+// NativeSkills reports that the claude CLI loads skills itself, so the host must
+// not inject its own skill menu for this backend. Implements contracts.SkillNative.
+func (r *streamResponder) NativeSkills() bool { return true }
 
 func (r *streamResponder) Close() error {
 	r.mu.Lock()

@@ -31,3 +31,8 @@ func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
 		t.Fatalf("prompt = %q, want %q", got, want)
 	}
 }
+
+func TestClaudeBackendsAreSkillNative(t *testing.T) {
+	var _ contracts.SkillNative = (*streamResponder)(nil)
+	var _ contracts.SkillNative = (*oneShotResponder)(nil)
+}
