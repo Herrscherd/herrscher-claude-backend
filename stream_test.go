@@ -252,6 +252,29 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 	}
 }
 
+func TestReadTurnSurfacesCacheTokens(t *testing.T) {
+	canned := strings.Join([]string{
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":30,"output_tokens":20,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}},"session_id":"s"}`,
+		`{"type":"result","is_error":false,"result":"hi","total_cost_usd":0.004,"session_id":"s","usage":{"input_tokens":30,"output_tokens":55,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}`,
+	}, "\n") + "\n"
+
+	var last contracts.BackendEvent
+	res, err := readTurn(context.Background(), bufio.NewReader(strings.NewReader(canned)), func(e contracts.BackendEvent) {
+		if e.Kind == "result" {
+			last = e
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.CacheRead != 12 || res.CacheCreate != 3 {
+		t.Fatalf("turnResult cache lost: %+v", res)
+	}
+	if last.CacheRead != 12 || last.CacheCreate != 3 {
+		t.Fatalf("result event cache lost: %+v", last)
+	}
+}
+
 func TestReadTurnNilCallback(t *testing.T) {
 	canned := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"x"}}]}}` + "\n" +
 		`{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"

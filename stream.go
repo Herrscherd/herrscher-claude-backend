@@ -97,13 +97,15 @@ func userLine(text string) ([]byte, error) {
 // turnResult is the outcome of one assistant turn, parsed from the stream's
 // terminal `result` event.
 type turnResult struct {
-	Text      string
-	CostUSD   float64
-	SessionID string
-	IsError   bool
-	ErrMsg    string
-	InTokens  int
-	OutTokens int
+	Text        string
+	CostUSD     float64
+	SessionID   string
+	IsError     bool
+	ErrMsg      string
+	InTokens    int
+	OutTokens   int
+	CacheRead   int
+	CacheCreate int
 }
 
 // contentBlock is one block of an assistant message's content array.
@@ -240,7 +242,7 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 			}
 		}
 		if u := ev.Message.Usage; u != nil {
-			onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens})
+			onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
 		}
 	case "result":
 		var ev streamEvent
@@ -251,20 +253,23 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 		if u == nil {
 			u = ev.Message.Usage
 		}
-		var inTok, outTok int
+		var inTok, outTok, cacheRd, cacheCr int
 		if u != nil {
 			inTok, outTok = u.InputTokens, u.OutputTokens
+			cacheRd, cacheCr = u.CacheReadInputTokens, u.CacheCreationInputTokens
 		}
 		if onEvent != nil {
-			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: inTok, OutTokens: outTok})
+			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: inTok, OutTokens: outTok, CacheRead: cacheRd, CacheCreate: cacheCr})
 		}
 		tr := turnResult{
-			Text:      ev.Result,
-			CostUSD:   ev.TotalCostUSD,
-			SessionID: ev.SessionID,
-			IsError:   ev.IsError,
-			InTokens:  inTok,
-			OutTokens: outTok,
+			Text:        ev.Result,
+			CostUSD:     ev.TotalCostUSD,
+			SessionID:   ev.SessionID,
+			IsError:     ev.IsError,
+			InTokens:    inTok,
+			OutTokens:   outTok,
+			CacheRead:   cacheRd,
+			CacheCreate: cacheCr,
 		}
 		if ev.IsError {
 			tr.ErrMsg = ev.Result
