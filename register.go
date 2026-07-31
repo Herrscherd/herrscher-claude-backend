@@ -15,6 +15,7 @@ func init() {
 		Manifest: contracts.Manifest{
 			Kind:     "claude",
 			Category: contracts.CategoryBackend,
+			Status:   contracts.StatusLive,
 			Config: []contracts.Setting{
 				{Key: "cmd", Env: "CLAUDE_CMD", Help: "base command to run the agent", Default: "claude"},
 				{Key: "model", Env: "CLAUDE_MODEL", Help: "model override"},

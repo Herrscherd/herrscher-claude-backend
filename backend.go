@@ -18,12 +18,11 @@ import (
 // When Kind is empty it is resolved from Stream (the legacy toggle): true →
 // stream, false → oneshot.
 type Config struct {
-	Kind    string // "stream"|"oneshot"; "" resolves from Stream
-	Stream  bool   // legacy toggle used only when Kind == ""
-	Cmd     string // base command (split on whitespace)
-	Model   string // --model value (stream)
-	Dir     string // working dir ("" = cwd)
-	Verbose bool   // reserved for backend diagnostics on stderr
+	Kind   string // "stream"|"oneshot"; "" resolves from Stream
+	Stream bool   // legacy toggle used only when Kind == ""
+	Cmd    string // base command (split on whitespace)
+	Model  string // --model value (stream)
+	Dir    string // working dir ("" = cwd)
 
 	ResumeID string // claude session id to resume on first start ("" = fresh)
 }
