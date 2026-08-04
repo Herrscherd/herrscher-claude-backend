@@ -2,6 +2,4 @@ module github.com/Herrscherd/herrscher-claude-backend
 
 go 1.25
 
-require github.com/Herrscherd/herrscher-contracts v0.2.13
-
-replace github.com/Herrscherd/herrscher-contracts => ../herrscher-contracts
+require github.com/Herrscherd/herrscher-contracts v0.2.14
