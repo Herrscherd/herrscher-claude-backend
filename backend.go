@@ -45,9 +45,38 @@ func resolveBackend(kind string, stream bool) string {
 	return "oneshot"
 }
 
+// checkGatewayPair refuses a spawn whose environment carries a gateway base
+// URL without the token that goes with it.
+//
+// A base URL alone points the claude CLI at the gateway while it authenticates
+// with whatever login the machine already has — the session runs on the user's
+// own claude.ai subscription, which is exactly the shape Anthropic forbids,
+// and it does so silently: the CLI works, the answers come back, nothing looks
+// wrong. Base URL and token travel together or not at all.
+//
+// The host already makes this unrepresentable with GatewayCreds, but the
+// plugin is a separate module and the boundary between them is a plain
+// map[string]string: a host bug, or an "env" setting arriving from somewhere
+// other than the host, would walk straight through. This is defence in depth,
+// and the correct failure is a refusal to spawn, never a degraded spawn.
+func checkGatewayPair(env map[string]string) error {
+	if env[contracts.EnvAnthropicBaseURL] == "" {
+		return nil
+	}
+	if strings.TrimSpace(env[contracts.EnvAnthropicAuthToken]) == "" {
+		return fmt.Errorf("refusing to spawn: %s is set without %s; the session would run on the machine's own subscription while being routed through the gateway",
+			contracts.EnvAnthropicBaseURL, contracts.EnvAnthropicAuthToken)
+	}
+	return nil
+}
+
 // NewBackend builds the configured backend. It resolves the kind (from
-// Kind/Stream) and returns an error if the oneshot kind has an empty Cmd.
+// Kind/Stream) and returns an error if the oneshot kind has an empty Cmd, or
+// if the injected environment carries a gateway base URL with no token.
 func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
+	if err := checkGatewayPair(c.Env); err != nil {
+		return nil, err
+	}
 	switch resolveBackend(c.Kind, c.Stream) {
 	case "oneshot":
 		if strings.TrimSpace(c.Cmd) == "" {

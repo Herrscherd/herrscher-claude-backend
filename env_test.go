@@ -126,3 +126,66 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 		}
 	})
 }
+
+// TestHalfGatewayPairRefusesToSpawn is the plugin-side fail-closed check. A
+// base URL with no token makes the claude CLI talk to the gateway while
+// authenticating with the machine's own claude.ai login — the forbidden shape,
+// and a silent one: the CLI works and nothing looks wrong. The host makes this
+// unrepresentable with GatewayCreds, but the plugin is a separate module whose
+// only boundary is a map[string]string, so it must refuse on its own.
+func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+	}{
+		{"token absent", map[string]string{
+			contracts.EnvAnthropicBaseURL: "https://gw.example",
+		}},
+		{"token empty", map[string]string{
+			contracts.EnvAnthropicBaseURL:   "https://gw.example",
+			contracts.EnvAnthropicAuthToken: "",
+		}},
+		{"token whitespace", map[string]string{
+			contracts.EnvAnthropicBaseURL:   "https://gw.example",
+			contracts.EnvAnthropicAuthToken: "  \t ",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, kind := range []string{"oneshot", "stream"} {
+				b, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "sh -c env", Env: tc.env})
+				if err == nil {
+					_ = b
+					t.Fatalf("kind %q: NewBackend accepted a base URL with no token", kind)
+				}
+				if !strings.Contains(err.Error(), contracts.EnvAnthropicAuthToken) {
+					t.Errorf("kind %q: error does not name the missing token: %v", kind, err)
+				}
+			}
+		})
+	}
+}
+
+// TestCompleteGatewayPairIsAccepted and TestNativeEnvIsAccepted are the two
+// non-regressions the refusal above must not break: the real gateway route,
+// and the internal build's native route with no injection at all.
+func TestCompleteGatewayPairIsAccepted(t *testing.T) {
+	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
+		contracts.EnvAnthropicBaseURL:   "https://gw.example",
+		contracts.EnvAnthropicAuthToken: "sk-token",
+	}}); err != nil {
+		t.Fatalf("a complete credential pair was refused: %v", err)
+	}
+}
+
+func TestNativeEnvIsAccepted(t *testing.T) {
+	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env"}); err != nil {
+		t.Fatalf("the native route (no injection) was refused: %v", err)
+	}
+	// A lone token with no base URL is not the dangerous shape: nothing is
+	// redirected, so it must not be refused either.
+	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
+		contracts.EnvAnthropicAuthToken: "sk-token",
+	}}); err != nil {
+		t.Fatalf("a lone token (nothing redirected) was refused: %v", err)
+	}
+}
