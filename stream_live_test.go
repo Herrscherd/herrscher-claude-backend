@@ -17,7 +17,7 @@ func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	s, err := startStreamSession(ctx, []string{"claude"}, "claude-haiku-4-5-20251001", "", "/tmp")
+	s, err := startStreamSession(ctx, []string{"claude"}, "claude-haiku-4-5-20251001", "", "/tmp", nil)
 	if err != nil {
 		t.Fatal(err)
 	}

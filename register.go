@@ -22,7 +22,13 @@ func init() {
 				{Key: "stream", Env: "CLAUDE_STREAM", Help: "stream-json mode (false to disable)", Default: "true"},
 				{Key: "dir", Env: "CLAUDE_DIR", Help: "working directory"},
 				{Key: "kind", Env: "CLAUDE_KIND", Help: "backend kind"},
+				// Env is deliberately left unbound (Env: "") — this setting comes
+				// from the host per session, never from a daemon environment
+				// variable. Binding it would let a single env var hijack every
+				// session at once.
+				{Key: "env", Env: "", Help: "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"},
 			},
+			Models: Models,
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
@@ -32,6 +38,7 @@ func init() {
 				Model:    cfg.Get("model"),
 				Dir:      cfg.Get("dir"),
 				ResumeID: cfg.Get("resume"),
+				Env:      contracts.ParseEnvSetting(cfg.Get("env")),
 			})
 		},
 	})
