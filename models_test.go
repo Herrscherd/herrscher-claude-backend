@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Herrscherd/herrscher-contracts"
@@ -12,19 +13,38 @@ func TestModelsAreValid(t *testing.T) {
 	}
 }
 
-func TestModelsAreAllNativeForNow(t *testing.T) {
-	// Gateway entries arrive in Task 10. Until they do, this backend must only
-	// declare native models — otherwise the host would offer a model that no
-	// credential can serve.
+func TestGatewayModelsExist(t *testing.T) {
+	var n int
 	for _, m := range Models {
-		if m.Route != contracts.RouteNative {
-			t.Errorf("model %q has route %q, expected native at this stage", m.ID, m.Route)
+		if m.Route == contracts.RouteGateway {
+			n++
 		}
+	}
+	if n == 0 {
+		t.Fatal("no gateway models declared; the public build would have an empty catalog")
+	}
+}
+
+func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
+	// The same model served by two routes must have two distinct IDs: the ID
+	// is what determines the route at resume.
+	seen := map[string]contracts.Route{}
+	for _, m := range Models {
+		if prev, ok := seen[m.ID]; ok {
+			t.Fatalf("ID %q used by both route %q and %q", m.ID, prev, m.Route)
+		}
+		seen[m.ID] = m.Route
 	}
 }
 
 func TestModelsCarryEfforts(t *testing.T) {
+	// This only applies to actual Claude models: third-party models on the
+	// Anthropic protocol (GLM, Qwen, DeepSeek) have no separate effort axis,
+	// and passing one through would produce a flag the upstream rejects.
 	for _, m := range Models {
+		if m.Arg == "" || !strings.HasPrefix(m.Arg, "claude-") {
+			continue
+		}
 		if len(m.Efforts) == 0 {
 			t.Errorf("model %q declares no efforts; claude has a separate effort axis", m.ID)
 		}
