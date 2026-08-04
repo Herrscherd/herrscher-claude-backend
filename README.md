@@ -12,7 +12,7 @@ the platform that knows Claude exists.
 | **Role** | Drives the local `claude` CLI and maps its stream-json output onto backend events |
 | **Category** | Backend (model edge) |
 | **Ports implemented** | `Backend`, `ResumeAware`, `SkillNative` |
-| **Config & env** | `CLAUDE_CMD` (default: `claude`), `CLAUDE_MODEL`, `CLAUDE_STREAM` (default: `true`; `false` selects oneshot), `CLAUDE_DIR`, `CLAUDE_KIND` (`stream`\|`oneshot`) |
+| **Config & env** | `CLAUDE_CMD` (default: `claude`), `CLAUDE_MODEL`, `CLAUDE_STREAM` (default: `true`; `false` selects oneshot), `CLAUDE_DIR`, `CLAUDE_KIND` (`stream`\|`oneshot`); plus `env` — declared with no env binding and injected by the host per session (`K=V` per line, merged onto every spawned child), never read from the daemon's environment |
 | **Status** | live |
 | **Repo** | [herrscher-claude-backend](https://github.com/Herrscherd/herrscher-claude-backend) |
 
