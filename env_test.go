@@ -12,13 +12,39 @@ import (
 	"github.com/Herrscherd/herrscher-contracts"
 )
 
-func TestNativeSpawnEnvIsUnchanged(t *testing.T) {
-	// Non-regression for the internal build: with no injection, the child
-	// process environment is exactly the daemon's.
-	got := contracts.MergeEnv(os.Environ(), nil)
-	if len(got) != len(os.Environ()) {
-		t.Fatalf("native env has %d entries, os.Environ() has %d", len(got), len(os.Environ()))
-	}
+// TestNativeSpawnInheritsAndInjectionReplaces exercises the two spawn-time
+// environment properties through a real child process, not through
+// contracts.MergeEnv directly: on the native route the child sees the daemon's
+// own environment, and on the gateway route an injected key wins over the
+// inherited entry. Letting the inherited value win — or dropping the merge —
+// would run the session on the machine's own claude.ai subscription while the
+// system believes it injected a gateway credential, which is the silent
+// failure the whole env path exists to prevent.
+func TestNativeSpawnInheritsAndInjectionReplaces(t *testing.T) {
+	const probeVar = "HERRSCHER_ENV_PROBE"
+	script := `printf '%s' "$` + probeVar + `"`
+
+	t.Run("native spawn inherits the daemon environment", func(t *testing.T) {
+		t.Setenv(probeVar, "inherited")
+		got, err := runCmd(context.Background(), "sh -c", nil, contracts.Prompt{Content: script})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "inherited" {
+			t.Fatalf("native child resolved %q, want inherited", got)
+		}
+	})
+
+	t.Run("injection replaces the inherited value", func(t *testing.T) {
+		t.Setenv(probeVar, "inherited")
+		got, err := runCmd(context.Background(), "sh -c", map[string]string{probeVar: "injected"}, contracts.Prompt{Content: script})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "injected" {
+			t.Fatalf("injected child resolved %q, want injected", got)
+		}
+	})
 }
 
 func TestBackendConfigCarriesEnvToOneShot(t *testing.T) {
