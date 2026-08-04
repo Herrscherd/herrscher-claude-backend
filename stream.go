@@ -316,12 +316,14 @@ func streamArgv(base []string, model, resumeID string) []string {
 }
 
 // startStreamSession launches a real `claude` stream-json process in dir and
-// returns a session wired to its stdin/stdout.
-func startStreamSession(ctx context.Context, base []string, model, resumeID, dir string) (*streamSession, error) {
+// returns a session wired to its stdin/stdout. env is merged over the
+// daemon's inherited environment (see contracts.MergeEnv): with no
+// injection, the child process environment is unchanged.
+func startStreamSession(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) (*streamSession, error) {
 	argv := streamArgv(base, model, resumeID)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
-	cmd.Env = os.Environ()
+	cmd.Env = contracts.MergeEnv(os.Environ(), env)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -384,6 +386,7 @@ type streamResponder struct {
 	ctx      context.Context
 	base     []string
 	model    string
+	env      map[string]string // injected into the child process at every (re)spawn
 	dir      string
 	resumeID string // id to resume on the FIRST start ("" = fresh session)
 	mu       sync.Mutex
@@ -397,7 +400,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		return "", err
 	}
 	if r.sess == nil {
-		s, err := startStreamSession(r.ctx, r.base, r.model, r.resumeID, r.dir)
+		s, err := startStreamSession(r.ctx, r.base, r.model, r.resumeID, r.dir, r.env)
 		if err != nil {
 			return "", err
 		}
@@ -427,7 +430,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		}
 		resume := r.sess.sessID
 		_ = r.sess.Close()
-		s, startErr := startStreamSession(r.ctx, r.base, r.model, resume, r.dir)
+		s, startErr := startStreamSession(r.ctx, r.base, r.model, resume, r.dir, r.env)
 		if startErr != nil {
 			return "", startErr
 		}

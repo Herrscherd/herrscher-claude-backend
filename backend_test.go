@@ -10,7 +10,7 @@ import (
 
 func TestRunCmdPreservesChildEnvironment(t *testing.T) {
 	t.Setenv("CLAUDE_BACKEND_SENTINEL", "preserved")
-	got, err := runCmd(context.Background(), "sh -c", contracts.Prompt{Content: `printf '%s' "$CLAUDE_BACKEND_SENTINEL"`})
+	got, err := runCmd(context.Background(), "sh -c", nil, contracts.Prompt{Content: `printf '%s' "$CLAUDE_BACKEND_SENTINEL"`})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -20,7 +20,7 @@ func TestRunCmdPreservesChildEnvironment(t *testing.T) {
 }
 
 func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
-	got, err := runCmd(context.Background(), "printf %s", contracts.Prompt{
+	got, err := runCmd(context.Background(), "printf %s", nil, contracts.Prompt{
 		Content:     "look",
 		Attachments: []string{"/tmp/a.png"},
 	})
@@ -40,6 +40,7 @@ func TestConfigHasNoUnreadFields(t *testing.T) {
 	want := map[string]bool{
 		"Kind": true, "Stream": true, "Cmd": true,
 		"Model": true, "Dir": true, "ResumeID": true,
+		"Env": true,
 	}
 	ty := reflect.TypeOf(Config{})
 	for i := 0; i < ty.NumField(); i++ {
