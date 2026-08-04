@@ -23,6 +23,7 @@ func init() {
 				{Key: "dir", Env: "CLAUDE_DIR", Help: "working directory"},
 				{Key: "kind", Env: "CLAUDE_KIND", Help: "backend kind"},
 			},
+			Models: Models,
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{

@@ -75,32 +75,3 @@ func runCmd(ctx context.Context, cmdStr string, p contracts.Prompt) (string, err
 	}
 	return string(out), nil
 }
-
-// modelPresets are the models offered as ready-made cmd choices, friendly label
-// → claude --model value. The [1m] suffix selects the 1M context window (absence
-// = standard 200k). Keep the highest-context/priciest entries clearly labelled.
-var modelPresets = []struct{ label, model string }{
-	{"Opus 4.8 · 200k", "claude-opus-4-8"},
-	{"Opus 4.8 · 1M", "claude-opus-4-8[1m]"},
-	{"Sonnet 4.6", "claude-sonnet-4-6"},
-	{"Haiku 4.5", "claude-haiku-4-5-20251001"},
-}
-
-// effortPresets are claude's reasoning-effort levels, cheapest → priciest.
-var effortPresets = []string{"low", "medium", "high", "xhigh", "max"}
-
-// CommandPresets returns the ready-made /session cmd choices (the model × effort
-// matrix) targeting binary bin, as label→command, for the host's autocomplete.
-// It does NOT include the "Default" entry (the host prepends that).
-func CommandPresets(bin string) []contracts.Choice {
-	out := make([]contracts.Choice, 0, len(modelPresets)*len(effortPresets))
-	for _, m := range modelPresets {
-		for _, e := range effortPresets {
-			out = append(out, contracts.Choice{
-				Label: m.label + " · " + e,
-				Value: bin + " --model " + m.model + " --effort " + e,
-			})
-		}
-	}
-	return out
-}
