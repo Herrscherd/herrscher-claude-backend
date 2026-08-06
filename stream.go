@@ -323,7 +323,7 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	argv := streamArgv(base, model, resumeID)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
-	cmd.Env = contracts.MergeEnv(os.Environ(), env)
+	cmd.Env = spawnEnv(os.Environ(), env)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
