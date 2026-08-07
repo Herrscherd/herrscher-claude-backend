@@ -168,12 +168,12 @@ func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
 			contracts.EnvAnthropicBaseURL: "https://gw.example",
 		}},
 		{"token empty", map[string]string{
-			contracts.EnvAnthropicBaseURL:   "https://gw.example",
-			contracts.EnvAnthropicAuthToken: "",
+			contracts.EnvAnthropicBaseURL: "https://gw.example",
+			contracts.EnvAnthropicAPIKey:  "",
 		}},
 		{"token whitespace", map[string]string{
-			contracts.EnvAnthropicBaseURL:   "https://gw.example",
-			contracts.EnvAnthropicAuthToken: "  \t ",
+			contracts.EnvAnthropicBaseURL: "https://gw.example",
+			contracts.EnvAnthropicAPIKey:  "  \t ",
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -183,7 +183,7 @@ func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
 					_ = b
 					t.Fatalf("kind %q: NewBackend accepted a base URL with no token", kind)
 				}
-				if !strings.Contains(err.Error(), contracts.EnvAnthropicAuthToken) {
+				if !strings.Contains(err.Error(), contracts.EnvAnthropicAPIKey) {
 					t.Errorf("kind %q: error does not name the missing token: %v", kind, err)
 				}
 			}
@@ -196,8 +196,8 @@ func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
 // and the internal build's native route with no injection at all.
 func TestCompleteGatewayPairIsAccepted(t *testing.T) {
 	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
-		contracts.EnvAnthropicBaseURL:   "https://gw.example",
-		contracts.EnvAnthropicAuthToken: "sk-token",
+		contracts.EnvAnthropicBaseURL: "https://gw.example",
+		contracts.EnvAnthropicAPIKey:  "sk-token",
 	}}); err != nil {
 		t.Fatalf("a complete credential pair was refused: %v", err)
 	}
@@ -210,8 +210,66 @@ func TestNativeEnvIsAccepted(t *testing.T) {
 	// A lone token with no base URL is not the dangerous shape: nothing is
 	// redirected, so it must not be refused either.
 	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
-		contracts.EnvAnthropicAuthToken: "sk-token",
+		contracts.EnvAnthropicAPIKey: "sk-token",
 	}}); err != nil {
 		t.Fatalf("a lone token (nothing redirected) was refused: %v", err)
 	}
+}
+
+// TestGatewaySpawnScrubsInheritedLegacyAuthToken is the invariant the leak
+// path in spawnEnv exists to close. contracts.MergeEnv only overrides keys
+// PRESENT in the injected env, and the host no longer emits
+// legacyAnthropicAuthToken — so a value already sitting in the daemon's own
+// process environment (a dev shell, a stale systemd unit) would otherwise
+// ride into the child untouched, next to the new ANTHROPIC_API_KEY. The
+// claude CLI would then send both x-api-key and Authorization, and the API
+// answers that with a 401.
+//
+// t.Setenv pollutes the base environment that runCmd reads via os.Environ() —
+// simulating a daemon whose own process environment still carries the legacy
+// variable. Without this pollution, a version of spawnEnv that scrubs nothing
+// would still pass: the assertion would be vacuously true. The second subtest
+// is the other half of the same property: the SAME polluted environment, but
+// with no gateway base URL (the native route, where colleagues run the
+// internal build on the machine's own login today), must let the inherited
+// variable through unchanged — proving the scrub is conditional on the
+// gateway route, not unconditional.
+func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
+	t.Run("gateway route: the inherited legacy token does not reach the child", func(t *testing.T) {
+		t.Setenv(legacyAnthropicAuthToken, "leaked-daemon-token")
+
+		b, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
+			contracts.EnvAnthropicBaseURL: "https://gw.example",
+			contracts.EnvAnthropicAPIKey:  "sk-token",
+		}})
+		if err != nil {
+			t.Fatalf("NewBackend: %v", err)
+		}
+		out, err := b.Respond(context.Background(), contracts.Prompt{Content: "x"}, nil)
+		if err != nil {
+			t.Fatalf("Respond: %v (output %q)", err, out)
+		}
+		if strings.Contains(out, legacyAnthropicAuthToken+"=") {
+			t.Fatalf("the daemon's own %s leaked into the gateway-routed child:\n%s", legacyAnthropicAuthToken, out)
+		}
+		if !strings.Contains(out, contracts.EnvAnthropicAPIKey+"=sk-token") {
+			t.Fatalf("the gateway credential itself is missing from the child environment:\n%s", out)
+		}
+	})
+
+	t.Run("native route: the same pollution passes through unchanged", func(t *testing.T) {
+		t.Setenv(legacyAnthropicAuthToken, "leaked-daemon-token")
+
+		b, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env"})
+		if err != nil {
+			t.Fatalf("NewBackend: %v", err)
+		}
+		out, err := b.Respond(context.Background(), contracts.Prompt{Content: "x"}, nil)
+		if err != nil {
+			t.Fatalf("Respond: %v (output %q)", err, out)
+		}
+		if !strings.Contains(out, legacyAnthropicAuthToken+"=leaked-daemon-token") {
+			t.Fatalf("the native route scrubbed a variable it must leave alone — this would regress today's internal build:\n%s", out)
+		}
+	})
 }

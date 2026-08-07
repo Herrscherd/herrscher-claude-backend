@@ -63,11 +63,52 @@ func checkGatewayPair(env map[string]string) error {
 	if env[contracts.EnvAnthropicBaseURL] == "" {
 		return nil
 	}
-	if strings.TrimSpace(env[contracts.EnvAnthropicAuthToken]) == "" {
+	if strings.TrimSpace(env[contracts.EnvAnthropicAPIKey]) == "" {
 		return fmt.Errorf("refusing to spawn: %s is set without %s; the session would run on the machine's own subscription while being routed through the gateway",
-			contracts.EnvAnthropicBaseURL, contracts.EnvAnthropicAuthToken)
+			contracts.EnvAnthropicBaseURL, contracts.EnvAnthropicAPIKey)
 	}
 	return nil
+}
+
+// legacyAnthropicAuthToken is the variable the claude CLI used to prefer
+// before Neublox switched to ANTHROPIC_API_KEY (see contracts.EnvAnthropicAPIKey).
+// It is spelled as a literal, not a contracts constant, on purpose: nothing in
+// this codebase should ever WRITE this name again, only scrub it if it
+// arrives from outside — an inherited daemon environment, a stale dev shell —
+// on the gateway route.
+const legacyAnthropicAuthToken = "ANTHROPIC_AUTH_TOKEN"
+
+// spawnEnv builds the child process environment for a claude spawn: base
+// merged with env via contracts.MergeEnv, plus — on the gateway route only —
+// a scrub of any legacyAnthropicAuthToken inherited from base.
+//
+// The scrub is CONDITIONAL on env carrying a gateway base URL. Off the
+// gateway route (the native build, deliberately running on the machine's own
+// claude.ai login) base passes through untouched: that is today's everyday
+// behaviour for colleagues using the internal build, and an unconditional
+// scrub would regress it.
+//
+// Why the scrub is needed at all: contracts.MergeEnv only overrides keys
+// PRESENT in env, and env no longer carries legacyAnthropicAuthToken. A value
+// left over in the daemon's own process environment (a dev shell that still
+// exports it, a stale systemd unit) would otherwise survive the merge
+// untouched and ride into the child alongside the new
+// contracts.EnvAnthropicAPIKey — the claude CLI would send both x-api-key and
+// Authorization, and Anthropic's API answers that with a 401. That is exactly
+// the failure mode this task exists to prevent.
+func spawnEnv(base []string, env map[string]string) []string {
+	merged := contracts.MergeEnv(base, env)
+	if env[contracts.EnvAnthropicBaseURL] == "" {
+		return merged
+	}
+	scrubbed := make([]string, 0, len(merged))
+	for _, kv := range merged {
+		if strings.HasPrefix(kv, legacyAnthropicAuthToken+"=") {
+			continue
+		}
+		scrubbed = append(scrubbed, kv)
+	}
+	return scrubbed
 }
 
 // NewBackend builds the configured backend. It resolves the kind (from
@@ -103,7 +144,7 @@ func runCmd(ctx context.Context, cmdStr string, env map[string]string, p contrac
 	args := append(fields[1:], content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
-	cmd.Env = contracts.MergeEnv(os.Environ(), env)
+	cmd.Env = spawnEnv(os.Environ(), env)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("oneshot backend %q: %w", fields[0], err)
