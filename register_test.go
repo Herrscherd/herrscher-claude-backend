@@ -98,3 +98,19 @@ func TestSelfRegisteredAsBackend(t *testing.T) {
 	}
 	t.Fatal("claude backend did not self-register into contracts.Default")
 }
+
+// The host materializes the PreToolUse hook only for a backend that declares
+// this grain, so losing it would leave every claude session running ungated
+// while the operator still sees the mode they asked for.
+func TestDeclaresPerToolGating(t *testing.T) {
+	for _, p := range contracts.Default.Backends() {
+		if p.Manifest.Kind != "claude" {
+			continue
+		}
+		if p.Manifest.Capabilities.Gate != contracts.GrainTool {
+			t.Fatalf("gate = %q, want tool", p.Manifest.Capabilities.Gate)
+		}
+		return
+	}
+	t.Fatal("claude backend did not self-register into contracts.Default")
+}

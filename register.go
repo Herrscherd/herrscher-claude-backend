@@ -29,6 +29,11 @@ func init() {
 				{Key: "env", Env: "", Help: "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"},
 			},
 			Models: Models,
+			// Claude Code runs a PreToolUse hook before every tool call, which is
+			// exactly one decision per call, so a rule written per tool is honoured
+			// as written. The host materializes that hook into the session's
+			// worktree; declaring the grain here is what tells it to.
+			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool},
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
