@@ -21,7 +21,7 @@ func TestStreamResponderResumeToken(t *testing.T) {
 	}
 	// Once a session exists, the live claude session_id wins.
 	r.sess = newStreamSession(nopWriteCloser{io.Discard}, strings.NewReader(""))
-	r.sess.sessID = "live-id"
+	r.publishSessionID("live-id")
 	if got := r.ResumeToken(); got != "live-id" {
 		t.Fatalf("live session: want live-id, got %q", got)
 	}

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -165,38 +166,37 @@ type readLine struct {
 	err  error
 }
 
-// readTurn consumes stream-json events until the terminal `result` event. When
-// onEvent is non-nil it emits a BackendEvent per intermediate assistant block
-// (tool uses and text) and a terminal "result" event carrying cost. It uses
-// ReadBytes (not bufio.Scanner) because the system/init event can exceed
-// Scanner's 64 KB cap.
-//
-// Reading runs in a goroutine so a wedged turn (the process stops emitting a
-// `result`) is abortable: when ctx is cancelled readTurn returns ctx.Err()
-// instead of blocking forever. The caller must then drop the session, since the
-// orphaned read goroutine only exits once the process is killed.
-func readTurn(ctx context.Context, r *bufio.Reader, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+func startLineReader(r io.Reader) chan readLine {
 	lines := make(chan readLine, 1)
 	go func() {
+		defer close(lines)
+		br := bufio.NewReader(r)
 		for {
-			data, err := r.ReadBytes('\n')
-			select {
-			case lines <- readLine{data, err}:
-			case <-ctx.Done():
-				return
-			}
+			data, err := br.ReadBytes('\n')
+			lines <- readLine{data, err}
 			if err != nil {
 				return
 			}
 		}
 	}()
+	return lines
+}
+
+func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts.BackendEvent)) (turnResult, error) {
 	for {
 		select {
 		case <-ctx.Done():
 			return turnResult{}, ctx.Err()
-		case ln := <-lines:
+		case ln, ok := <-lines:
+			if !ok {
+				return turnResult{}, io.ErrUnexpectedEOF
+			}
 			if len(ln.data) > 0 {
-				if tr, done := parseTurnLine(ln.data, onEvent); done {
+				tr, done, err := parseTurnLine(ln.data, onEvent)
+				if err != nil {
+					return turnResult{}, err
+				}
+				if done {
 					return tr, nil
 				}
 			}
@@ -211,21 +211,21 @@ func readTurn(ctx context.Context, r *bufio.Reader, onEvent func(contracts.Backe
 // and only unmarshals the full nested body for the events we act on ("assistant"
 // with a live onEvent, and "result"), so ignored line types skip the Content
 // slice allocation. done is true only on the terminal `result` event.
-func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool) {
+func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	var head struct {
 		Type string `json:"type"`
 	}
 	if json.Unmarshal(line, &head) != nil {
-		return turnResult{}, false
+		return turnResult{}, false, nil
 	}
 	switch head.Type {
 	case "assistant":
 		if onEvent == nil {
-			return turnResult{}, false
+			return turnResult{}, false, nil
 		}
 		var ev streamEvent
 		if json.Unmarshal(line, &ev) != nil {
-			return turnResult{}, false
+			return turnResult{}, false, nil
 		}
 		for _, b := range ev.Message.Content {
 			switch b.Type {
@@ -246,8 +246,11 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 		}
 	case "result":
 		var ev streamEvent
-		if json.Unmarshal(line, &ev) != nil {
-			return turnResult{}, false
+		if err := json.Unmarshal(line, &ev); err != nil {
+			var typeErr *json.UnmarshalTypeError
+			if !errors.As(err, &typeErr) {
+				return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
+			}
 		}
 		u := ev.Usage
 		if u == nil {
@@ -274,9 +277,9 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 		if ev.IsError {
 			tr.ErrMsg = ev.Result
 		}
-		return tr, true
+		return tr, true, nil
 	}
-	return turnResult{}, false
+	return turnResult{}, false, nil
 }
 
 // streamSession wraps a live `claude` stream-json process: one turn at a time
@@ -286,15 +289,15 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 type streamSession struct {
 	mu     sync.Mutex
 	stdin  io.WriteCloser
-	out    *bufio.Reader
-	cmd    *exec.Cmd // nil when the io pair is injected (tests)
-	sessID string    // last session id seen, for --resume on restart
+	lines  chan readLine
+	cmd    *exec.Cmd
+	sessID string
 }
 
 // newStreamSession builds a session over an arbitrary io pair (used by tests and
 // by Start once it has the process pipes).
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
-	return &streamSession{stdin: stdin, out: bufio.NewReader(out)}
+	return &streamSession{stdin: stdin, lines: startLineReader(out)}
 }
 
 // streamArgv builds the claude argv for persistent stream-json mode: the base
@@ -356,7 +359,7 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if _, err := s.stdin.Write(line); err != nil {
 		return turnResult{}, err
 	}
-	tr, err := readTurn(ctx, s.out, onEvent)
+	tr, err := readTurn(ctx, s.lines, onEvent)
 	if err != nil {
 		return tr, err
 	}
@@ -386,11 +389,27 @@ type streamResponder struct {
 	ctx      context.Context
 	base     []string
 	model    string
-	env      map[string]string // injected into the child process at every (re)spawn
+	env      map[string]string
 	dir      string
-	resumeID string // id to resume on the FIRST start ("" = fresh session)
+	idMu     sync.Mutex
+	resumeID string
 	mu       sync.Mutex
 	sess     *streamSession
+}
+
+func (r *streamResponder) publishSessionID(id string) {
+	if id == "" {
+		return
+	}
+	r.idMu.Lock()
+	r.resumeID = id
+	r.idMu.Unlock()
+}
+
+func (r *streamResponder) currentSessionID() string {
+	r.idMu.Lock()
+	defer r.idMu.Unlock()
+	return r.resumeID
 }
 
 func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
@@ -400,7 +419,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		return "", err
 	}
 	if r.sess == nil {
-		s, err := startStreamSession(r.ctx, r.base, r.model, r.resumeID, r.dir, r.env)
+		s, err := startStreamSession(r.ctx, r.base, r.model, r.currentSessionID(), r.dir, r.env)
 		if err != nil {
 			return "", err
 		}
@@ -410,14 +429,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 	tr, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
 		if ctx.Err() != nil {
-			// Request cancelled, timed out, or interrupted: the turn is wedged. Kill
-			// the session (also unblocking its orphaned read goroutine) and drop it.
-			// Preserve the conversation id so the NEXT turn resumes this same
-			// conversation via --resume rather than starting a brand-new session —
-			// the interrupted partial turn is discarded, matching esc-to-interrupt.
-			if r.sess.sessID != "" {
-				r.resumeID = r.sess.sessID
-			}
+			r.publishSessionID(r.sess.sessID)
 			_ = r.sess.Close()
 			r.sess = nil
 			return "", err
@@ -428,9 +440,10 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		if onEvent != nil {
 			onEvent(contracts.BackendEvent{Kind: "reset"})
 		}
-		resume := r.sess.sessID
+		r.publishSessionID(r.sess.sessID)
 		_ = r.sess.Close()
-		s, startErr := startStreamSession(r.ctx, r.base, r.model, resume, r.dir, r.env)
+		r.sess = nil
+		s, startErr := startStreamSession(r.ctx, r.base, r.model, r.currentSessionID(), r.dir, r.env)
 		if startErr != nil {
 			return "", startErr
 		}
@@ -439,8 +452,9 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 			return "", err
 		}
 	}
+	r.publishSessionID(tr.SessionID)
 	if tr.IsError {
-		return tr.Text, errFromTurn(tr)
+		return tr.Text, errFromTurn(tr, tr.SessionID)
 	}
 	return tr.Text, nil
 }
@@ -450,14 +464,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 // Before the first turn it returns the id supplied at construction. Implements
 // contracts.ResumeAware.
 func (r *streamResponder) ResumeToken() string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.sess == nil {
-		return r.resumeID
-	}
-	r.sess.mu.Lock()
-	defer r.sess.mu.Unlock()
-	return r.sess.sessID
+	return r.currentSessionID()
 }
 
 // NativeSkills reports that the claude CLI loads skills itself, so the host must
@@ -473,16 +480,25 @@ func (r *streamResponder) Close() error {
 	return nil
 }
 
-func errFromTurn(tr turnResult) error {
+var ErrTurnFailed = errors.New("claude turn failed")
+
+func errFromTurn(tr turnResult, sessID string) error {
 	if tr.ErrMsg != "" {
-		return &turnError{tr.ErrMsg}
+		return &turnError{msg: tr.ErrMsg, sessID: sessID}
 	}
-	return &turnError{"claude reported an error"}
+	return &turnError{msg: "claude reported an error", sessID: sessID}
 }
 
-type turnError struct{ msg string }
+type turnError struct {
+	msg    string
+	sessID string
+}
 
 func (e *turnError) Error() string { return e.msg }
+
+func (e *turnError) Unwrap() error { return ErrTurnFailed }
+
+func (e *turnError) SessionID() string { return e.sessID }
 
 // Close stops the session: closes stdin and kills the process if any.
 func (s *streamSession) Close() error {
