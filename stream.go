@@ -111,11 +111,57 @@ type turnResult struct {
 
 // contentBlock is one block of an assistant message's content array.
 type contentBlock struct {
-	Type     string          `json:"type"` // "text" | "tool_use" | "thinking" | ...
-	Text     string          `json:"text"`
-	Thinking string          `json:"thinking"` // reasoning text (thinking)
-	Name     string          `json:"name"`     // tool name (tool_use)
-	Input    json.RawMessage `json:"input"`    // tool input (tool_use)
+	Type      string          `json:"type"` // "text" | "tool_use" | "thinking" | ...
+	Text      string          `json:"text"`
+	Thinking  string          `json:"thinking"` // reasoning text (thinking)
+	Name      string          `json:"name"`     // tool name (tool_use)
+	Input     json.RawMessage `json:"input"`    // tool input (tool_use)
+	ID        string          `json:"id"`
+	ToolUseID string          `json:"tool_use_id"`
+}
+
+type turnParser struct{ agents map[string]bool }
+
+func newTurnParser() *turnParser { return &turnParser{agents: map[string]bool{}} }
+
+func parseTodos(input json.RawMessage) []contracts.TodoItem {
+	var in struct {
+		Todos []struct {
+			Content string `json:"content"`
+			Status  string `json:"status"`
+		} `json:"todos"`
+	}
+	if json.Unmarshal(input, &in) != nil {
+		return nil
+	}
+	out := make([]contracts.TodoItem, 0, len(in.Todos))
+	for _, t := range in.Todos {
+		out = append(out, contracts.TodoItem{Text: t.Content, State: todoState(t.Status)})
+	}
+	return out
+}
+
+func todoState(status string) string {
+	switch status {
+	case "completed":
+		return "done"
+	case "in_progress":
+		return "active"
+	}
+	return "pending"
+}
+
+func parseAgent(id string, input json.RawMessage) contracts.Subagent {
+	var in struct {
+		Description  string `json:"description"`
+		SubagentType string `json:"subagent_type"`
+	}
+	_ = json.Unmarshal(input, &in)
+	name := in.Description
+	if name == "" {
+		name = in.SubagentType
+	}
+	return contracts.Subagent{ID: id, Name: name, Kind: in.SubagentType, State: "active"}
 }
 
 // toolDetail extracts the most informative single field from a tool's input
@@ -183,6 +229,7 @@ func startLineReader(r io.Reader) chan readLine {
 }
 
 func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	p := newTurnParser()
 	for {
 		select {
 		case <-ctx.Done():
@@ -192,7 +239,7 @@ func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts
 				return turnResult{}, io.ErrUnexpectedEOF
 			}
 			if len(ln.data) > 0 {
-				tr, done, err := parseTurnLine(ln.data, onEvent)
+				tr, done, err := p.parseLine(ln.data, onEvent)
 				if err != nil {
 					return turnResult{}, err
 				}
@@ -207,11 +254,11 @@ func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts
 	}
 }
 
-// parseTurnLine decodes one stream-json line. It peeks the `type` field first
+// parseLine decodes one stream-json line. It peeks the `type` field first
 // and only unmarshals the full nested body for the events we act on ("assistant"
 // with a live onEvent, and "result"), so ignored line types skip the Content
 // slice allocation. done is true only on the terminal `result` event.
-func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	var head struct {
 		Type string `json:"type"`
 	}
@@ -238,11 +285,37 @@ func parseTurnLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResul
 					onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
 				}
 			case "tool_use":
-				onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
+				switch b.Name {
+				case "TodoWrite":
+					if todos := parseTodos(b.Input); len(todos) > 0 {
+						onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
+					}
+				case "Task":
+					agent := parseAgent(b.ID, b.Input)
+					p.agents[b.ID] = true
+					onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
+				default:
+					onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
+				}
 			}
 		}
 		if u := ev.Message.Usage; u != nil {
 			onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
+		}
+	case "user":
+		if onEvent == nil {
+			return turnResult{}, false, nil
+		}
+		var ev streamEvent
+		if json.Unmarshal(line, &ev) != nil {
+			return turnResult{}, false, nil
+		}
+		for _, b := range ev.Message.Content {
+			if b.Type != "tool_result" || !p.agents[b.ToolUseID] {
+				continue
+			}
+			delete(p.agents, b.ToolUseID)
+			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: b.ToolUseID, State: "done"}})
 		}
 	case "result":
 		var ev streamEvent

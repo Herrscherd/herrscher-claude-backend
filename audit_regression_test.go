@@ -69,7 +69,7 @@ func TestParseTurnLineResultDecodeErrors(t *testing.T) {
 		{"unknown type", `{"type":"system","subtype":"init"}`, false, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			tr, done, err := parseTurnLine([]byte(tc.line), nil)
+			tr, done, err := newTurnParser().parseLine([]byte(tc.line), nil)
 			if tc.wantErr != (err != nil) {
 				t.Fatalf("err = %v, wantErr = %v", err, tc.wantErr)
 			}

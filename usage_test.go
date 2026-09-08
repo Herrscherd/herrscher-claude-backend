@@ -12,9 +12,10 @@ import (
 func TestParseTurnLine_UsageEmitsTokens(t *testing.T) {
 	var events []contracts.BackendEvent
 	collect := func(e contracts.BackendEvent) { events = append(events, e) }
+	p := newTurnParser()
 
 	assistant := []byte(`{"type":"assistant","message":{"usage":{"input_tokens":10,"output_tokens":42},"content":[{"type":"text","text":"hi"}]}}`)
-	if _, done, err := parseTurnLine(assistant, collect); err != nil || done {
+	if _, done, err := p.parseLine(assistant, collect); err != nil || done {
 		t.Fatal("assistant line must not terminate the turn")
 	}
 
@@ -33,7 +34,7 @@ func TestParseTurnLine_UsageEmitsTokens(t *testing.T) {
 
 	events = nil
 	result := []byte(`{"type":"result","session_id":"s1","result":"done","total_cost_usd":0.0042,"usage":{"input_tokens":100,"output_tokens":250}}`)
-	tr, done, err := parseTurnLine(result, collect)
+	tr, done, err := p.parseLine(result, collect)
 	if err != nil {
 		t.Fatalf("result line must decode: %v", err)
 	}
