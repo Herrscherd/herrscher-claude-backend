@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -246,7 +247,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 		t.Fatalf("got %d events, want %d: %+v", len(got), len(want), got)
 	}
 	for i := range want {
-		if got[i] != want[i] {
+		if !reflect.DeepEqual(got[i], want[i]) {
 			t.Fatalf("event[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
