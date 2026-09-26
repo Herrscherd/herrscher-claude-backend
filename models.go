@@ -17,6 +17,9 @@ var efforts = []string{"low", "medium", "high", "xhigh", "max"}
 // IDs and labels are drawn from MODEL_CATALOG.claude in the app, which becomes
 // obsolete once this source takes over.
 var Models = []contracts.ModelSpec{
+	{ID: "claude-opus-5-5", Label: "Opus 5.5", Arg: "claude-opus-5-5", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 5},
+	{ID: "claude-opus-5-5-1m", Label: "Opus 5.5 · 1M", Arg: "claude-opus-5-5[1m]", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 5},
+	{ID: "claude-fable-5-1", Label: "Fable 5.1", Arg: "claude-fable-5-1", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 10},
 	{ID: "claude-opus-5", Label: "Opus 5", Arg: "claude-opus-5", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 5},
 	{ID: "claude-fable-5", Label: "Fable 5", Arg: "claude-fable-5", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 10},
 	{ID: "claude-sonnet-5", Label: "Sonnet 5", Arg: "claude-sonnet-5", Efforts: efforts, Route: contracts.RouteNative, InputPrice: 3},
@@ -28,6 +31,8 @@ var Models = []contracts.ModelSpec{
 	// The same Claude models, served by the Neublox account instead of the
 	// user's own. ID distinct from the native one: the ID is what carries the
 	// route at resume, two entries cannot share it.
+	{ID: "gw-claude-opus-5-5", Label: "Opus 5.5", Arg: "claude-opus-5-5", Efforts: efforts, Route: contracts.RouteGateway},
+	{ID: "gw-claude-fable-5-1", Label: "Fable 5.1", Arg: "claude-fable-5-1", Efforts: efforts, Route: contracts.RouteGateway},
 	{ID: "gw-claude-opus-5", Label: "Opus 5", Arg: "claude-opus-5", Efforts: efforts, Route: contracts.RouteGateway},
 	{ID: "gw-claude-sonnet-5", Label: "Sonnet 5", Arg: "claude-sonnet-5", Efforts: efforts, Route: contracts.RouteGateway},
 	{ID: "gw-claude-haiku-4-5", Label: "Haiku 4.5", Arg: "claude-haiku-4-5-20251001", Efforts: efforts, Route: contracts.RouteGateway},
