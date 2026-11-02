@@ -52,7 +52,9 @@ func withAttachments(text string, paths []string) string {
 	return text + "\n\n" + block
 }
 
-var memoryFence = regexp.MustCompile(`(?i)<\s*/?\s*memory\b[^>]*(?:>|\z)`)
+const fenceSpace = `[\s\v\x{00a0}\x{200b}\x{feff}]`
+
+var memoryFence = regexp.MustCompile(`(?i)<` + fenceSpace + `*/?` + fenceSpace + `*memory\b[^>]*(?:>|\z)`)
 
 func withContext(ctx, text string) string {
 	if ctx == "" {
@@ -246,7 +248,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	if err := json.Unmarshal(line, &head); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
-			return turnResult{}, false, fmt.Errorf("decoding stream event type: %w", err)
+			return turnResult{}, false, fmt.Errorf("%w: decoding stream event type: %w", ErrStreamDrift, err)
 		}
 		return turnResult{}, false, nil
 	}
@@ -335,13 +337,13 @@ type resultControl struct {
 func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	var control resultControl
 	if err := json.Unmarshal(line, &control); err != nil {
-		return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
+		return turnResult{}, false, fmt.Errorf("%w: decoding result event: %w", ErrStreamDrift, err)
 	}
 	var event streamEvent
 	if err := json.Unmarshal(line, &event); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if !errors.As(err, &typeErr) {
-			return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
+			return turnResult{}, false, fmt.Errorf("%w: decoding result event: %w", ErrStreamDrift, err)
 		}
 	}
 	tokens := resultUsage(event)
@@ -509,7 +511,7 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
 	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
-		if ctx.Err() != nil {
+		if errors.Is(err, ErrStreamDrift) || ctx.Err() != nil {
 			return "", errors.Join(err, r.dropSession())
 		}
 		if onEvent != nil {
@@ -567,6 +569,10 @@ func (r *streamResponder) Close() error {
 
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
+
+// ErrStreamDrift matches a stream event whose control fields no longer decode.
+// The turn is not retried: resending the prompt would duplicate it.
+var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
 func errFromTurn(turn turnResult, sessID string) error {
 	if turn.ErrMsg != "" {

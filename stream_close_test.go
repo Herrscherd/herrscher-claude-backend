@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"os/exec"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,11 @@ type spyWriteCloser struct {
 	writeErr error
 	closeErr error
 	closed   bool
+	writes   int
 }
 
 func (s *spyWriteCloser) Write(p []byte) (int, error) {
+	s.writes++
 	if s.writeErr != nil {
 		return 0, s.writeErr
 	}
@@ -153,4 +156,40 @@ func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 	requireLineReaderStopped(t, s.lines)
+}
+
+func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		stream string
+	}{
+		{"drifted result", `{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n"},
+		{"drifted intermediate line", `{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writer := &spyWriteCloser{}
+			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+			r.sess = newStreamSession(writer, strings.NewReader(tc.stream))
+			r.spawn = func(string) (*streamSession, error) {
+				t.Error("a drifted stream must not restart the session")
+				return nil, errors.New("unexpected spawn")
+			}
+			var kinds []string
+			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+				kinds = append(kinds, e.Kind)
+			})
+			if !errors.Is(err, ErrStreamDrift) {
+				t.Fatalf("err = %v, want ErrStreamDrift", err)
+			}
+			if writer.writes != 1 {
+				t.Fatalf("prompt written %d times, want 1", writer.writes)
+			}
+			if slices.Contains(kinds, "reset") {
+				t.Fatalf("a drifted stream emitted a reset: %v", kinds)
+			}
+			if r.sess != nil {
+				t.Fatal("a drifted session must not stay installed")
+			}
+		})
+	}
 }
