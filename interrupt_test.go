@@ -17,7 +17,8 @@ func TestInterrupt_PreservesSessionForResume(t *testing.T) {
 	pr, pw := io.Pipe()
 	sess := newStreamSession(discardWriteCloser{}, pr)
 	sess.sessID = "conv-1"
-	r := &streamResponder{ctx: context.Background(), sess: sess}
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = sess
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {

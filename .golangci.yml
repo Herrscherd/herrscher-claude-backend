@@ -185,6 +185,12 @@ linters:
       - path: ^(cmd|tools)/
         linters: [gosec]
         text: "^G(304|703):"
+      - path: ^backend\.go$
+        linters: [gosec]
+        text: "^G101:"
+      - path: ^(backend|stream)\.go$
+        linters: [gosec]
+        text: "^G204:"
 
 formatters:
   enable:

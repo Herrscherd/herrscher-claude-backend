@@ -7,7 +7,7 @@ import (
 
 func startTestSession(t *testing.T, name string, args ...string) *streamSession {
 	t.Helper()
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(t.Context(), name, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)

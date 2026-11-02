@@ -92,9 +92,7 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 			return runCmd(ctx, cmdStr, env, p)
 		}}, nil
 	default:
-		r := &streamResponder{ctx: ctx, base: streamBase(strings.Fields(c.Cmd)), model: c.Model, resumeID: c.ResumeID, env: c.Env}
-		r.dir = c.Dir
-		return r, nil
+		return newStreamResponder(ctx, streamBase(strings.Fields(c.Cmd)), c.Model, c.ResumeID, c.Dir, c.Env), nil
 	}
 }
 

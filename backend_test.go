@@ -2,7 +2,9 @@ package claude
 
 import (
 	"context"
-	"reflect"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -39,18 +41,44 @@ func TestConfigHasNoUnreadFields(t *testing.T) {
 		"Model": true, "Dir": true, "ResumeID": true,
 		"Env": true,
 	}
-	ty := reflect.TypeOf(Config{})
-	for i := 0; i < ty.NumField(); i++ {
-		if name := ty.Field(i).Name; !want[name] {
+	fields := configFieldNames(t)
+	for _, name := range fields {
+		if !want[name] {
 			t.Fatalf("Config.%s is not read anywhere; remove it or wire it up", name)
 		}
 	}
-	if ty.NumField() != len(want) {
-		t.Fatalf("Config has %d fields, want %d", ty.NumField(), len(want))
+	if len(fields) != len(want) {
+		t.Fatalf("Config has %d fields, want %d", len(fields), len(want))
 	}
 }
 
 func TestClaudeBackendsAreSkillNative(t *testing.T) {
 	var _ contracts.SkillNative = (*streamResponder)(nil)
 	var _ contracts.SkillNative = (*oneShotResponder)(nil)
+}
+
+func configFieldNames(t *testing.T) []string {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "backend.go", nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parsing backend.go: %v", err)
+	}
+	var names []string
+	ast.Inspect(file, func(node ast.Node) bool {
+		spec, ok := node.(*ast.TypeSpec)
+		if !ok || spec.Name.Name != "Config" {
+			return true
+		}
+		structType, isStruct := spec.Type.(*ast.StructType)
+		if !isStruct {
+			return false
+		}
+		for _, field := range structType.Fields.List {
+			for _, name := range field.Names {
+				names = append(names, name.Name)
+			}
+		}
+		return false
+	})
+	return names
 }

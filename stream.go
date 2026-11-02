@@ -16,6 +16,11 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
+const (
+	wireUser    = "user"
+	stateActive = "active"
+)
+
 func streamBase(fields []string) []string {
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
@@ -26,7 +31,7 @@ func streamBase(fields []string) []string {
 		out = append(out, f)
 	}
 	if len(out) == 0 {
-		return []string{"claude"}
+		return []string{backendKind}
 	}
 	return out
 }
@@ -65,9 +70,9 @@ func withContext(ctx, text string) string {
 
 func userLine(text string) ([]byte, error) {
 	msg := map[string]any{
-		"type": "user",
+		"type": wireUser,
 		"message": map[string]any{
-			"role":    "user",
+			"role":    wireUser,
 			"content": text,
 		},
 	}
@@ -126,7 +131,7 @@ func todoState(status string) string {
 	case "completed":
 		return "done"
 	case "in_progress":
-		return "active"
+		return stateActive
 	}
 	return "pending"
 }
@@ -136,14 +141,14 @@ func parseAgent(id string, input json.RawMessage) contracts.Subagent {
 		Description  string `json:"description"`
 		SubagentType string `json:"subagent_type"`
 	}
-	if err := json.Unmarshal(input, &in); err != nil {
-		return contracts.Subagent{ID: id, State: "active"}
+	if !decodes(input, &in) {
+		return contracts.Subagent{ID: id, State: stateActive}
 	}
 	name := in.Description
 	if name == "" {
 		name = in.SubagentType
 	}
-	return contracts.Subagent{ID: id, Name: name, Kind: in.SubagentType, State: "active"}
+	return contracts.Subagent{ID: id, Name: name, Kind: in.SubagentType, State: stateActive}
 }
 
 func toolDetail(input json.RawMessage) string {
@@ -210,120 +215,151 @@ func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts
 		case <-ctx.Done():
 			return turnResult{}, ctx.Err()
 		case ln, ok := <-lines:
-			if !ok {
-				return turnResult{}, io.ErrUnexpectedEOF
-			}
-			if len(ln.data) > 0 {
-				tr, done, err := p.parseLine(ln.data, onEvent)
-				if err != nil {
-					return turnResult{}, err
-				}
-				if done {
-					return tr, nil
-				}
-			}
-			if ln.err != nil {
-				return turnResult{}, ln.err
+			tr, done, err := p.consume(ln, ok, onEvent)
+			if err != nil || done {
+				return tr, err
 			}
 		}
 	}
+}
+
+func (p *turnParser) consume(ln readLine, open bool, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+	if !open {
+		return turnResult{}, false, io.ErrUnexpectedEOF
+	}
+	if len(ln.data) > 0 {
+		tr, done, err := p.parseLine(ln.data, onEvent)
+		if err != nil || done {
+			return tr, done, err
+		}
+	}
+	if ln.err != nil {
+		return turnResult{}, false, ln.err
+	}
+	return turnResult{}, false, nil
+}
+
+func decodes(data []byte, into any) bool {
+	return json.Unmarshal(data, into) == nil
 }
 
 func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	var head struct {
 		Type string `json:"type"`
 	}
-	if json.Unmarshal(line, &head) != nil {
+	if !decodes(line, &head) {
 		return turnResult{}, false, nil
 	}
 	switch head.Type {
 	case "assistant":
-		if onEvent == nil {
-			return turnResult{}, false, nil
-		}
-		var ev streamEvent
-		if json.Unmarshal(line, &ev) != nil {
-			return turnResult{}, false, nil
-		}
-		for _, b := range ev.Message.Content {
-			switch b.Type {
-			case "thinking":
-				if t := strings.TrimSpace(b.Thinking); t != "" {
-					onEvent(contracts.BackendEvent{Kind: "thinking", Detail: t})
-				}
-			case "text":
-				if t := strings.TrimSpace(b.Text); t != "" {
-					onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
-				}
-			case "tool_use":
-				switch b.Name {
-				case "TodoWrite":
-					if todos := parseTodos(b.Input); len(todos) > 0 {
-						onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
-					}
-				case "Task":
-					agent := parseAgent(b.ID, b.Input)
-					p.agents[b.ID] = true
-					onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
-				default:
-					onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
-				}
-			}
-		}
-		if u := ev.Message.Usage; u != nil {
-			onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
-		}
-	case "user":
-		if onEvent == nil {
-			return turnResult{}, false, nil
-		}
-		var ev streamEvent
-		if json.Unmarshal(line, &ev) != nil {
-			return turnResult{}, false, nil
-		}
-		for _, b := range ev.Message.Content {
-			if b.Type != "tool_result" || !p.agents[b.ToolUseID] {
-				continue
-			}
-			delete(p.agents, b.ToolUseID)
-			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: b.ToolUseID, State: "done"}})
-		}
+		p.parseAssistant(line, onEvent)
+	case wireUser:
+		p.parseToolResults(line, onEvent)
 	case "result":
-		var ev streamEvent
-		if err := json.Unmarshal(line, &ev); err != nil {
-			var typeErr *json.UnmarshalTypeError
-			if !errors.As(err, &typeErr) {
-				return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
-			}
-		}
-		u := ev.Usage
-		if u == nil {
-			u = ev.Message.Usage
-		}
-		var inTok, outTok, cacheRd, cacheCr int
-		if u != nil {
-			inTok, outTok = u.InputTokens, u.OutputTokens
-			cacheRd, cacheCr = u.CacheReadInputTokens, u.CacheCreationInputTokens
-		}
-		if onEvent != nil {
-			onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: inTok, OutTokens: outTok, CacheRead: cacheRd, CacheCreate: cacheCr})
-		}
-		tr := turnResult{
-			Text:        ev.Result,
-			CostUSD:     ev.TotalCostUSD,
-			SessionID:   ev.SessionID,
-			IsError:     ev.IsError,
-			InTokens:    inTok,
-			OutTokens:   outTok,
-			CacheRead:   cacheRd,
-			CacheCreate: cacheCr,
-		}
-		if ev.IsError {
-			tr.ErrMsg = ev.Result
-		}
-		return tr, true, nil
+		return parseResult(line, onEvent)
 	}
 	return turnResult{}, false, nil
+}
+
+func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
+	if onEvent == nil {
+		return
+	}
+	var ev streamEvent
+	if !decodes(line, &ev) {
+		return
+	}
+	for _, b := range ev.Message.Content {
+		p.emitBlock(b, onEvent)
+	}
+	if u := ev.Message.Usage; u != nil {
+		onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
+	}
+}
+
+func (p *turnParser) emitBlock(b contentBlock, onEvent func(contracts.BackendEvent)) {
+	switch b.Type {
+	case "thinking":
+		if t := strings.TrimSpace(b.Thinking); t != "" {
+			onEvent(contracts.BackendEvent{Kind: "thinking", Detail: t})
+		}
+	case "text":
+		if t := strings.TrimSpace(b.Text); t != "" {
+			onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
+		}
+	case "tool_use":
+		p.emitToolUse(b, onEvent)
+	}
+}
+
+func (p *turnParser) emitToolUse(b contentBlock, onEvent func(contracts.BackendEvent)) {
+	switch b.Name {
+	case "TodoWrite":
+		if todos := parseTodos(b.Input); len(todos) > 0 {
+			onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
+		}
+	case "Task":
+		agent := parseAgent(b.ID, b.Input)
+		p.agents[b.ID] = true
+		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
+	default:
+		onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
+	}
+}
+
+func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.BackendEvent)) {
+	if onEvent == nil {
+		return
+	}
+	var ev streamEvent
+	if !decodes(line, &ev) {
+		return
+	}
+	for _, b := range ev.Message.Content {
+		if b.Type != "tool_result" || !p.agents[b.ToolUseID] {
+			continue
+		}
+		delete(p.agents, b.ToolUseID)
+		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: b.ToolUseID, State: "done"}})
+	}
+}
+
+func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+	var ev streamEvent
+	if err := json.Unmarshal(line, &ev); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
+		}
+	}
+	tokens := resultUsage(ev)
+	if onEvent != nil {
+		onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
+	}
+	tr := turnResult{
+		Text:        ev.Result,
+		CostUSD:     ev.TotalCostUSD,
+		SessionID:   ev.SessionID,
+		IsError:     ev.IsError,
+		InTokens:    tokens.InputTokens,
+		OutTokens:   tokens.OutputTokens,
+		CacheRead:   tokens.CacheReadInputTokens,
+		CacheCreate: tokens.CacheCreationInputTokens,
+	}
+	if ev.IsError {
+		tr.ErrMsg = ev.Result
+	}
+	return tr, true, nil
+}
+
+func resultUsage(ev streamEvent) usage {
+	switch {
+	case ev.Usage != nil:
+		return *ev.Usage
+	case ev.Message.Usage != nil:
+		return *ev.Message.Usage
+	}
+	return usage{}
 }
 
 type streamSession struct {
@@ -367,7 +403,7 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	if err != nil {
 		return nil, fmt.Errorf("claude stream: stdout pipe: %w", err)
 	}
-	if err := cmd.Start(); err != nil {
+	if err = cmd.Start(); err != nil {
 		return nil, fmt.Errorf("claude stream: start: %w", err)
 	}
 	s := newStreamSession(stdin, stdout)
@@ -383,7 +419,7 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if err != nil {
 		return turnResult{}, err
 	}
-	if _, err := s.stdin.Write(line); err != nil {
+	if _, err = s.stdin.Write(line); err != nil {
 		return turnResult{}, err
 	}
 	tr, err := readTurn(ctx, s.lines, onEvent)
@@ -408,7 +444,7 @@ func (o *oneShotResponder) Close() error { return nil }
 func (o *oneShotResponder) NativeSkills() bool { return true }
 
 type streamResponder struct {
-	ctx      context.Context
+	spawn    func(resumeID string) (*streamSession, error)
 	base     []string
 	model    string
 	env      map[string]string
@@ -417,6 +453,14 @@ type streamResponder struct {
 	resumeID string
 	mu       sync.Mutex
 	sess     *streamSession
+}
+
+func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
+	r := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env}
+	r.spawn = func(id string) (*streamSession, error) {
+		return startStreamSession(ctx, r.base, r.model, id, r.dir, r.env)
+	}
+	return r
 }
 
 func (r *streamResponder) publishSessionID(id string) {
@@ -441,7 +485,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		return "", err
 	}
 	if r.sess == nil {
-		s, err := startStreamSession(r.ctx, r.base, r.model, r.currentSessionID(), r.dir, r.env)
+		s, err := r.spawn(r.currentSessionID())
 		if err != nil {
 			return "", err
 		}
@@ -462,7 +506,7 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		r.publishSessionID(r.sess.sessID)
 		closeErr := r.sess.Close()
 		r.sess = nil
-		s, startErr := startStreamSession(r.ctx, r.base, r.model, r.currentSessionID(), r.dir, r.env)
+		s, startErr := r.spawn(r.currentSessionID())
 		if startErr != nil {
 			return "", errors.Join(startErr, closeErr)
 		}

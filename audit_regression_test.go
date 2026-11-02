@@ -99,7 +99,8 @@ func TestReadTurnDoesNotHangOnDriftedResult(t *testing.T) {
 func TestRespondFailedRestartClearsSession(t *testing.T) {
 	dead := newStreamSession(discardWriteCloser{}, strings.NewReader(""))
 	dead.sessID = "conv-7"
-	r := &streamResponder{ctx: context.Background(), base: []string{"herrscher-no-such-binary"}, sess: dead}
+	r := newStreamResponder(context.Background(), []string{"herrscher-no-such-binary"}, "", "", "", nil)
+	r.sess = dead
 
 	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil); err == nil {
 		t.Fatal("expected the failed restart to error")
@@ -140,7 +141,8 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 	pr, pw := io.Pipe()
 	sess := newStreamSession(discardWriteCloser{}, pr)
-	r := &streamResponder{ctx: context.Background(), resumeID: "boot", sess: sess}
+	r := newStreamResponder(context.Background(), nil, "", "boot", "", nil)
+	r.sess = sess
 
 	turnDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -8,14 +8,14 @@ import (
 )
 
 func TestModelsAreValid(t *testing.T) {
-	if err := contracts.ValidateModels("claude", Models); err != nil {
+	if err := contracts.ValidateModels("claude", Models()); err != nil {
 		t.Fatalf("claude model catalog is invalid: %v", err)
 	}
 }
 
 func TestGatewayModelsExist(t *testing.T) {
 	var n int
-	for _, m := range Models {
+	for _, m := range Models() {
 		if m.Route == contracts.RouteGateway {
 			n++
 		}
@@ -27,7 +27,7 @@ func TestGatewayModelsExist(t *testing.T) {
 
 func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
 	seen := map[string]contracts.Route{}
-	for _, m := range Models {
+	for _, m := range Models() {
 		if prev, ok := seen[m.ID]; ok {
 			t.Fatalf("ID %q used by both route %q and %q", m.ID, prev, m.Route)
 		}
@@ -36,7 +36,7 @@ func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
 }
 
 func TestModelsCarryEfforts(t *testing.T) {
-	for _, m := range Models {
+	for _, m := range Models() {
 		if m.Arg == "" || !strings.HasPrefix(m.Arg, "claude-") {
 			continue
 		}
@@ -53,8 +53,8 @@ func TestManifestPublishesModels(t *testing.T) {
 			continue
 		}
 		found = true
-		if len(p.Manifest.Models) != len(Models) {
-			t.Fatalf("manifest published %d models, catalog has %d", len(p.Manifest.Models), len(Models))
+		if len(p.Manifest.Models) != len(Models()) {
+			t.Fatalf("manifest published %d models, catalog has %d", len(p.Manifest.Models), len(Models()))
 		}
 	}
 	if !found {
