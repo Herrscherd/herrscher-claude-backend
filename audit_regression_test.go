@@ -128,7 +128,10 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
 			}
 			var te *turnError
-			if !errors.As(err, &te) || te.msg != tc.msg {
+			if !errors.As(err, &te) {
+				t.Fatalf("error type = %T, want *turnError", err)
+			}
+			if te.msg != tc.msg {
 				t.Fatalf("message = %q, want %q", te.msg, tc.msg)
 			}
 			if te.SessionID() != "s-1" {
@@ -148,10 +151,10 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); err != nil && !errors.Is(err, context.Canceled) {
-			t.Errorf("respond: %v", err)
+		defer close(turnDone)
+		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); !errors.Is(err, context.Canceled) {
+			t.Errorf("respond = %v, want context.Canceled", err)
 		}
-		close(turnDone)
 	}()
 
 	got := make(chan string, 1)
@@ -165,6 +168,6 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 		t.Fatal("ResumeToken blocked behind an in-flight turn")
 	}
 	cancel()
-	mustClose(t, pw)
 	<-turnDone
+	mustClose(t, pw)
 }
