@@ -21,11 +21,11 @@ func TestStreamSessionConsecutiveTurns(t *testing.T) {
 			if _, err := br.ReadBytes('\n'); err != nil {
 				return
 			}
-			io.WriteString(stdoutW,
+			mustWriteString(t, stdoutW,
 				`{"type":"assistant","message":{"content":[{"type":"text","text":"`+reply+`"}]}}`+"\n"+
 					`{"type":"result","is_error":false,"result":"`+reply+`","session_id":"s-`+reply+`"}`+"\n")
 		}
-		stdoutW.Close()
+		mustClose(t, stdoutW)
 	}()
 
 	s := newStreamSession(stdinW, stdoutR)
@@ -146,7 +146,9 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		_, _ = r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
+		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); err != nil && !errors.Is(err, context.Canceled) {
+			t.Errorf("respond: %v", err)
+		}
 		close(turnDone)
 	}()
 
@@ -161,6 +163,6 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 		t.Fatal("ResumeToken blocked behind an in-flight turn")
 	}
 	cancel()
-	_ = pw.Close()
+	mustClose(t, pw)
 	<-turnDone
 }

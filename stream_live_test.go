@@ -21,7 +21,7 @@ func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer mustClose(t, s)
 
 	tr1, err := s.Send(ctx, "Reply with exactly one word: ONE", nil)
 	if err != nil {

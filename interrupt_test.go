@@ -25,7 +25,7 @@ func TestInterrupt_PreservesSessionForResume(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		_, _ = pw.Write([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}` + "\n"))
+		mustWriteString(t, pw, `{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`+"\n")
 		cancel()
 	}()
 
@@ -38,5 +38,5 @@ func TestInterrupt_PreservesSessionForResume(t *testing.T) {
 	if r.resumeID != "conv-1" {
 		t.Fatalf("resumeID not preserved for resume: got %q, want %q", r.resumeID, "conv-1")
 	}
-	_ = pw.Close()
+	mustClose(t, pw)
 }

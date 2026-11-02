@@ -109,7 +109,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("startStreamSession: %v", err)
 		}
-		defer func() { _ = sess.Close() }()
+		defer mustClose(t, sess)
 
 		got := waitForProbeFile(t, probeFile)
 		if got != "injected-stream-value" {
@@ -130,7 +130,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 		if err != nil {
 			t.Fatalf("startStreamSession: %v", err)
 		}
-		defer func() { _ = sess.Close() }()
+		defer mustClose(t, sess)
 
 		got := waitForProbeFile(t, probeFile)
 		if got != "ABSENT" {

@@ -136,7 +136,9 @@ func parseAgent(id string, input json.RawMessage) contracts.Subagent {
 		Description  string `json:"description"`
 		SubagentType string `json:"subagent_type"`
 	}
-	_ = json.Unmarshal(input, &in)
+	if err := json.Unmarshal(input, &in); err != nil {
+		return contracts.Subagent{ID: id, State: "active"}
+	}
 	name := in.Description
 	if name == "" {
 		name = in.SubagentType
@@ -450,23 +452,23 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 	if err != nil {
 		if ctx.Err() != nil {
 			r.publishSessionID(r.sess.sessID)
-			_ = r.sess.Close()
+			closeErr := r.sess.Close()
 			r.sess = nil
-			return "", err
+			return "", errors.Join(err, closeErr)
 		}
 		if onEvent != nil {
 			onEvent(contracts.BackendEvent{Kind: "reset"})
 		}
 		r.publishSessionID(r.sess.sessID)
-		_ = r.sess.Close()
+		closeErr := r.sess.Close()
 		r.sess = nil
 		s, startErr := startStreamSession(r.ctx, r.base, r.model, r.currentSessionID(), r.dir, r.env)
 		if startErr != nil {
-			return "", startErr
+			return "", errors.Join(startErr, closeErr)
 		}
 		r.sess = s
 		if tr, err = r.sess.Send(ctx, content, onEvent); err != nil {
-			return "", err
+			return "", errors.Join(err, closeErr)
 		}
 	}
 	r.publishSessionID(tr.SessionID)
@@ -512,12 +514,27 @@ func (e *turnError) Unwrap() error { return ErrTurnFailed }
 func (e *turnError) SessionID() string { return e.sessID }
 
 func (s *streamSession) Close() error {
-	if s.stdin != nil {
-		_ = s.stdin.Close()
+	stdin, cmd := s.stdin, s.cmd
+	s.stdin, s.cmd = nil, nil
+	var closeErrs []error
+	if stdin != nil {
+		closeErrs = append(closeErrs, stdin.Close())
 	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		_ = s.cmd.Process.Kill()
-		_ = s.cmd.Wait()
+	if cmd != nil && cmd.Process != nil {
+		closeErrs = append(closeErrs, killAndReap(cmd))
 	}
-	return nil
+	return errors.Join(closeErrs...)
+}
+
+func killAndReap(cmd *exec.Cmd) error {
+	killErr := cmd.Process.Kill()
+	killed := killErr == nil
+	if errors.Is(killErr, os.ErrProcessDone) {
+		killErr = nil
+	}
+	waitErr := cmd.Wait()
+	if _, isExitErr := errors.AsType[*exec.ExitError](waitErr); isExitErr && killed {
+		waitErr = nil
+	}
+	return errors.Join(killErr, waitErr)
 }

@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"reflect"
 	"strings"
@@ -92,11 +93,11 @@ func TestStreamSessionSend(t *testing.T) {
 		if _, err := br.ReadBytes('\n'); err != nil {
 			return
 		}
-		io.WriteString(stdoutW,
+		mustWriteString(t, stdoutW,
 			`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}`+"\n"+
 				`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}]}}`+"\n"+
 				`{"type":"result","subtype":"success","is_error":false,"result":"hello back","total_cost_usd":0.002,"session_id":"abc"}`+"\n")
-		stdoutW.Close()
+		mustClose(t, stdoutW)
 	}()
 
 	s := newStreamSession(stdinW, stdoutR)
@@ -127,7 +128,7 @@ func TestReadTurnCtxCancelAborts(t *testing.T) {
 	cancel()
 	select {
 	case err := <-done:
-		if err != context.Canceled {
+		if !errors.Is(err, context.Canceled) {
 			t.Fatalf("err = %v, want context.Canceled", err)
 		}
 	case <-time.After(2 * time.Second):
