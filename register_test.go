@@ -55,7 +55,7 @@ func TestFactoryCarriesEnvSettingToTheChild(t *testing.T) {
 	}
 }
 
-func TestEnvSettingIsNotEnvBound(t *testing.T) {
+func TestEnvSettingCannotLeakTheDaemonEnvironment(t *testing.T) {
 	s := envSetting(t)
 	if s.Env != "" {
 		t.Errorf(`the "env" setting is bound to %q; it must never be readable from the daemon environment`, s.Env)
@@ -77,7 +77,7 @@ func TestSelfRegisteredAsBackend(t *testing.T) {
 	t.Fatal("claude backend did not self-register into contracts.Default")
 }
 
-func TestDeclaresPerToolGating(t *testing.T) {
+func TestDeclaresPerToolCallGateGrain(t *testing.T) {
 	for _, p := range contracts.Default.Backends() {
 		if p.Manifest.Kind != "claude" {
 			continue
