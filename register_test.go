@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 // backendPlugin returns the claude plugin as the host sees it: from the global

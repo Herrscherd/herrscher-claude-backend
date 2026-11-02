@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 type discardWriteCloser struct{}

@@ -1,6 +1,6 @@
 package claude
 
-import "github.com/Herrscherd/herrscher-contracts"
+import contracts "github.com/Herrscherd/herrscher-contracts"
 
 // efforts is the effort axis of the claude CLI, from cheapest to priciest.
 var efforts = []string{"low", "medium", "high", "xhigh", "max"}

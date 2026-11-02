@@ -3,7 +3,7 @@ package claude
 import (
 	"testing"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 // TestParseTurnLine_UsageEmitsTokens asserts that token usage is parsed from

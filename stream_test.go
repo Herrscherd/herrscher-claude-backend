@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 func TestNewBackendSelection(t *testing.T) {
