@@ -70,11 +70,11 @@ func spawnEnv(base []string, env map[string]string) []string {
 		return merged
 	}
 	scrubbed := make([]string, 0, len(merged))
-	for _, kv := range merged {
-		if strings.HasPrefix(kv, legacyAnthropicAuthToken+"=") {
+	for _, entry := range merged {
+		if strings.HasPrefix(entry, legacyAnthropicAuthToken+"=") {
 			continue
 		}
-		scrubbed = append(scrubbed, kv)
+		scrubbed = append(scrubbed, entry)
 	}
 	return scrubbed
 }
@@ -82,27 +82,27 @@ func spawnEnv(base []string, env map[string]string) []string {
 // NewBackend builds the configured backend. It resolves the kind (from
 // Kind/Stream) and returns an error if the oneshot kind has an empty Cmd, or
 // if the injected environment carries a gateway base URL with no token.
-func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
-	if err := checkGatewayPair(c.Env); err != nil {
+func NewBackend(ctx context.Context, cfg Config) (contracts.Backend, error) {
+	if err := checkGatewayPair(cfg.Env); err != nil {
 		return nil, err
 	}
-	switch resolveBackend(c.Kind, c.Stream) {
+	switch resolveBackend(cfg.Kind, cfg.Stream) {
 	case "oneshot":
-		if strings.TrimSpace(c.Cmd) == "" {
+		if strings.TrimSpace(cfg.Cmd) == "" {
 			return nil, ErrOneshotNeedsCmd
 		}
-		cmdStr, env := c.Cmd, c.Env
+		cmdStr, env := cfg.Cmd, cfg.Env
 		return &oneShotResponder{run: func(ctx context.Context, p contracts.Prompt) (string, error) {
 			return runCmd(ctx, cmdStr, env, p)
 		}}, nil
 	default:
-		return newStreamResponder(ctx, streamBase(strings.Fields(c.Cmd)), c.Model, c.ResumeID, c.Dir, c.Env), nil
+		return newStreamResponder(ctx, streamBase(strings.Fields(cfg.Cmd)), cfg.Model, cfg.ResumeID, cfg.Dir, cfg.Env), nil
 	}
 }
 
-func runCmd(ctx context.Context, cmdStr string, env map[string]string, p contracts.Prompt) (string, error) {
+func runCmd(ctx context.Context, cmdStr string, env map[string]string, prompt contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
-	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
+	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
 	args := append(slices.Clone(fields[1:]), content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)

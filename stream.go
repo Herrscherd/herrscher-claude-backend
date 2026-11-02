@@ -23,12 +23,12 @@ const (
 
 func streamBase(fields []string) []string {
 	out := make([]string, 0, len(fields))
-	for _, f := range fields {
-		switch f {
+	for _, field := range fields {
+		switch field {
 		case "-p", "--print", "--continue":
 			continue
 		}
-		out = append(out, f)
+		out = append(out, field)
 	}
 	if len(out) == 0 {
 		return []string{backendKind}
@@ -71,11 +71,11 @@ func userLine(text string) ([]byte, error) {
 			"content": text,
 		},
 	}
-	b, err := json.Marshal(msg)
+	encoded, err := json.Marshal(msg)
 	if err != nil {
 		return nil, err
 	}
-	return append(b, '\n'), nil
+	return append(encoded, '\n'), nil
 }
 
 type turnResult struct {
@@ -105,17 +105,17 @@ type turnParser struct{ agents map[string]bool }
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
 
 func parseTodos(input json.RawMessage) []contracts.TodoItem {
-	var in struct {
+	var todoList struct {
 		Todos []struct {
 			Content string `json:"content"`
 			Status  string `json:"status"`
 		} `json:"todos"`
 	}
-	if json.Unmarshal(input, &in) != nil {
+	if json.Unmarshal(input, &todoList) != nil {
 		return nil
 	}
-	out := make([]contracts.TodoItem, 0, len(in.Todos))
-	for _, t := range in.Todos {
+	out := make([]contracts.TodoItem, 0, len(todoList.Todos))
+	for _, t := range todoList.Todos {
 		out = append(out, contracts.TodoItem{Text: t.Content, State: todoState(t.Status)})
 	}
 	return out
@@ -131,31 +131,31 @@ func todoState(status string) string {
 	return "pending"
 }
 
-func parseAgent(id string, input json.RawMessage) contracts.Subagent {
-	var in struct {
+func parseAgent(toolUseID string, input json.RawMessage) contracts.Subagent {
+	var agentInput struct {
 		Description  string `json:"description"`
 		SubagentType string `json:"subagent_type"`
 	}
-	if !decodes(input, &in) {
-		return contracts.Subagent{ID: id, State: stateActive}
+	if !decodes(input, &agentInput) {
+		return contracts.Subagent{ID: toolUseID, State: stateActive}
 	}
-	name := in.Description
+	name := agentInput.Description
 	if name == "" {
-		name = in.SubagentType
+		name = agentInput.SubagentType
 	}
-	return contracts.Subagent{ID: id, Name: name, Kind: in.SubagentType, State: stateActive}
+	return contracts.Subagent{ID: toolUseID, Name: name, Kind: agentInput.SubagentType, State: stateActive}
 }
 
 func toolDetail(input json.RawMessage) string {
 	if len(input) == 0 {
 		return ""
 	}
-	var m map[string]any
-	if json.Unmarshal(input, &m) != nil {
+	var inputFields map[string]any
+	if json.Unmarshal(input, &inputFields) != nil {
 		return ""
 	}
 	for _, k := range []string{"command", "file_path", "path", "pattern", "query", "url", "description", "prompt"} {
-		if s, ok := m[k].(string); ok && s != "" {
+		if s, ok := inputFields[k].(string); ok && s != "" {
 			return s
 		}
 	}
@@ -187,13 +187,13 @@ type readLine struct {
 	err  error
 }
 
-func startLineReader(r io.Reader) chan readLine {
+func startLineReader(source io.Reader) chan readLine {
 	lines := make(chan readLine, 1)
 	go func() {
 		defer close(lines)
-		br := bufio.NewReader(r)
+		reader := bufio.NewReader(source)
 		for {
-			data, err := br.ReadBytes('\n')
+			data, err := reader.ReadBytes('\n')
 			lines <- readLine{data, err}
 			if err != nil {
 				return
@@ -204,32 +204,32 @@ func startLineReader(r io.Reader) chan readLine {
 }
 
 func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts.BackendEvent)) (turnResult, error) {
-	p := newTurnParser()
+	parser := newTurnParser()
 	for {
 		select {
 		case <-ctx.Done():
 			return turnResult{}, ctx.Err()
 		case ln, ok := <-lines:
-			tr, done, err := p.consume(ln, ok, onEvent)
+			turn, done, err := parser.consume(ln, ok, onEvent)
 			if err != nil || done {
-				return tr, err
+				return turn, err
 			}
 		}
 	}
 }
 
-func (p *turnParser) consume(ln readLine, open bool, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	if !open {
 		return turnResult{}, false, io.ErrUnexpectedEOF
 	}
-	if len(ln.data) > 0 {
-		tr, done, err := p.parseLine(ln.data, onEvent)
+	if len(line.data) > 0 {
+		turn, done, err := p.parseLine(line.data, onEvent)
 		if err != nil || done {
-			return tr, done, err
+			return turn, done, err
 		}
 	}
-	if ln.err != nil {
-		return turnResult{}, false, ln.err
+	if line.err != nil {
+		return turnResult{}, false, line.err
 	}
 	return turnResult{}, false, nil
 }
@@ -260,45 +260,45 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	if onEvent == nil {
 		return
 	}
-	var ev streamEvent
-	if !decodes(line, &ev) {
+	var event streamEvent
+	if !decodes(line, &event) {
 		return
 	}
-	for _, b := range ev.Message.Content {
+	for _, b := range event.Message.Content {
 		p.emitBlock(b, onEvent)
 	}
-	if u := ev.Message.Usage; u != nil {
+	if u := event.Message.Usage; u != nil {
 		onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
 	}
 }
 
-func (p *turnParser) emitBlock(b contentBlock, onEvent func(contracts.BackendEvent)) {
-	switch b.Type {
+func (p *turnParser) emitBlock(block contentBlock, onEvent func(contracts.BackendEvent)) {
+	switch block.Type {
 	case "thinking":
-		if t := strings.TrimSpace(b.Thinking); t != "" {
+		if t := strings.TrimSpace(block.Thinking); t != "" {
 			onEvent(contracts.BackendEvent{Kind: "thinking", Detail: t})
 		}
 	case "text":
-		if t := strings.TrimSpace(b.Text); t != "" {
+		if t := strings.TrimSpace(block.Text); t != "" {
 			onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
 		}
 	case "tool_use":
-		p.emitToolUse(b, onEvent)
+		p.emitToolUse(block, onEvent)
 	}
 }
 
-func (p *turnParser) emitToolUse(b contentBlock, onEvent func(contracts.BackendEvent)) {
-	switch b.Name {
+func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.BackendEvent)) {
+	switch block.Name {
 	case "TodoWrite":
-		if todos := parseTodos(b.Input); len(todos) > 0 {
+		if todos := parseTodos(block.Input); len(todos) > 0 {
 			onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
 		}
 	case "Task":
-		agent := parseAgent(b.ID, b.Input)
-		p.agents[b.ID] = true
+		agent := parseAgent(block.ID, block.Input)
+		p.agents[block.ID] = true
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
-		onEvent(contracts.BackendEvent{Kind: "tool", Tool: b.Name, Detail: toolDetail(b.Input)})
+		onEvent(contracts.BackendEvent{Kind: "tool", Tool: block.Name, Detail: toolDetail(block.Input)})
 	}
 }
 
@@ -306,53 +306,53 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	if onEvent == nil {
 		return
 	}
-	var ev streamEvent
-	if !decodes(line, &ev) {
+	var event streamEvent
+	if !decodes(line, &event) {
 		return
 	}
-	for _, b := range ev.Message.Content {
-		if b.Type != "tool_result" || !p.agents[b.ToolUseID] {
+	for _, block := range event.Message.Content {
+		if block.Type != "tool_result" || !p.agents[block.ToolUseID] {
 			continue
 		}
-		delete(p.agents, b.ToolUseID)
-		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: b.ToolUseID, State: "done"}})
+		delete(p.agents, block.ToolUseID)
+		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
 	}
 }
 
 func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
-	var ev streamEvent
-	if err := json.Unmarshal(line, &ev); err != nil {
+	var event streamEvent
+	if err := json.Unmarshal(line, &event); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if !errors.As(err, &typeErr) {
 			return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
 		}
 	}
-	tokens := resultUsage(ev)
+	tokens := resultUsage(event)
 	if onEvent != nil {
-		onEvent(contracts.BackendEvent{Kind: "result", Cost: ev.TotalCostUSD, IsError: ev.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
+		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: event.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
 	}
-	tr := turnResult{
-		Text:        ev.Result,
-		CostUSD:     ev.TotalCostUSD,
-		SessionID:   ev.SessionID,
-		IsError:     ev.IsError,
+	turn := turnResult{
+		Text:        event.Result,
+		CostUSD:     event.TotalCostUSD,
+		SessionID:   event.SessionID,
+		IsError:     event.IsError,
 		InTokens:    tokens.InputTokens,
 		OutTokens:   tokens.OutputTokens,
 		CacheRead:   tokens.CacheReadInputTokens,
 		CacheCreate: tokens.CacheCreationInputTokens,
 	}
-	if ev.IsError {
-		tr.ErrMsg = ev.Result
+	if event.IsError {
+		turn.ErrMsg = event.Result
 	}
-	return tr, true, nil
+	return turn, true, nil
 }
 
-func resultUsage(ev streamEvent) usage {
+func resultUsage(event streamEvent) usage {
 	switch {
-	case ev.Usage != nil:
-		return *ev.Usage
-	case ev.Message.Usage != nil:
-		return *ev.Message.Usage
+	case event.Usage != nil:
+		return *event.Usage
+	case event.Message.Usage != nil:
+		return *event.Message.Usage
 	}
 	return usage{}
 }
@@ -401,10 +401,10 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	if err = cmd.Start(); err != nil {
 		return nil, fmt.Errorf("claude stream: start: %w", err)
 	}
-	s := newStreamSession(stdin, stdout)
-	s.cmd = cmd
-	s.sessID = resumeID
-	return s, nil
+	session := newStreamSession(stdin, stdout)
+	session.cmd = cmd
+	session.sessID = resumeID
+	return session, nil
 }
 
 func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
@@ -417,14 +417,14 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if _, err = s.stdin.Write(line); err != nil {
 		return turnResult{}, err
 	}
-	tr, err := readTurn(ctx, s.lines, onEvent)
+	turn, err := readTurn(ctx, s.lines, onEvent)
 	if err != nil {
-		return tr, err
+		return turn, err
 	}
-	if tr.SessionID != "" {
-		s.sessID = tr.SessionID
+	if turn.SessionID != "" {
+		s.sessID = turn.SessionID
 	}
-	return tr, nil
+	return turn, nil
 }
 
 type oneShotResponder struct {
@@ -451,19 +451,19 @@ type streamResponder struct {
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
-	r := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env}
-	r.spawn = func(id string) (*streamSession, error) {
-		return startStreamSession(ctx, r.base, r.model, id, r.dir, r.env)
+	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env}
+	responder.spawn = func(id string) (*streamSession, error) {
+		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.env)
 	}
-	return r
+	return responder
 }
 
-func (r *streamResponder) publishSessionID(id string) {
-	if id == "" {
+func (r *streamResponder) publishSessionID(sessionID string) {
+	if sessionID == "" {
 		return
 	}
 	r.idMu.Lock()
-	r.resumeID = id
+	r.resumeID = sessionID
 	r.idMu.Unlock()
 }
 
@@ -473,21 +473,21 @@ func (r *streamResponder) currentSessionID() string {
 	return r.resumeID
 }
 
-func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
+func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if r.sess == nil {
-		s, err := r.spawn(r.currentSessionID())
+		session, err := r.spawn(r.currentSessionID())
 		if err != nil {
 			return "", err
 		}
-		r.sess = s
+		r.sess = session
 	}
-	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
-	tr, err := r.sess.Send(ctx, content, onEvent)
+	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
+	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
 		if ctx.Err() != nil {
 			r.publishSessionID(r.sess.sessID)
@@ -501,20 +501,20 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 		r.publishSessionID(r.sess.sessID)
 		closeErr := r.sess.Close()
 		r.sess = nil
-		s, startErr := r.spawn(r.currentSessionID())
+		session, startErr := r.spawn(r.currentSessionID())
 		if startErr != nil {
 			return "", errors.Join(startErr, closeErr)
 		}
-		r.sess = s
-		if tr, err = r.sess.Send(ctx, content, onEvent); err != nil {
+		r.sess = session
+		if turn, err = r.sess.Send(ctx, content, onEvent); err != nil {
 			return "", errors.Join(err, closeErr)
 		}
 	}
-	r.publishSessionID(tr.SessionID)
-	if tr.IsError {
-		return tr.Text, errFromTurn(tr, tr.SessionID)
+	r.publishSessionID(turn.SessionID)
+	if turn.IsError {
+		return turn.Text, errFromTurn(turn, turn.SessionID)
 	}
-	return tr.Text, nil
+	return turn.Text, nil
 }
 
 func (r *streamResponder) ResumeToken() string {
@@ -535,9 +535,9 @@ func (r *streamResponder) Close() error {
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
 
-func errFromTurn(tr turnResult, sessID string) error {
-	if tr.ErrMsg != "" {
-		return &turnError{msg: tr.ErrMsg, sessID: sessID}
+func errFromTurn(turn turnResult, sessID string) error {
+	if turn.ErrMsg != "" {
+		return &turnError{msg: turn.ErrMsg, sessID: sessID}
 	}
 	return &turnError{msg: "claude reported an error", sessID: sessID}
 }
