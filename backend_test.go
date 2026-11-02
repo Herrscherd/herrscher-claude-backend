@@ -52,7 +52,7 @@ func TestConfigHasNoUnreadFields(t *testing.T) {
 	}
 }
 
-func TestClaudeBackendsAreSkillNative(t *testing.T) {
+func TestClaudeBackendsAreSkillNative(*testing.T) {
 	var _ contracts.SkillNative = (*streamResponder)(nil)
 	var _ contracts.SkillNative = (*oneShotResponder)(nil)
 }

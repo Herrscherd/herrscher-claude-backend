@@ -26,7 +26,7 @@ func TestGatewayModelsExist(t *testing.T) {
 }
 
 func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
-	seen := map[string]contracts.Route{}
+	seen := make(map[string]contracts.Route)
 	for _, m := range Models() {
 		if prev, ok := seen[m.ID]; ok {
 			t.Fatalf("ID %q used by both route %q and %q", m.ID, prev, m.Route)

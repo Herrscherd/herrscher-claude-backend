@@ -1,3 +1,4 @@
+// Package claude runs the claude CLI, in stream-json or one-shot mode, as a herrscher backend.
 package claude
 
 import (
@@ -13,8 +14,10 @@ import (
 )
 
 var (
+	// ErrGatewayPairIncomplete reports a gateway base URL injected without its API key.
 	ErrGatewayPairIncomplete = errors.New("refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway")
-	ErrOneshotNeedsCmd       = errors.New("oneshot backend requires a non-empty Cmd")
+	// ErrOneshotNeedsCmd reports a oneshot backend configured without a command.
+	ErrOneshotNeedsCmd = errors.New("oneshot backend requires a non-empty Cmd")
 )
 
 // Config configures a Claude backend. Kind selects the response strategy:

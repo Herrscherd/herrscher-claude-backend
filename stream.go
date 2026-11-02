@@ -40,20 +40,15 @@ func withAttachments(text string, paths []string) string {
 	if len(paths) == 0 {
 		return text
 	}
-	var b strings.Builder
-	b.WriteString(text)
-	if text != "" {
-		b.WriteString("\n\n")
+	marks := make([]string, 0, len(paths))
+	for _, p := range paths {
+		marks = append(marks, "[Image jointe : "+p+"]")
 	}
-	for i, p := range paths {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		b.WriteString("[Image jointe : ")
-		b.WriteString(p)
-		b.WriteByte(']')
+	block := strings.Join(marks, "\n")
+	if text == "" {
+		return block
 	}
-	return b.String()
+	return text + "\n\n" + block
 }
 
 var memoryFence = regexp.MustCompile(`(?i)<\s*/?\s*memory\s*>`)
@@ -107,7 +102,7 @@ type contentBlock struct {
 
 type turnParser struct{ agents map[string]bool }
 
-func newTurnParser() *turnParser { return &turnParser{agents: map[string]bool{}} }
+func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
 
 func parseTodos(input json.RawMessage) []contracts.TodoItem {
 	var in struct {
@@ -537,6 +532,7 @@ func (r *streamResponder) Close() error {
 	return nil
 }
 
+// ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
 
 func errFromTurn(tr turnResult, sessID string) error {
