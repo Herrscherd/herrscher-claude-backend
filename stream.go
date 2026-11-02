@@ -136,7 +136,7 @@ func parseAgent(toolUseID string, input json.RawMessage) contracts.Subagent {
 		Description  string `json:"description"`
 		SubagentType string `json:"subagent_type"`
 	}
-	if !decodes(input, &agentInput) {
+	if !decodeOrSkip(input, &agentInput) {
 		return contracts.Subagent{ID: toolUseID, State: stateActive}
 	}
 	name := agentInput.Description
@@ -234,7 +234,7 @@ func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.Ba
 	return turnResult{}, false, nil
 }
 
-func decodes(data []byte, into any) bool {
+func decodeOrSkip(data []byte, into any) bool {
 	return json.Unmarshal(data, into) == nil
 }
 
@@ -242,7 +242,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	var head struct {
 		Type string `json:"type"`
 	}
-	if !decodes(line, &head) {
+	if !decodeOrSkip(line, &head) {
 		return turnResult{}, false, nil
 	}
 	switch head.Type {
@@ -261,7 +261,7 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 		return
 	}
 	var event streamEvent
-	if !decodes(line, &event) {
+	if !decodeOrSkip(line, &event) {
 		return
 	}
 	for _, b := range event.Message.Content {
@@ -307,7 +307,7 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 		return
 	}
 	var event streamEvent
-	if !decodes(line, &event) {
+	if !decodeOrSkip(line, &event) {
 		return
 	}
 	for _, block := range event.Message.Content {
