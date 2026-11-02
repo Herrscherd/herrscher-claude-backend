@@ -52,7 +52,7 @@ func withAttachments(text string, paths []string) string {
 	return text + "\n\n" + block
 }
 
-var memoryFence = regexp.MustCompile(`(?i)<\s*/?\s*memory\s*>`)
+var memoryFence = regexp.MustCompile(`(?i)<\s*/?\s*memory\b[^>]*(?:>|\z)`)
 
 func withContext(ctx, text string) string {
 	if ctx == "" {
@@ -164,10 +164,6 @@ func toolDetail(input json.RawMessage) string {
 }
 
 type streamEvent struct {
-	Type         string  `json:"type"`
-	SessionID    string  `json:"session_id"`
-	IsError      bool    `json:"is_error"`
-	Result       string  `json:"result"`
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Message      struct {
 		Content []contentBlock `json:"content"`
@@ -243,7 +239,11 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	var head struct {
 		Type string `json:"type"`
 	}
-	if !decodeOrSkip(line, &head) {
+	if err := json.Unmarshal(line, &head); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if errors.As(err, &typeErr) {
+			return turnResult{}, false, fmt.Errorf("decoding stream event type: %w", err)
+		}
 		return turnResult{}, false, nil
 	}
 	switch head.Type {
@@ -320,7 +320,19 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	}
 }
 
+type resultControl struct {
+	Type      string `json:"type"`
+	Subtype   string `json:"subtype"`
+	IsError   bool   `json:"is_error"`
+	SessionID string `json:"session_id"`
+	Result    string `json:"result"`
+}
+
 func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+	var control resultControl
+	if err := json.Unmarshal(line, &control); err != nil {
+		return turnResult{}, false, fmt.Errorf("decoding result event: %w", err)
+	}
 	var event streamEvent
 	if err := json.Unmarshal(line, &event); err != nil {
 		var typeErr *json.UnmarshalTypeError
@@ -330,20 +342,20 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	}
 	tokens := resultUsage(event)
 	if onEvent != nil {
-		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: event.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
+		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: control.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
 	}
 	turn := turnResult{
-		Text:        event.Result,
+		Text:        control.Result,
 		CostUSD:     event.TotalCostUSD,
-		SessionID:   event.SessionID,
-		IsError:     event.IsError,
+		SessionID:   control.SessionID,
+		IsError:     control.IsError,
 		InTokens:    tokens.InputTokens,
 		OutTokens:   tokens.OutputTokens,
 		CacheRead:   tokens.CacheReadInputTokens,
 		CacheCreate: tokens.CacheCreationInputTokens,
 	}
-	if event.IsError {
-		turn.ErrMsg = event.Result
+	if control.IsError {
+		turn.ErrMsg = control.Result
 	}
 	return turn, true, nil
 }

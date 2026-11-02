@@ -67,6 +67,11 @@ func TestParseTurnLineResultDecodeErrors(t *testing.T) {
 		{"nested type drift", `{"type":"result","is_error":false,"result":"ok","usage":7,"session_id":"s"}`, false, true, "ok"},
 		{"not json", `boot: starting claude`, false, false, ""},
 		{"unknown type", `{"type":"system","subtype":"init"}`, false, false, ""},
+		{"is_error type drift", `{"type":"result","is_error":"true","result":"rate limit","session_id":"s"}`, true, false, ""},
+		{"session_id type drift", `{"type":"result","is_error":false,"result":"ok","session_id":42}`, true, false, ""},
+		{"subtype type drift", `{"type":"result","subtype":1,"is_error":false,"result":"ok","session_id":"s"}`, true, false, ""},
+		{"result type drift", `{"type":"result","is_error":false,"result":["ok"],"session_id":"s"}`, true, false, ""},
+		{"event type drift", `{"type":7,"is_error":false,"result":"ok","session_id":"s"}`, true, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr, done, err := newTurnParser().parseLine([]byte(tc.line), nil)
