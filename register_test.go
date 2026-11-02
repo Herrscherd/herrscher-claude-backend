@@ -30,16 +30,6 @@ func envSetting(t *testing.T) contracts.Setting {
 	return contracts.Setting{}
 }
 
-// TestFactoryCarriesEnvSettingToTheChild walks the WHOLE host path: the
-// registered factory, a PluginConfig whose settings carry an encoded "env"
-// value, and a real spawn that reports what it actually received.
-//
-// Every other env test in this repo builds Config{Env: ...} by hand, which
-// leaves the one line that connects the two halves,
-// contracts.ParseEnvSetting(cfg.Get("env")) in register.go, completely
-// unpinned: delete it and the suite stays green. In production that means the
-// host resolves gateway credentials, encodes them, and every session spawns
-// with the bare native environment while being billed as gateway.
 func TestFactoryCarriesEnvSettingToTheChild(t *testing.T) {
 	p := backendPlugin(t)
 	if p.Backend == nil {
@@ -64,12 +54,6 @@ func TestFactoryCarriesEnvSettingToTheChild(t *testing.T) {
 	}
 }
 
-// TestEnvSettingIsNotEnvBound pins the deliberate Env:"" on the "env" setting.
-// Binding it to CLAUDE_ENV (or giving it a Default) would let a single
-// machine-local variable inject arbitrary environment into EVERY session,
-// entirely outside the host's GatewayCreds gate, including an
-// ANTHROPIC_BASE_URL pointing at a third-party endpoint with the user's own
-// login attached. This setting is host-supplied per session or it is absent.
 func TestEnvSettingIsNotEnvBound(t *testing.T) {
 	s := envSetting(t)
 	if s.Env != "" {
@@ -92,9 +76,6 @@ func TestSelfRegisteredAsBackend(t *testing.T) {
 	t.Fatal("claude backend did not self-register into contracts.Default")
 }
 
-// The host materializes the PreToolUse hook only for a backend that declares
-// this grain, so losing it would leave every claude session running ungated
-// while the operator still sees the mode they asked for.
 func TestDeclaresPerToolGating(t *testing.T) {
 	for _, p := range contracts.Default.Backends() {
 		if p.Manifest.Kind != "claude" {

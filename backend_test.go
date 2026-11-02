@@ -33,9 +33,6 @@ func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
 	}
 }
 
-// TestConfigHasNoUnreadFields pins the Config surface: every field must be read
-// somewhere in the package. Verbose used to sit here purely as a "reserved"
-// knob that nothing consulted, so callers setting it got silence.
 func TestConfigHasNoUnreadFields(t *testing.T) {
 	want := map[string]bool{
 		"Kind": true, "Stream": true, "Cmd": true,

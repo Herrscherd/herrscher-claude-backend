@@ -6,9 +6,6 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-// TestParseTurnLine_UsageEmitsTokens asserts that token usage is parsed from
-// assistant lines (live) and the terminal result line (final) and surfaced on
-// BackendEvents and the turnResult.
 func TestParseTurnLine_UsageEmitsTokens(t *testing.T) {
 	var events []contracts.BackendEvent
 	collect := func(e contracts.BackendEvent) { events = append(events, e) }
