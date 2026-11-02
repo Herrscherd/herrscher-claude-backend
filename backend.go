@@ -2,12 +2,18 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+)
+
+var (
+	ErrGatewayPairIncomplete = errors.New("refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway")
+	ErrOneshotNeedsCmd       = errors.New("oneshot backend requires a non-empty Cmd")
 )
 
 // Config configures a Claude backend. Kind selects the response strategy:
@@ -47,8 +53,7 @@ func checkGatewayPair(env map[string]string) error {
 		return nil
 	}
 	if strings.TrimSpace(env[contracts.EnvAnthropicAPIKey]) == "" {
-		return fmt.Errorf("refusing to spawn: %s is set without %s; the session would run on the machine's own subscription while being routed through the gateway",
-			contracts.EnvAnthropicBaseURL, contracts.EnvAnthropicAPIKey)
+		return fmt.Errorf("%w: %s is set without %s", ErrGatewayPairIncomplete, contracts.EnvAnthropicBaseURL, contracts.EnvAnthropicAPIKey)
 	}
 	return nil
 }
@@ -80,7 +85,7 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 	switch resolveBackend(c.Kind, c.Stream) {
 	case "oneshot":
 		if strings.TrimSpace(c.Cmd) == "" {
-			return nil, fmt.Errorf("oneshot backend requires a non-empty Cmd")
+			return nil, ErrOneshotNeedsCmd
 		}
 		cmdStr, env := c.Cmd, c.Env
 		return &oneShotResponder{run: func(ctx context.Context, p contracts.Prompt) (string, error) {
