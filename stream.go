@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"regexp"
@@ -490,24 +491,17 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
 		if ctx.Err() != nil {
-			r.publishSessionID(r.sess.sessID)
-			closeErr := r.sess.Close()
-			r.sess = nil
-			return "", errors.Join(err, closeErr)
+			return "", errors.Join(err, r.dropSession())
 		}
 		if onEvent != nil {
 			onEvent(contracts.BackendEvent{Kind: "reset"})
 		}
-		r.publishSessionID(r.sess.sessID)
-		closeErr := r.sess.Close()
-		r.sess = nil
-		session, startErr := r.spawn(r.currentSessionID())
-		if startErr != nil {
-			return "", errors.Join(startErr, closeErr)
-		}
-		r.sess = session
-		if turn, err = r.sess.Send(ctx, content, onEvent); err != nil {
+		closeErr := r.dropSession()
+		if turn, err = r.restartAndSend(ctx, content, onEvent); err != nil {
 			return "", errors.Join(err, closeErr)
+		}
+		if closeErr != nil {
+			slog.Warn("closing the dead claude session", "error", closeErr)
 		}
 	}
 	r.publishSessionID(turn.SessionID)
@@ -515,6 +509,26 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 		return turn.Text, errFromTurn(turn, turn.SessionID)
 	}
 	return turn.Text, nil
+}
+
+func (r *streamResponder) dropSession() error {
+	r.publishSessionID(r.sess.sessID)
+	closeErr := r.sess.Close()
+	r.sess = nil
+	return closeErr
+}
+
+func (r *streamResponder) restartAndSend(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	session, err := r.spawn(r.currentSessionID())
+	if err != nil {
+		return turnResult{}, err
+	}
+	r.sess = session
+	turn, err := r.sess.Send(ctx, content, onEvent)
+	if err != nil {
+		return turnResult{}, errors.Join(err, r.dropSession())
+	}
+	return turn, nil
 }
 
 func (r *streamResponder) ResumeToken() string {
