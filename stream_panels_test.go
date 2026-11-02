@@ -3,7 +3,7 @@ package claude
 import (
 	"testing"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 func collectLines(t *testing.T, lines ...string) []contracts.BackendEvent {

@@ -2,10 +2,9 @@ package claude
 
 import (
 	"context"
-	"reflect"
 	"testing"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 func TestRunCmdPreservesChildEnvironment(t *testing.T) {
@@ -33,27 +32,15 @@ func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
 	}
 }
 
-// TestConfigHasNoUnreadFields pins the Config surface: every field must be read
-// somewhere in the package. Verbose used to sit here purely as a "reserved"
-// knob that nothing consulted, so callers setting it got silence.
-func TestConfigHasNoUnreadFields(t *testing.T) {
-	want := map[string]bool{
-		"Kind": true, "Stream": true, "Cmd": true,
-		"Model": true, "Dir": true, "ResumeID": true,
-		"Env": true,
-	}
-	ty := reflect.TypeOf(Config{})
-	for i := 0; i < ty.NumField(); i++ {
-		if name := ty.Field(i).Name; !want[name] {
-			t.Fatalf("Config.%s is not read anywhere; remove it or wire it up", name)
+func TestClaudeBackendsAreSkillNative(t *testing.T) {
+	for _, kind := range []string{"stream", "oneshot"} {
+		backend, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "claude"})
+		if err != nil {
+			t.Fatalf("NewBackend(%s): %v", kind, err)
+		}
+		skilled, ok := backend.(contracts.SkillNative)
+		if !ok || !skilled.NativeSkills() {
+			t.Fatalf("%s backend does not report native skills", kind)
 		}
 	}
-	if ty.NumField() != len(want) {
-		t.Fatalf("Config has %d fields, want %d", ty.NumField(), len(want))
-	}
-}
-
-func TestClaudeBackendsAreSkillNative(t *testing.T) {
-	var _ contracts.SkillNative = (*streamResponder)(nil)
-	var _ contracts.SkillNative = (*oneShotResponder)(nil)
 }

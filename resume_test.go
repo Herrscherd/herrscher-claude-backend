@@ -14,12 +14,10 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 func TestStreamResponderResumeToken(t *testing.T) {
-	// Before the first turn, the token is whatever was passed in at construction.
 	r := &streamResponder{resumeID: "boot-id"}
 	if got := r.ResumeToken(); got != "boot-id" {
 		t.Fatalf("nil session: want boot-id, got %q", got)
 	}
-	// Once a session exists, the live claude session_id wins.
 	r.sess = newStreamSession(nopWriteCloser{io.Discard}, strings.NewReader(""))
 	r.publishSessionID("live-id")
 	if got := r.ResumeToken(); got != "live-id" {
@@ -27,7 +25,7 @@ func TestStreamResponderResumeToken(t *testing.T) {
 	}
 }
 
-func TestStreamResponderIsResumeAware(t *testing.T) {
+func TestStreamResponderIsResumeAware(*testing.T) {
 	var _ contracts.ResumeAware = (*streamResponder)(nil)
 }
 

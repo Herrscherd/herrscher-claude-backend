@@ -3,36 +3,26 @@ package claude
 import (
 	"context"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-// init self-registers the Claude backend into the global plugin registry. A
-// blank import of this package (in the host's generated plugins.go) makes the
-// backend discoverable with no host wiring. The factory maps the neutral
-// PluginConfig onto the backend's Config.
+const backendKind = "claude"
+
 func init() {
 	contracts.Register(contracts.Plugin{
 		Manifest: contracts.Manifest{
-			Kind:     "claude",
+			Kind:     backendKind,
 			Category: contracts.CategoryBackend,
 			Status:   contracts.StatusLive,
 			Config: []contracts.Setting{
-				{Key: "cmd", Env: "CLAUDE_CMD", Help: "base command to run the agent", Default: "claude"},
+				{Key: "cmd", Env: "CLAUDE_CMD", Help: "base command to run the agent", Default: backendKind},
 				{Key: "model", Env: "CLAUDE_MODEL", Help: "model override"},
 				{Key: "stream", Env: "CLAUDE_STREAM", Help: "stream-json mode (false to disable)", Default: "true"},
 				{Key: "dir", Env: "CLAUDE_DIR", Help: "working directory"},
 				{Key: "kind", Env: "CLAUDE_KIND", Help: "backend kind"},
-				// Env is deliberately left unbound (Env: "") — this setting comes
-				// from the host per session, never from a daemon environment
-				// variable. Binding it would let a single env var hijack every
-				// session at once.
 				{Key: "env", Env: "", Help: "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"},
 			},
-			Models: Models,
-			// Claude Code runs a PreToolUse hook before every tool call, which is
-			// exactly one decision per call, so a rule written per tool is honoured
-			// as written. The host materializes that hook into the session's
-			// worktree; declaring the grain here is what tells it to.
+			Models:       Models(),
 			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool},
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {

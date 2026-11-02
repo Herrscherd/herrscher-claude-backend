@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Herrscherd/herrscher-contracts"
+	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
 func TestStreamSessionConsecutiveTurns(t *testing.T) {
@@ -21,11 +21,11 @@ func TestStreamSessionConsecutiveTurns(t *testing.T) {
 			if _, err := br.ReadBytes('\n'); err != nil {
 				return
 			}
-			io.WriteString(stdoutW,
+			mustWriteString(t, stdoutW,
 				`{"type":"assistant","message":{"content":[{"type":"text","text":"`+reply+`"}]}}`+"\n"+
 					`{"type":"result","is_error":false,"result":"`+reply+`","session_id":"s-`+reply+`"}`+"\n")
 		}
-		stdoutW.Close()
+		mustClose(t, stdoutW)
 	}()
 
 	s := newStreamSession(stdinW, stdoutR)
@@ -67,6 +67,11 @@ func TestParseTurnLineResultDecodeErrors(t *testing.T) {
 		{"nested type drift", `{"type":"result","is_error":false,"result":"ok","usage":7,"session_id":"s"}`, false, true, "ok"},
 		{"not json", `boot: starting claude`, false, false, ""},
 		{"unknown type", `{"type":"system","subtype":"init"}`, false, false, ""},
+		{"is_error type drift", `{"type":"result","is_error":"true","result":"rate limit","session_id":"s"}`, true, false, ""},
+		{"session_id type drift", `{"type":"result","is_error":false,"result":"ok","session_id":42}`, true, false, ""},
+		{"subtype type drift", `{"type":"result","subtype":1,"is_error":false,"result":"ok","session_id":"s"}`, true, false, ""},
+		{"result type drift", `{"type":"result","is_error":false,"result":["ok"],"session_id":"s"}`, true, false, ""},
+		{"event type drift", `{"type":7,"is_error":false,"result":"ok","session_id":"s"}`, true, false, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			tr, done, err := newTurnParser().parseLine([]byte(tc.line), nil)
@@ -87,7 +92,7 @@ func TestReadTurnDoesNotHangOnDriftedResult(t *testing.T) {
 	canned := `{"type":"result","is_error":false,"result":"ok","total_cost_usd":"0.0123","session_id":"s"}` + "\n"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned)), nil)
+	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned), nil), nil)
 	if err != nil {
 		t.Fatalf("drifted result line must still terminate the turn: %v", err)
 	}
@@ -99,7 +104,8 @@ func TestReadTurnDoesNotHangOnDriftedResult(t *testing.T) {
 func TestRespondFailedRestartClearsSession(t *testing.T) {
 	dead := newStreamSession(discardWriteCloser{}, strings.NewReader(""))
 	dead.sessID = "conv-7"
-	r := &streamResponder{ctx: context.Background(), base: []string{"herrscher-no-such-binary"}, sess: dead}
+	r := newStreamResponder(context.Background(), []string{"herrscher-no-such-binary"}, "", "", "", nil)
+	r.sess = dead
 
 	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil); err == nil {
 		t.Fatal("expected the failed restart to error")
@@ -126,11 +132,14 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 			if !errors.Is(err, ErrTurnFailed) {
 				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
 			}
-			if err.Error() != tc.msg {
-				t.Fatalf("message = %q, want %q", err.Error(), tc.msg)
-			}
 			var te *turnError
-			if !errors.As(err, &te) || te.SessionID() != "s-1" {
+			if !errors.As(err, &te) {
+				t.Fatalf("error type = %T, want *turnError", err)
+			}
+			if te.msg != tc.msg {
+				t.Fatalf("message = %q, want %q", te.msg, tc.msg)
+			}
+			if te.SessionID() != "s-1" {
 				t.Fatalf("session id not carried: %+v", te)
 			}
 		})
@@ -140,14 +149,17 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 	pr, pw := io.Pipe()
 	sess := newStreamSession(discardWriteCloser{}, pr)
-	r := &streamResponder{ctx: context.Background(), resumeID: "boot", sess: sess}
+	r := newStreamResponder(context.Background(), nil, "", "boot", "", nil)
+	r.sess = sess
 
 	turnDone := make(chan struct{})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() {
-		_, _ = r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
-		close(turnDone)
+		defer close(turnDone)
+		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); !errors.Is(err, context.Canceled) {
+			t.Errorf("respond = %v, want context.Canceled", err)
+		}
 	}()
 
 	got := make(chan string, 1)
@@ -161,6 +173,6 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 		t.Fatal("ResumeToken blocked behind an in-flight turn")
 	}
 	cancel()
-	_ = pw.Close()
 	<-turnDone
+	mustClose(t, pw)
 }

@@ -7,9 +7,6 @@ import (
 	"time"
 )
 
-// TestStreamSessionLiveTwoTurns exercises one Claude stream-json process
-// answering two sequential Send calls. Skipped unless CLAUDE_BACKEND_LIVE=1
-// (it spends real model quota).
 func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	if os.Getenv("CLAUDE_BACKEND_LIVE") != "1" {
 		t.Skip("set CLAUDE_BACKEND_LIVE=1 to run the live claude smoke test")
@@ -21,7 +18,7 @@ func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer mustClose(t, s)
 
 	tr1, err := s.Send(ctx, "Reply with exactly one word: ONE", nil)
 	if err != nil {
