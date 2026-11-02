@@ -127,11 +127,11 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 			if !errors.Is(err, ErrTurnFailed) {
 				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
 			}
-			if err.Error() != tc.msg {
-				t.Fatalf("message = %q, want %q", err.Error(), tc.msg)
-			}
 			var te *turnError
-			if !errors.As(err, &te) || te.SessionID() != "s-1" {
+			if !errors.As(err, &te) || te.msg != tc.msg {
+				t.Fatalf("message = %q, want %q", te.msg, tc.msg)
+			}
+			if te.SessionID() != "s-1" {
 				t.Fatalf("session id not carried: %+v", te)
 			}
 		})

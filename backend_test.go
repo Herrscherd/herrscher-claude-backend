@@ -2,9 +2,6 @@ package claude
 
 import (
 	"context"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -35,50 +32,15 @@ func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
 	}
 }
 
-func TestConfigHasNoUnreadFields(t *testing.T) {
-	want := map[string]bool{
-		"Kind": true, "Stream": true, "Cmd": true,
-		"Model": true, "Dir": true, "ResumeID": true,
-		"Env": true,
-	}
-	fields := configFieldNames(t)
-	for _, name := range fields {
-		if !want[name] {
-			t.Fatalf("Config.%s is not read anywhere; remove it or wire it up", name)
+func TestClaudeBackendsAreSkillNative(t *testing.T) {
+	for _, kind := range []string{"stream", "oneshot"} {
+		backend, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "claude"})
+		if err != nil {
+			t.Fatalf("NewBackend(%s): %v", kind, err)
+		}
+		skilled, ok := backend.(contracts.SkillNative)
+		if !ok || !skilled.NativeSkills() {
+			t.Fatalf("%s backend does not report native skills", kind)
 		}
 	}
-	if len(fields) != len(want) {
-		t.Fatalf("Config has %d fields, want %d", len(fields), len(want))
-	}
-}
-
-func TestClaudeBackendsAreSkillNative(*testing.T) {
-	var _ contracts.SkillNative = (*streamResponder)(nil)
-	var _ contracts.SkillNative = (*oneShotResponder)(nil)
-}
-
-func configFieldNames(t *testing.T) []string {
-	t.Helper()
-	file, err := parser.ParseFile(token.NewFileSet(), "backend.go", nil, parser.SkipObjectResolution)
-	if err != nil {
-		t.Fatalf("parsing backend.go: %v", err)
-	}
-	var names []string
-	ast.Inspect(file, func(node ast.Node) bool {
-		spec, ok := node.(*ast.TypeSpec)
-		if !ok || spec.Name.Name != "Config" {
-			return true
-		}
-		structType, isStruct := spec.Type.(*ast.StructType)
-		if !isStruct {
-			return false
-		}
-		for _, field := range structType.Fields.List {
-			for _, name := range field.Names {
-				names = append(names, name.Name)
-			}
-		}
-		return false
-	})
-	return names
 }

@@ -2,12 +2,12 @@ package claude
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -57,17 +57,16 @@ func TestBackendConfigCarriesEnvToOneShot(t *testing.T) {
 	}
 }
 
-func waitForProbeFile(t *testing.T, path string) string {
+func readProbeAfterTurn(t *testing.T, sess *streamSession, path string) string {
 	t.Helper()
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		if b, err := os.ReadFile(path); err == nil {
-			return string(b)
-		}
-		time.Sleep(20 * time.Millisecond)
+	if _, err := sess.Send(context.Background(), "probe", nil); err != nil {
+		t.Fatalf("probe turn: %v", err)
 	}
-	t.Fatalf("probe file %s never appeared within the deadline", path)
-	return ""
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading probe file %s: %v", path, err)
+	}
+	return string(b)
 }
 
 func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
@@ -76,7 +75,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 	t.Run("injected value reaches the child", func(t *testing.T) {
 		dir := t.TempDir()
 		probeFile := filepath.Join(dir, "probe.txt")
-		script := fmt.Sprintf(`printf '%%s' "$%s" > %q; exec cat`, probeVar, probeFile)
+		script := fmt.Sprintf(`printf '%%s' "$%s" > %q; printf '{"type":"result","result":"ok"}\n'; exec cat`, probeVar, probeFile)
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -87,7 +86,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 		}
 		defer mustClose(t, sess)
 
-		got := waitForProbeFile(t, probeFile)
+		got := readProbeAfterTurn(t, sess, probeFile)
 		if got != "injected-stream-value" {
 			t.Fatalf("probe file contains %q, want %q", got, "injected-stream-value")
 		}
@@ -96,7 +95,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 	t.Run("nil env leaves the probe var absent", func(t *testing.T) {
 		dir := t.TempDir()
 		probeFile := filepath.Join(dir, "probe.txt")
-		script := fmt.Sprintf(`if [ -z "${%s+x}" ]; then printf ABSENT > %q; else printf 'SET:%%s' "$%s" > %q; fi; exec cat`,
+		script := fmt.Sprintf(`if [ -z "${%s+x}" ]; then printf ABSENT > %q; else printf 'SET:%%s' "$%s" > %q; fi; printf '{"type":"result","result":"ok"}\n'; exec cat`,
 			probeVar, probeFile, probeVar, probeFile)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -108,7 +107,7 @@ func TestStreamSpawnAppliesInjectedEnv(t *testing.T) {
 		}
 		defer mustClose(t, sess)
 
-		got := waitForProbeFile(t, probeFile)
+		got := readProbeAfterTurn(t, sess, probeFile)
 		if got != "ABSENT" {
 			t.Fatalf("probe variable leaked into the child environment with nil injection: %q", got)
 		}
@@ -134,10 +133,12 @@ func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, kind := range []string{"oneshot", "stream"} {
-				b, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "sh -c env", Env: tc.env})
+				_, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "sh -c env", Env: tc.env})
 				if err == nil {
-					_ = b
 					t.Fatalf("kind %q: NewBackend accepted a base URL with no token", kind)
+				}
+				if !errors.Is(err, ErrGatewayPairIncomplete) {
+					t.Errorf("kind %q: error is not the pair sentinel: %v", kind, err)
 				}
 				if !strings.Contains(err.Error(), contracts.EnvAnthropicAPIKey) {
 					t.Errorf("kind %q: error does not name the missing token: %v", kind, err)
