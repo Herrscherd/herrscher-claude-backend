@@ -184,14 +184,18 @@ type readLine struct {
 	err  error
 }
 
-func startLineReader(source io.Reader) chan readLine {
+func startLineReader(source io.Reader, done <-chan struct{}) chan readLine {
 	lines := make(chan readLine, 1)
 	go func() {
 		defer close(lines)
 		reader := bufio.NewReader(source)
 		for {
 			data, err := reader.ReadBytes('\n')
-			lines <- readLine{data, err}
+			select {
+			case lines <- readLine{data, err}:
+			case <-done:
+				return
+			}
 			if err != nil {
 				return
 			}
@@ -371,15 +375,18 @@ func resultUsage(event streamEvent) usage {
 }
 
 type streamSession struct {
-	mu     sync.Mutex
-	stdin  io.WriteCloser
-	lines  chan readLine
-	cmd    *exec.Cmd
-	sessID string
+	mu       sync.Mutex
+	stdin    io.WriteCloser
+	lines    chan readLine
+	done     chan struct{}
+	stopOnce sync.Once
+	cmd      *exec.Cmd
+	sessID   string
 }
 
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
-	return &streamSession{stdin: stdin, lines: startLineReader(out)}
+	done := make(chan struct{})
+	return &streamSession{stdin: stdin, lines: startLineReader(out, done), done: done}
 }
 
 func streamArgv(base []string, model, resumeID string) []string {
@@ -580,6 +587,7 @@ func (e *turnError) Unwrap() error { return ErrTurnFailed }
 func (e *turnError) SessionID() string { return e.sessID }
 
 func (s *streamSession) Close() error {
+	s.stopOnce.Do(func() { close(s.done) })
 	stdin, cmd := s.stdin, s.cmd
 	s.stdin, s.cmd = nil, nil
 	var closeErrs []error

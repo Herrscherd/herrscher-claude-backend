@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -116,4 +117,40 @@ func TestRespondLogsOldSessionCloseErrorOnRestart(t *testing.T) {
 		t.Fatalf("the dead session's close error was dropped silently; logs: %q", logs.String())
 	}
 	mustClose(t, r)
+}
+
+type endlessLines struct{}
+
+func (endlessLines) Read(p []byte) (int, error) {
+	return copy(p, "{}\n"), nil
+}
+
+func requireLineReaderStopped(t *testing.T, lines <-chan readLine) {
+	t.Helper()
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, open := <-lines:
+			if !open {
+				return
+			}
+		case <-timeout:
+			t.Fatal("the line reader goroutine outlived its consumer")
+		}
+	}
+}
+
+func TestStartLineReaderStopsOnceDone(t *testing.T) {
+	done := make(chan struct{})
+	lines := startLineReader(endlessLines{}, done)
+	close(done)
+	requireLineReaderStopped(t, lines)
+}
+
+func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
+	s := newStreamSession(&spyWriteCloser{}, endlessLines{})
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	requireLineReaderStopped(t, s.lines)
 }
