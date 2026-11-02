@@ -18,7 +18,7 @@ func TestConfigFieldsReachTheStreamChild(t *testing.T) {
 	script := filepath.Join(t.TempDir(), "echo-child.sh")
 	child := "#!/bin/sh\nIFS= read -r _\n" +
 		`printf '{"type":"result","is_error":false,"result":"%s|%s|%s","session_id":"s"}\n' "$*" "$(pwd -P)" "$HERRSCHER_PROBE"` + "\n"
-	if err := os.WriteFile(script, []byte(child), 0o755); err != nil {
+	if err = os.WriteFile(script, []byte(child), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -33,9 +33,13 @@ func TestConfigFieldsReachTheStreamChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { mustClose(t, backend.(*streamResponder)) })
+	responder, ok := backend.(*streamResponder)
+	if !ok {
+		t.Fatalf("want *streamResponder, got %T", backend)
+	}
+	t.Cleanup(func() { mustClose(t, responder) })
 
-	got, err := backend.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	got, err := responder.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
