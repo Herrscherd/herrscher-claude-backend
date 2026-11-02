@@ -16,17 +16,11 @@ const (
 	haikuInputPrice  = 1
 )
 
-// Models is the catalog this backend declares it knows how to execute.
+// Models is the catalog of models this backend declares it can execute.
 //
-// Despite its name, this plugin is not "the Claude backend" but the Anthropic
-// protocol runtime: the same claude binary also runs GLM, Qwen, and DeepSeek,
-// all of which publish an Anthropic-compatible endpoint. Those entries arrive as
-// gateway routes, without a single line of code change here. The name is kept
-// because renaming it would migrate persisted state (state.Session.Vendor)
-// across four repositories for a cosmetic gain.
+// The plugin is the Anthropic protocol runtime rather than a Claude-only backend: the same claude binary also runs other models that publish an Anthropic-compatible endpoint. Those entries arrive as gateway routes, without a single line of code change here. The name is kept because renaming it would migrate persisted state (state.Session.Vendor) across four repositories for a cosmetic gain.
 //
-// IDs and labels are drawn from MODEL_CATALOG.claude in the app, which becomes
-// obsolete once this source takes over.
+// This catalog is the source of truth for the IDs and labels of the Anthropic models.
 func Models() []contracts.ModelSpec {
 	efforts := []string{"low", "medium", "high", "xhigh", "max"}
 	return []contracts.ModelSpec{
