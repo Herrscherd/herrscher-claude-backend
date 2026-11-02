@@ -8,8 +8,6 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-// backendPlugin returns the claude plugin as the host sees it: from the global
-// registry, not from a struct the test built itself.
 func backendPlugin(t *testing.T) contracts.Plugin {
 	t.Helper()
 	for _, p := range contracts.Default.Backends() {
@@ -21,7 +19,6 @@ func backendPlugin(t *testing.T) contracts.Plugin {
 	return contracts.Plugin{}
 }
 
-// envSetting returns the manifest's declaration of the "env" setting.
 func envSetting(t *testing.T) contracts.Setting {
 	t.Helper()
 	for _, s := range backendPlugin(t).Manifest.Config {
@@ -38,8 +35,8 @@ func envSetting(t *testing.T) contracts.Setting {
 // value, and a real spawn that reports what it actually received.
 //
 // Every other env test in this repo builds Config{Env: ...} by hand, which
-// leaves the one line that connects the two halves —
-// contracts.ParseEnvSetting(cfg.Get("env")) in register.go — completely
+// leaves the one line that connects the two halves,
+// contracts.ParseEnvSetting(cfg.Get("env")) in register.go, completely
 // unpinned: delete it and the suite stays green. In production that means the
 // host resolves gateway credentials, encodes them, and every session spawns
 // with the bare native environment while being billed as gateway.
@@ -48,16 +45,12 @@ func TestFactoryCarriesEnvSettingToTheChild(t *testing.T) {
 	if p.Backend == nil {
 		t.Fatal("registered claude plugin has a nil backend factory")
 	}
-	// The host encodes with contracts.EncodeEnvSetting; decoding it is exactly
-	// what register.go is responsible for.
 	setting := contracts.EncodeEnvSetting(map[string]string{"HERRSCHER_ENV_PROBE": "injected"})
 
 	b, err := p.Backend(context.Background(), contracts.PluginConfig{Settings: map[string]string{
 		"kind": "oneshot",
-		// "sh -c env", not bare "env": runCmd appends the prompt content as a
-		// final positional argument, which plain env would try to exec.
-		"cmd": "sh -c env",
-		"env": setting,
+		"cmd":  "sh -c env",
+		"env":  setting,
 	}})
 	if err != nil {
 		t.Fatalf("factory: %v", err)
@@ -74,7 +67,7 @@ func TestFactoryCarriesEnvSettingToTheChild(t *testing.T) {
 // TestEnvSettingIsNotEnvBound pins the deliberate Env:"" on the "env" setting.
 // Binding it to CLAUDE_ENV (or giving it a Default) would let a single
 // machine-local variable inject arbitrary environment into EVERY session,
-// entirely outside the host's GatewayCreds gate — including an
+// entirely outside the host's GatewayCreds gate, including an
 // ANTHROPIC_BASE_URL pointing at a third-party endpoint with the user's own
 // login attached. This setting is host-supplied per session or it is absent.
 func TestEnvSettingIsNotEnvBound(t *testing.T) {

@@ -26,8 +26,6 @@ func TestGatewayModelsExist(t *testing.T) {
 }
 
 func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
-	// The same model served by two routes must have two distinct IDs: the ID
-	// is what determines the route at resume.
 	seen := map[string]contracts.Route{}
 	for _, m := range Models {
 		if prev, ok := seen[m.ID]; ok {
@@ -38,9 +36,6 @@ func TestGatewayAndNativeIDsDoNotCollide(t *testing.T) {
 }
 
 func TestModelsCarryEfforts(t *testing.T) {
-	// This only applies to actual Claude models: third-party models on the
-	// Anthropic protocol (GLM, Qwen, DeepSeek) have no separate effort axis,
-	// and passing one through would produce a flag the upstream rejects.
 	for _, m := range Models {
 		if m.Arg == "" || !strings.HasPrefix(m.Arg, "claude-") {
 			continue

@@ -12,19 +12,19 @@ import (
 
 // Config configures a Claude backend. Kind selects the response strategy:
 //
-//	"stream"  — one persistent claude stream-json process (default)
-//	"oneshot" — run Cmd fresh per message
+//	"stream": one persistent claude stream-json process (default)
+//	"oneshot": run Cmd fresh per message
 //
 // When Kind is empty it is resolved from Stream (the legacy toggle): true →
 // stream, false → oneshot.
 type Config struct {
-	Kind   string // "stream"|"oneshot"; "" resolves from Stream
-	Stream bool   // legacy toggle used only when Kind == ""
-	Cmd    string // base command (split on whitespace)
-	Model  string // --model value (stream)
-	Dir    string // working dir ("" = cwd)
+	Kind   string
+	Stream bool
+	Cmd    string
+	Model  string
+	Dir    string
 
-	ResumeID string // claude session id to resume on first start ("" = fresh)
+	ResumeID string
 
 	// Env is injected into the child process's environment at every spawn. It
 	// carries gateway credentials and is NEVER persisted or logged: that is
@@ -32,9 +32,6 @@ type Config struct {
 	Env map[string]string
 }
 
-// resolveBackend picks the backend kind. An explicit kind always wins. When
-// unset, the default is stream (persistent claude stream-json); stream is the
-// legacy toggle and only consulted here, where false selects the one-shot kind.
 func resolveBackend(kind string, stream bool) string {
 	if kind != "" {
 		return kind
@@ -45,20 +42,6 @@ func resolveBackend(kind string, stream bool) string {
 	return "oneshot"
 }
 
-// checkGatewayPair refuses a spawn whose environment carries a gateway base
-// URL without the token that goes with it.
-//
-// A base URL alone points the claude CLI at the gateway while it authenticates
-// with whatever login the machine already has — the session runs on the user's
-// own claude.ai subscription, which is exactly the shape Anthropic forbids,
-// and it does so silently: the CLI works, the answers come back, nothing looks
-// wrong. Base URL and token travel together or not at all.
-//
-// The host already makes this unrepresentable with GatewayCreds, but the
-// plugin is a separate module and the boundary between them is a plain
-// map[string]string: a host bug, or an "env" setting arriving from somewhere
-// other than the host, would walk straight through. This is defence in depth,
-// and the correct failure is a refusal to spawn, never a degraded spawn.
 func checkGatewayPair(env map[string]string) error {
 	if env[contracts.EnvAnthropicBaseURL] == "" {
 		return nil
@@ -70,32 +53,8 @@ func checkGatewayPair(env map[string]string) error {
 	return nil
 }
 
-// legacyAnthropicAuthToken is the variable the claude CLI used to prefer
-// before Neublox switched to ANTHROPIC_API_KEY (see contracts.EnvAnthropicAPIKey).
-// It is spelled as a literal, not a contracts constant, on purpose: nothing in
-// this codebase should ever WRITE this name again, only scrub it if it
-// arrives from outside — an inherited daemon environment, a stale dev shell —
-// on the gateway route.
 const legacyAnthropicAuthToken = "ANTHROPIC_AUTH_TOKEN"
 
-// spawnEnv builds the child process environment for a claude spawn: base
-// merged with env via contracts.MergeEnv, plus — on the gateway route only —
-// a scrub of any legacyAnthropicAuthToken inherited from base.
-//
-// The scrub is CONDITIONAL on env carrying a gateway base URL. Off the
-// gateway route (the native build, deliberately running on the machine's own
-// claude.ai login) base passes through untouched: that is today's everyday
-// behaviour for colleagues using the internal build, and an unconditional
-// scrub would regress it.
-//
-// Why the scrub is needed at all: contracts.MergeEnv only overrides keys
-// PRESENT in env, and env no longer carries legacyAnthropicAuthToken. A value
-// left over in the daemon's own process environment (a dev shell that still
-// exports it, a stale systemd unit) would otherwise survive the merge
-// untouched and ride into the child alongside the new
-// contracts.EnvAnthropicAPIKey — the claude CLI would send both x-api-key and
-// Authorization, and Anthropic's API answers that with a 401. That is exactly
-// the failure mode this task exists to prevent.
 func spawnEnv(base []string, env map[string]string) []string {
 	merged := contracts.MergeEnv(base, env)
 	if env[contracts.EnvAnthropicBaseURL] == "" {
@@ -127,17 +86,13 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 		return &oneShotResponder{run: func(ctx context.Context, p contracts.Prompt) (string, error) {
 			return runCmd(ctx, cmdStr, env, p)
 		}}, nil
-	default: // "stream"
+	default:
 		r := &streamResponder{ctx: ctx, base: streamBase(strings.Fields(c.Cmd)), model: c.Model, resumeID: c.ResumeID, env: c.Env}
 		r.dir = c.Dir
 		return r, nil
 	}
 }
 
-// runCmd executes cmdStr (split on whitespace) with the message text appended
-// as the final argument and piped on stdin. env is merged over the daemon's
-// inherited environment (see contracts.MergeEnv): with no injection, the child
-// process environment is unchanged.
 func runCmd(ctx context.Context, cmdStr string, env map[string]string, p contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
 	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))

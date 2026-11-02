@@ -16,11 +16,6 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-// streamBase normalizes a base command for persistent stream-json mode by
-// dropping flags that collide with it. A session persisted before stream mode
-// carries the old default ("claude -p --continue"); streamArgv adds its own -p
-// and the stream-format flags, so the legacy -p/--print/--continue must go or
-// the process launches with a duplicate -p and a conflicting --continue.
 func streamBase(fields []string) []string {
 	out := make([]string, 0, len(fields))
 	for _, f := range fields {
@@ -36,9 +31,6 @@ func streamBase(fields []string) []string {
 	return out
 }
 
-// withAttachments appends image attachment paths to a message body as plain
-// references so the local Claude can open them with its Read tool. Shared by
-// the stream and one-shot backends for consistent phrasing.
 func withAttachments(text string, paths []string) string {
 	if len(paths) == 0 {
 		return text
@@ -59,15 +51,8 @@ func withAttachments(text string, paths []string) string {
 	return b.String()
 }
 
-// memoryFence matches any <memory>/</memory> tag variant — case-insensitive and
-// tolerant of inner whitespace (`< / MEMORY >`) — so recalled text cannot forge
-// or close the fence regardless of how it spells the tag.
 var memoryFence = regexp.MustCompile(`(?i)<\s*/?\s*memory\s*>`)
 
-// withContext prepends memory-recalled background to the turn inside a <memory>
-// fence. The recalled text is untrusted data (words a past user recorded), so
-// any fence-tag variant it carries is defanged and the block is labelled as
-// data, not instructions. Empty context (no Memory plugin) returns text as-is.
 func withContext(ctx, text string) string {
 	if ctx == "" {
 		return text
@@ -78,8 +63,6 @@ func withContext(ctx, text string) string {
 		ctx + "\n</memory>\n\n" + text
 }
 
-// userLine marshals one Claude Code stream-json user message, newline-terminated
-// for writing to the process stdin.
 func userLine(text string) ([]byte, error) {
 	msg := map[string]any{
 		"type": "user",
@@ -95,8 +78,6 @@ func userLine(text string) ([]byte, error) {
 	return append(b, '\n'), nil
 }
 
-// turnResult is the outcome of one assistant turn, parsed from the stream's
-// terminal `result` event.
 type turnResult struct {
 	Text        string
 	CostUSD     float64
@@ -109,13 +90,12 @@ type turnResult struct {
 	CacheCreate int
 }
 
-// contentBlock is one block of an assistant message's content array.
 type contentBlock struct {
-	Type      string          `json:"type"` // "text" | "tool_use" | "thinking" | ...
+	Type      string          `json:"type"`
 	Text      string          `json:"text"`
-	Thinking  string          `json:"thinking"` // reasoning text (thinking)
-	Name      string          `json:"name"`     // tool name (tool_use)
-	Input     json.RawMessage `json:"input"`    // tool input (tool_use)
+	Thinking  string          `json:"thinking"`
+	Name      string          `json:"name"`
+	Input     json.RawMessage `json:"input"`
 	ID        string          `json:"id"`
 	ToolUseID string          `json:"tool_use_id"`
 }
@@ -164,8 +144,6 @@ func parseAgent(id string, input json.RawMessage) contracts.Subagent {
 	return contracts.Subagent{ID: id, Name: name, Kind: in.SubagentType, State: "active"}
 }
 
-// toolDetail extracts the most informative single field from a tool's input
-// (command for Bash, file_path for Read/Edit, etc.) for a one-line summary.
 func toolDetail(input json.RawMessage) string {
 	if len(input) == 0 {
 		return ""
@@ -182,8 +160,6 @@ func toolDetail(input json.RawMessage) string {
 	return ""
 }
 
-// streamEvent is the subset of a stream-json line we care about. The `result`
-// event terminates a turn and carries the final assembled text + cost.
 type streamEvent struct {
 	Type         string  `json:"type"`
 	SessionID    string  `json:"session_id"`
@@ -192,13 +168,11 @@ type streamEvent struct {
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	Message      struct {
 		Content []contentBlock `json:"content"`
-		Usage   *usage         `json:"usage"` // present on assistant lines
+		Usage   *usage         `json:"usage"`
 	} `json:"message"`
-	Usage *usage `json:"usage"` // present on the terminal result line
+	Usage *usage `json:"usage"`
 }
 
-// usage is Claude's per-message token accounting, emitted on assistant lines
-// (cumulative for the turn so far) and on the terminal result line (final).
 type usage struct {
 	InputTokens              int `json:"input_tokens"`
 	OutputTokens             int `json:"output_tokens"`
@@ -206,7 +180,6 @@ type usage struct {
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
-// readLine is one line delivered by the background reader goroutine.
 type readLine struct {
 	data []byte
 	err  error
@@ -254,10 +227,6 @@ func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts
 	}
 }
 
-// parseLine decodes one stream-json line. It peeks the `type` field first
-// and only unmarshals the full nested body for the events we act on ("assistant"
-// with a live onEvent, and "result"), so ignored line types skip the Content
-// slice allocation. done is true only on the terminal `result` event.
 func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
 	var head struct {
 		Type string `json:"type"`
@@ -355,10 +324,6 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	return turnResult{}, false, nil
 }
 
-// streamSession wraps a live `claude` stream-json process: one turn at a time
-// (serialized by mu), writing user messages to stdin and reading turns off
-// stdout. In tests the io pair is injected directly; in production Start wires
-// it to a real subprocess.
 type streamSession struct {
 	mu     sync.Mutex
 	stdin  io.WriteCloser
@@ -367,15 +332,10 @@ type streamSession struct {
 	sessID string
 }
 
-// newStreamSession builds a session over an arbitrary io pair (used by tests and
-// by Start once it has the process pipes).
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
 	return &streamSession{stdin: stdin, lines: startLineReader(out)}
 }
 
-// streamArgv builds the claude argv for persistent stream-json mode: the base
-// command (e.g. ["claude"], possibly with extra user args) followed by the
-// stream flags, plus --model / --resume when provided.
 func streamArgv(base []string, model, resumeID string) []string {
 	argv := append([]string{}, base...)
 	argv = append(argv, "-p",
@@ -391,10 +351,6 @@ func streamArgv(base []string, model, resumeID string) []string {
 	return argv
 }
 
-// startStreamSession launches a real `claude` stream-json process in dir and
-// returns a session wired to its stdin/stdout. env is merged over the
-// daemon's inherited environment (see contracts.MergeEnv): with no
-// injection, the child process environment is unchanged.
 func startStreamSession(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) (*streamSession, error) {
 	argv := streamArgv(base, model, resumeID)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
@@ -418,10 +374,6 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	return s, nil
 }
 
-// Send writes one user message and reads back the full assistant turn, emitting
-// intermediate events to onEvent (nil = none). An error means the stream closed
-// (process died) or ctx was cancelled/timed out — the caller should restart or,
-// on ctx.Err(), drop the wedged session.
 func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -442,7 +394,6 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	return tr, nil
 }
 
-// oneShotResponder runs cmdStr fresh for every message.
 type oneShotResponder struct {
 	run func(ctx context.Context, p contracts.Prompt) (string, error)
 }
@@ -452,12 +403,8 @@ func (o *oneShotResponder) Respond(ctx context.Context, p contracts.Prompt, _ fu
 }
 func (o *oneShotResponder) Close() error { return nil }
 
-// NativeSkills reports that the claude CLI loads skills itself, so the host must
-// not inject its own skill menu for this backend. Implements contracts.SkillNative.
 func (o *oneShotResponder) NativeSkills() bool { return true }
 
-// streamResponder keeps one persistent claude stream-json process alive across
-// messages. On process death it restarts with --resume and retries once.
 type streamResponder struct {
 	ctx      context.Context
 	base     []string
@@ -507,9 +454,6 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 			r.sess = nil
 			return "", err
 		}
-		// Process likely died: restart with the last session id and retry once.
-		// Tell the consumer to discard any partial-turn events emitted before the
-		// crash so the retried turn isn't double-counted.
 		if onEvent != nil {
 			onEvent(contracts.BackendEvent{Kind: "reset"})
 		}
@@ -532,16 +476,10 @@ func (r *streamResponder) Respond(ctx context.Context, p contracts.Prompt, onEve
 	return tr.Text, nil
 }
 
-// ResumeToken returns the backend's current claude session id — the stable id
-// for this conversation, for the host to persist and pass back via --resume.
-// Before the first turn it returns the id supplied at construction. Implements
-// contracts.ResumeAware.
 func (r *streamResponder) ResumeToken() string {
 	return r.currentSessionID()
 }
 
-// NativeSkills reports that the claude CLI loads skills itself, so the host must
-// not inject its own skill menu for this backend. Implements contracts.SkillNative.
 func (r *streamResponder) NativeSkills() bool { return true }
 
 func (r *streamResponder) Close() error {
@@ -573,14 +511,13 @@ func (e *turnError) Unwrap() error { return ErrTurnFailed }
 
 func (e *turnError) SessionID() string { return e.sessID }
 
-// Close stops the session: closes stdin and kills the process if any.
 func (s *streamSession) Close() error {
 	if s.stdin != nil {
 		_ = s.stdin.Close()
 	}
 	if s.cmd != nil && s.cmd.Process != nil {
 		_ = s.cmd.Process.Kill()
-		_ = s.cmd.Wait() // reap so a killed session doesn't leak a zombie on restart
+		_ = s.cmd.Wait()
 	}
 	return nil
 }

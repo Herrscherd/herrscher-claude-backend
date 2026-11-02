@@ -20,12 +20,11 @@ func (discardWriteCloser) Close() error                { return nil }
 func TestInterrupt_PreservesSessionForResume(t *testing.T) {
 	pr, pw := io.Pipe()
 	sess := newStreamSession(discardWriteCloser{}, pr)
-	sess.sessID = "conv-1" // a session id already observed this conversation
+	sess.sessID = "conv-1"
 	r := &streamResponder{ctx: context.Background(), sess: sess}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
-		// One assistant chunk, then interrupt mid-turn (no terminal result).
 		_, _ = pw.Write([]byte(`{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}` + "\n"))
 		cancel()
 	}()
