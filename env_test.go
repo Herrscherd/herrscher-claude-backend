@@ -133,18 +133,23 @@ func TestHalfGatewayPairRefusesToSpawn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for _, kind := range []string{"oneshot", "stream"} {
-				_, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "sh -c env", Env: tc.env})
-				if err == nil {
-					t.Fatalf("kind %q: NewBackend accepted a base URL with no token", kind)
-				}
-				if !errors.Is(err, ErrGatewayPairIncomplete) {
-					t.Errorf("kind %q: error is not the pair sentinel: %v", kind, err)
-				}
-				if !strings.Contains(err.Error(), contracts.EnvAnthropicAPIKey) {
-					t.Errorf("kind %q: error does not name the missing token: %v", kind, err)
-				}
+				assertPairRefused(t, kind, tc.env)
 			}
 		})
+	}
+}
+
+func assertPairRefused(t *testing.T, kind string, env map[string]string) {
+	t.Helper()
+	_, err := NewBackend(context.Background(), Config{Kind: kind, Cmd: "sh -c env", Env: env})
+	if err == nil {
+		t.Fatalf("kind %q: NewBackend accepted a base URL with no token", kind)
+	}
+	if !errors.Is(err, ErrGatewayPairIncomplete) {
+		t.Errorf("kind %q: error is not the pair sentinel: %v", kind, err)
+	}
+	if !strings.Contains(err.Error(), contracts.EnvAnthropicAPIKey) {
+		t.Errorf("kind %q: error does not name the missing token: %v", kind, err)
 	}
 }
 
