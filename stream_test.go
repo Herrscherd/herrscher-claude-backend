@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -240,7 +241,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 		t.Fatalf("got %d events, want %d: %+v", len(got), len(want), got)
 	}
 	for i := range want {
-		if !sameEventKind(got[i], want[i]) {
+		if !sameEvent(t, got[i], want[i]) {
 			t.Fatalf("event[%d] = %+v, want %+v", i, got[i], want[i])
 		}
 	}
@@ -330,6 +331,15 @@ func TestWithContext(t *testing.T) {
 	}
 }
 
-func sameEventKind(a, b contracts.BackendEvent) bool {
-	return a.Kind == b.Kind && a.Detail == b.Detail && a.Tool == b.Tool && a.Cost == b.Cost && a.IsError == b.IsError
+func sameEvent(t *testing.T, got, want contracts.BackendEvent) bool {
+	t.Helper()
+	gotJSON, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("encoding event: %v", err)
+	}
+	wantJSON, err := json.Marshal(want)
+	if err != nil {
+		t.Fatalf("encoding event: %v", err)
+	}
+	return bytes.Equal(gotJSON, wantJSON)
 }
