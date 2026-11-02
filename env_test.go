@@ -175,7 +175,7 @@ func TestNativeEnvIsAccepted(t *testing.T) {
 
 func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 	t.Run("gateway route: the inherited legacy token does not reach the child", func(t *testing.T) {
-		t.Setenv(legacyAnthropicAuthToken, "leaked-daemon-token")
+		t.Setenv(legacyAnthropicAuthVar, "leaked-daemon-token")
 
 		b, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env", Env: map[string]string{
 			contracts.EnvAnthropicBaseURL: "https://gw.example",
@@ -188,8 +188,8 @@ func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Respond: %v (output %q)", err, out)
 		}
-		if strings.Contains(out, legacyAnthropicAuthToken+"=") {
-			t.Fatalf("the daemon's own %s leaked into the gateway-routed child:\n%s", legacyAnthropicAuthToken, out)
+		if strings.Contains(out, legacyAnthropicAuthVar+"=") {
+			t.Fatalf("the daemon's own %s leaked into the gateway-routed child:\n%s", legacyAnthropicAuthVar, out)
 		}
 		if !strings.Contains(out, contracts.EnvAnthropicAPIKey+"=sk-token") {
 			t.Fatalf("the gateway credential itself is missing from the child environment:\n%s", out)
@@ -197,7 +197,7 @@ func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 	})
 
 	t.Run("native route: the same pollution passes through unchanged", func(t *testing.T) {
-		t.Setenv(legacyAnthropicAuthToken, "leaked-daemon-token")
+		t.Setenv(legacyAnthropicAuthVar, "leaked-daemon-token")
 
 		b, err := NewBackend(context.Background(), Config{Kind: "oneshot", Cmd: "sh -c env"})
 		if err != nil {
@@ -207,7 +207,7 @@ func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Respond: %v (output %q)", err, out)
 		}
-		if !strings.Contains(out, legacyAnthropicAuthToken+"=leaked-daemon-token") {
+		if !strings.Contains(out, legacyAnthropicAuthVar+"=leaked-daemon-token") {
 			t.Fatalf("the native route scrubbed a variable it must leave alone: this would regress today's internal build:\n%s", out)
 		}
 	})

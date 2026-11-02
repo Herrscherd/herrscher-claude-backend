@@ -62,7 +62,7 @@ func checkGatewayPair(env map[string]string) error {
 	return nil
 }
 
-const legacyAnthropicAuthToken = "ANTHROPIC_AUTH_TOKEN"
+const legacyAnthropicAuthVar = "ANTHROPIC_AUTH_TOKEN"
 
 func spawnEnv(base []string, env map[string]string) []string {
 	merged := contracts.MergeEnv(base, env)
@@ -71,7 +71,7 @@ func spawnEnv(base []string, env map[string]string) []string {
 	}
 	scrubbed := make([]string, 0, len(merged))
 	for _, entry := range merged {
-		if strings.HasPrefix(entry, legacyAnthropicAuthToken+"=") {
+		if strings.HasPrefix(entry, legacyAnthropicAuthVar+"=") {
 			continue
 		}
 		scrubbed = append(scrubbed, entry)

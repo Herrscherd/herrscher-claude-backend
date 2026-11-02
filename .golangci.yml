@@ -187,10 +187,12 @@ linters:
         text: "^G(304|703):"
       - path: ^backend\.go$
         linters: [gosec]
-        text: "^G101:"
-      - path: ^(backend|stream)\.go$
+        text: "^G204:"
+        source: 'exec\.CommandContext\(ctx, fields\[0\], args\.\.\.\)'
+      - path: ^stream\.go$
         linters: [gosec]
         text: "^G204:"
+        source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
 
 formatters:
   enable:
