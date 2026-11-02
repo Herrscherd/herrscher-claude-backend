@@ -247,10 +247,9 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 }
 
 func TestReadTurnSurfacesCacheTokens(t *testing.T) {
-	canned := strings.Join([]string{
-		`{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":30,"output_tokens":20,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}},"session_id":"s"}`,
-		`{"type":"result","is_error":false,"result":"hi","total_cost_usd":0.004,"session_id":"s","usage":{"input_tokens":30,"output_tokens":55,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}`,
-	}, "\n") + "\n"
+	canned := `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":30,"output_tokens":20,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}},"session_id":"s"}
+{"type":"result","is_error":false,"result":"hi","total_cost_usd":0.004,"session_id":"s","usage":{"input_tokens":30,"output_tokens":55,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}
+`
 
 	var last contracts.BackendEvent
 	res, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned)), func(e contracts.BackendEvent) {

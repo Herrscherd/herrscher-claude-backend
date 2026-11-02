@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -99,7 +100,7 @@ func NewBackend(ctx context.Context, c Config) (contracts.Backend, error) {
 func runCmd(ctx context.Context, cmdStr string, env map[string]string, p contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
 	content := withContext(p.Context, withAttachments(p.Content, p.Attachments))
-	args := append(fields[1:], content)
+	args := append(slices.Clone(fields[1:]), content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Env = spawnEnv(os.Environ(), env)
