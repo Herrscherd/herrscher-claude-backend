@@ -31,7 +31,7 @@ var (
 	errModelsStatus     = errors.New("models endpoint refused the request")
 	errModelsPagination = errors.New("models endpoint paginates without a cursor")
 	errModelsTooMany    = errors.New("models endpoint has more pages than the limit")
-	errModelsRedirect   = errors.New("models endpoint redirected, the key is not resent")
+	errModelsRedirect   = errors.New("models endpoint redirected away from its own https host, the key is not resent")
 )
 
 type modelsPage struct {
@@ -70,11 +70,15 @@ func discover(ctx context.Context, access contracts.DiscoveryAccess) ([]contract
 }
 
 func newModelsClient() *http.Client {
-	return &http.Client{
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return errModelsRedirect
-		},
+	return &http.Client{CheckRedirect: keepKeyOnSameHostHTTPS}
+}
+
+func keepKeyOnSameHostHTTPS(next *http.Request, via []*http.Request) error {
+	origin := via[0].URL
+	if origin.Scheme != "https" || next.URL.Scheme != "https" || next.URL.Host != origin.Host {
+		return errModelsRedirect
 	}
+	return nil
 }
 
 func discoverFrom(ctx context.Context, access contracts.DiscoveryAccess, client *http.Client, nativeBaseURL string) ([]contracts.ModelSpec, error) {

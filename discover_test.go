@@ -162,26 +162,74 @@ func TestDiscoverPaginationWithoutCursorIsAnError(t *testing.T) {
 	}
 }
 
+func tlsModelsClient(server *httptest.Server) *http.Client {
+	client := newModelsClient()
+	client.Transport = server.Client().Transport
+	return client
+}
+
+func TestDiscoverFollowsSameHostHTTPSRedirectKeepingKey(t *testing.T) {
+	var keySeen atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			http.Redirect(w, r, "/v1/moved?"+r.URL.RawQuery, http.StatusTemporaryRedirect)
+		case "/v1/moved":
+			if r.Header.Get("X-Api-Key") == "sk-test" {
+				keySeen.Add(1)
+			}
+			writeBody(t, w, `{"data":[],"has_more":false,"last_id":""}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, tlsModelsClient(server), server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if keySeen.Load() != 1 {
+		t.Fatalf("key reached the same-host redirect target %d time(s), want 1", keySeen.Load())
+	}
+}
+
 func TestDiscoverNeverResendsKeyOnRedirect(t *testing.T) {
 	var leaked atomic.Int32
-	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	elsewhere := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Api-Key") != "" {
 			leaked.Add(1)
 		}
 		writeBody(t, w, `{"data":[],"has_more":false,"last_id":""}`)
 	}))
 	defer elsewhere.Close()
-	redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, elsewhere.URL+r.URL.RequestURI(), http.StatusFound)
+	redirecting := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 	}))
 	defer redirecting.Close()
 
-	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, newModelsClient(), redirecting.URL)
+	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, tlsModelsClient(redirecting), redirecting.URL)
 	if !errors.Is(err, errModelsRedirect) {
 		t.Fatalf("err = %v, want errModelsRedirect", err)
 	}
 	if leaked.Load() != 0 {
 		t.Fatalf("key sent to a redirect target %d time(s)", leaked.Load())
+	}
+}
+
+func TestDiscoverNeverFollowsRedirectToPlainHTTP(t *testing.T) {
+	var leaked atomic.Int32
+	redirecting := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://"+r.Host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
+	}))
+	defer redirecting.Close()
+
+	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, tlsModelsClient(redirecting), redirecting.URL)
+	if !errors.Is(err, errModelsRedirect) {
+		t.Fatalf("err = %v, want errModelsRedirect", err)
+	}
+	if leaked.Load() != 0 {
+		t.Fatalf("key sent over plain http %d time(s)", leaked.Load())
 	}
 }
 
