@@ -18,13 +18,7 @@ type sentLines struct{ bytes.Buffer }
 
 func (s *sentLines) Close() error { return nil }
 
-func compactingResponder(t *testing.T, reply string) (*streamResponder, *sentLines) {
-	t.Helper()
-	return compactingResponderWith(t.Context(), t, reply)
-}
-
-func compactingResponderWith(ctx context.Context, t *testing.T, reply string) (*streamResponder, *sentLines) {
-	t.Helper()
+func compactingResponder(ctx context.Context, reply string) (*streamResponder, *sentLines) {
 	sent := &sentLines{}
 	r := newStreamResponder(ctx, nil, "", "", "", nil)
 	r.sess = newStreamSession(sent, strings.NewReader(reply))
@@ -61,7 +55,7 @@ func TestCompactSendsTheCommandAsATurn(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, sent := compactingResponder(t, compactSuccessWithUsage)
+			r, sent := compactingResponder(t.Context(), compactSuccessWithUsage)
 			if _, err := r.Compact(t.Context(), contracts.CompactRequest{Instruction: tc.instruction}, nil); err != nil {
 				t.Fatalf("Compact: %v", err)
 			}
@@ -82,7 +76,7 @@ func TestCompactNeverClaimsTheSizeAfterCompaction(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			r, _ := compactingResponder(t, tc.reply)
+			r, _ := compactingResponder(t.Context(), tc.reply)
 			got, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
 			if err != nil {
 				t.Fatalf("Compact: %v", err)
@@ -102,7 +96,7 @@ func TestCompactNeverClaimsTheSizeAfterCompaction(t *testing.T) {
 
 func TestCompactWrapsATurnError(t *testing.T) {
 	reply := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}` + "\n"
-	r, _ := compactingResponder(t, reply)
+	r, _ := compactingResponder(t.Context(), reply)
 	_, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
 	if !errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("err = %v, want it to match ErrTurnFailed", err)
@@ -111,7 +105,7 @@ func TestCompactWrapsATurnError(t *testing.T) {
 
 func TestRespondReportsATurnError(t *testing.T) {
 	reply := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}` + "\n"
-	r, _ := compactingResponder(t, reply)
+	r, _ := compactingResponder(t.Context(), reply)
 	_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil)
 	if !errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("err = %v, want it to match ErrTurnFailed", err)
@@ -120,7 +114,7 @@ func TestRespondReportsATurnError(t *testing.T) {
 
 func TestCompactPublishesTheSessionID(t *testing.T) {
 	reply := `{"type":"result","subtype":"success","is_error":false,"result":"ok","session_id":"sess-after-compact"}` + "\n"
-	r, _ := compactingResponder(t, reply)
+	r, _ := compactingResponder(t.Context(), reply)
 	if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
@@ -133,7 +127,7 @@ func TestCancelledContextSendsNothing(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 	t.Run("compact", func(t *testing.T) {
-		r, sent := compactingResponderWith(ctx, t, compactSuccessWithUsage)
+		r, sent := compactingResponder(ctx, compactSuccessWithUsage)
 		if _, err := r.Compact(ctx, contracts.CompactRequest{}, nil); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Compact err = %v, want context.Canceled", err)
 		}
@@ -142,7 +136,7 @@ func TestCancelledContextSendsNothing(t *testing.T) {
 		}
 	})
 	t.Run("respond", func(t *testing.T) {
-		r, sent := compactingResponderWith(ctx, t, compactSuccessWithUsage)
+		r, sent := compactingResponder(ctx, compactSuccessWithUsage)
 		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Respond err = %v, want context.Canceled", err)
 		}
@@ -178,7 +172,11 @@ func TestCompactAndRespondNeverOverlap(t *testing.T) {
 			t.Errorf("Compact: %v", err)
 		}
 	})
-	<-entered
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Compact never reached spawn")
+	}
 	wg.Go(func() {
 		if _, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil); err != nil {
 			t.Errorf("Respond: %v", err)
@@ -191,7 +189,7 @@ func TestCompactAndRespondNeverOverlap(t *testing.T) {
 }
 
 func TestCompactForwardsProgressEvents(t *testing.T) {
-	r, _ := compactingResponder(t, compactSuccessWithUsage)
+	r, _ := compactingResponder(t.Context(), compactSuccessWithUsage)
 	var got []contracts.BackendEvent
 	if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, func(e contracts.BackendEvent) { got = append(got, e) }); err != nil {
 		t.Fatalf("Compact: %v", err)
