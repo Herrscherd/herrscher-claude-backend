@@ -10,7 +10,10 @@ import (
 
 var _ contracts.Compactor = (*streamResponder)(nil)
 
-const compactCommand = "/compact"
+const (
+	compactCommand = "/compact"
+	compactNote    = "Contexte compacté, taille après compaction mesurée au prochain tour."
+)
 
 func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
 	r.mu.Lock()
@@ -22,7 +25,7 @@ func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequ
 	if turn.IsError {
 		return contracts.CompactResult{}, fmt.Errorf("claude compaction: %w", errFromTurn(turn, turn.SessionID))
 	}
-	return compactOutcome(turn), nil
+	return contracts.CompactResult{Note: compactNote}, nil
 }
 
 func compactMessage(instruction string) string {
@@ -31,16 +34,4 @@ func compactMessage(instruction string) string {
 		return compactCommand
 	}
 	return compactCommand + " " + instruction
-}
-
-func compactOutcome(turn turnResult) contracts.CompactResult {
-	if !turn.UsageReported {
-		return contracts.CompactResult{Note: "Contexte compacté, taille non mesurée."}
-	}
-	tokens := turn.InTokens + turn.CacheRead + turn.CacheCreate
-	return contracts.CompactResult{
-		TokensAfter:    tokens,
-		TokensMeasured: true,
-		Note:           fmt.Sprintf("Contexte compacté, %d tokens.", tokens),
-	}
 }

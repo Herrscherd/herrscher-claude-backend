@@ -82,16 +82,15 @@ func userLine(text string) ([]byte, error) {
 }
 
 type turnResult struct {
-	Text          string
-	CostUSD       float64
-	SessionID     string
-	IsError       bool
-	ErrMsg        string
-	InTokens      int
-	OutTokens     int
-	CacheRead     int
-	CacheCreate   int
-	UsageReported bool
+	Text        string
+	CostUSD     float64
+	SessionID   string
+	IsError     bool
+	ErrMsg      string
+	InTokens    int
+	OutTokens   int
+	CacheRead   int
+	CacheCreate int
 }
 
 type contentBlock struct {
@@ -352,15 +351,14 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: control.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
 	}
 	turn := turnResult{
-		Text:          control.Result,
-		CostUSD:       event.TotalCostUSD,
-		SessionID:     control.SessionID,
-		IsError:       control.IsError,
-		InTokens:      tokens.InputTokens,
-		OutTokens:     tokens.OutputTokens,
-		CacheRead:     tokens.CacheReadInputTokens,
-		CacheCreate:   tokens.CacheCreationInputTokens,
-		UsageReported: event.Usage != nil || event.Message.Usage != nil,
+		Text:        control.Result,
+		CostUSD:     event.TotalCostUSD,
+		SessionID:   control.SessionID,
+		IsError:     control.IsError,
+		InTokens:    tokens.InputTokens,
+		OutTokens:   tokens.OutputTokens,
+		CacheRead:   tokens.CacheReadInputTokens,
+		CacheCreate: tokens.CacheCreationInputTokens,
 	}
 	if control.IsError {
 		turn.ErrMsg = control.Result

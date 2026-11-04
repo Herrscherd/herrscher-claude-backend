@@ -62,35 +62,31 @@ func TestCompactSendsTheCommandAsATurn(t *testing.T) {
 	}
 }
 
-func TestCompactReportsTheMeasuredContext(t *testing.T) {
-	r, _ := compactingResponder(t, compactSuccessWithUsage)
-	got, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
-	if err != nil {
-		t.Fatalf("Compact: %v", err)
+func TestCompactNeverClaimsTheSizeAfterCompaction(t *testing.T) {
+	cases := []struct {
+		name  string
+		reply string
+	}{
+		{name: "turn reports usage", reply: compactSuccessWithUsage},
+		{name: "turn reports no usage", reply: `{"type":"result","subtype":"success","is_error":false,"result":"Compacté","session_id":"s"}` + "\n"},
 	}
-	if !got.TokensMeasured || got.TokensAfter != 45 {
-		t.Fatalf("TokensAfter = %d measured %t, want 45 measured", got.TokensAfter, got.TokensMeasured)
-	}
-	if got.Done {
-		t.Fatal("the backend must not stop the stack")
-	}
-	if got.Note == "" {
-		t.Fatal("expected a note for the operator")
-	}
-}
-
-func TestCompactWithoutUsageIsNotMeasured(t *testing.T) {
-	reply := `{"type":"result","subtype":"success","is_error":false,"result":"Compacté","session_id":"s"}` + "\n"
-	r, _ := compactingResponder(t, reply)
-	got, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
-	if err != nil {
-		t.Fatalf("Compact: %v", err)
-	}
-	if got.TokensMeasured || got.TokensAfter != 0 {
-		t.Fatalf("result without usage = %+v, want not measured", got)
-	}
-	if got.Note == "" {
-		t.Fatal("expected a note for the operator")
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r, _ := compactingResponder(t, tc.reply)
+			got, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
+			if err != nil {
+				t.Fatalf("Compact: %v", err)
+			}
+			if got.TokensMeasured || got.TokensAfter != 0 {
+				t.Fatalf("TokensAfter = %d measured %t, want 0 not measured", got.TokensAfter, got.TokensMeasured)
+			}
+			if got.Done {
+				t.Fatal("the backend must not stop the stack")
+			}
+			if got.Note == "" {
+				t.Fatal("expected a note for the operator")
+			}
+		})
 	}
 }
 
