@@ -71,8 +71,9 @@ describes the context before compaction, so the size after it is measured on the
 next turn.
 
 `oneshot` has no session to compact and does not implement the port. The
-manifest flag covers the whole plugin, so a `oneshot` instance makes the host
-warn that the declared compactor is missing. That warning is intended.
+manifest flag covers the whole plugin, so for a `oneshot` instance the contract
+applies as written: the instance does not implement `Compactor`, and the host
+refuses the compaction for that session before sending anything.
 
 ## Build and test
 
