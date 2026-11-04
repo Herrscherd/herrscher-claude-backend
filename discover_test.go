@@ -3,9 +3,12 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync/atomic"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -156,5 +159,90 @@ func TestDiscoverPaginationWithoutCursorIsAnError(t *testing.T) {
 	_, err := listModels(context.Background(), server.Client(), server.URL, "sk-test", contracts.RouteNative)
 	if !errors.Is(err, errModelsPagination) {
 		t.Fatalf("err = %v, want errModelsPagination", err)
+	}
+}
+
+func TestDiscoverNeverResendsKeyOnRedirect(t *testing.T) {
+	var leaked atomic.Int32
+	elsewhere := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "" {
+			leaked.Add(1)
+		}
+		writeBody(t, w, `{"data":[],"has_more":false,"last_id":""}`)
+	}))
+	defer elsewhere.Close()
+	redirecting := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, elsewhere.URL+r.URL.RequestURI(), http.StatusFound)
+	}))
+	defer redirecting.Close()
+
+	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, newModelsClient(), redirecting.URL)
+	if !errors.Is(err, errModelsRedirect) {
+		t.Fatalf("err = %v, want errModelsRedirect", err)
+	}
+	if leaked.Load() != 0 {
+		t.Fatalf("key sent to a redirect target %d time(s)", leaked.Load())
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type trackedBody struct {
+	io.Reader
+
+	closed bool
+}
+
+func (b *trackedBody) Close() error {
+	b.closed = true
+	return nil
+}
+
+func TestDiscoverClosesBodyOnErrorStatus(t *testing.T) {
+	body := &trackedBody{Reader: strings.NewReader("overloaded")}
+	client := newModelsClient()
+	client.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusInternalServerError, Status: "500 Internal Server Error", Body: body, Request: r}, nil
+	})
+
+	_, err := listModels(context.Background(), client, "http://models.invalid", "sk-test", contracts.RouteNative)
+	if !errors.Is(err, errModelsStatus) {
+		t.Fatalf("err = %v, want errModelsStatus", err)
+	}
+	if !body.closed {
+		t.Fatal("response body left open on an error status")
+	}
+}
+
+func TestDiscoverPageLimitIsAnError(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		next := requests.Add(1)
+		writeBody(t, w, fmt.Sprintf(`{"data":[],"has_more":true,"last_id":"page-%d"}`, next))
+	}))
+	defer server.Close()
+
+	_, err := listModels(context.Background(), server.Client(), server.URL, "sk-test", contracts.RouteNative)
+	if !errors.Is(err, errModelsTooMany) {
+		t.Fatalf("err = %v, want errModelsTooMany", err)
+	}
+	if requests.Load() != modelsMaxPages {
+		t.Fatalf("requests = %d, want %d", requests.Load(), modelsMaxPages)
+	}
+}
+
+func TestDiscoverPageOverBodyCapIsAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeBody(t, w, `{"data":[],"has_more":false,"last_id":"`+strings.Repeat("a", modelsMaxBodyBytes)+`"}`)
+	}))
+	defer server.Close()
+
+	_, err := listModels(context.Background(), server.Client(), server.URL, "sk-test", contracts.RouteNative)
+	if err == nil {
+		t.Fatal("oversized page accepted")
 	}
 }

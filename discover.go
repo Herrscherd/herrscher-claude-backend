@@ -31,6 +31,7 @@ var (
 	errModelsStatus     = errors.New("models endpoint refused the request")
 	errModelsPagination = errors.New("models endpoint paginates without a cursor")
 	errModelsTooMany    = errors.New("models endpoint has more pages than the limit")
+	errModelsRedirect   = errors.New("models endpoint redirected, the key is not resent")
 )
 
 type modelsPage struct {
@@ -65,7 +66,15 @@ type effortLevel struct {
 }
 
 func discover(ctx context.Context, access contracts.DiscoveryAccess) ([]contracts.ModelSpec, error) {
-	return discoverFrom(ctx, access, http.DefaultClient, anthropicAPIBaseURL)
+	return discoverFrom(ctx, access, newModelsClient(), anthropicAPIBaseURL)
+}
+
+func newModelsClient() *http.Client {
+	return &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return errModelsRedirect
+		},
+	}
 }
 
 func discoverFrom(ctx context.Context, access contracts.DiscoveryAccess, client *http.Client, nativeBaseURL string) ([]contracts.ModelSpec, error) {
@@ -127,16 +136,24 @@ func fetchModelsPage(ctx context.Context, client *http.Client, baseURL, key, aft
 	if err != nil {
 		return modelsPage{}, fmt.Errorf("list models: %w", err)
 	}
+	return readModelsResponse(response)
+}
+
+func readModelsResponse(response *http.Response) (modelsPage, error) {
+	body, readErr := decodeModelsPage(response)
+	if closeErr := response.Body.Close(); closeErr != nil && readErr == nil {
+		return modelsPage{}, fmt.Errorf("close models response: %w", closeErr)
+	}
+	return body, readErr
+}
+
+func decodeModelsPage(response *http.Response) (modelsPage, error) {
 	if response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices {
 		return modelsPage{}, fmt.Errorf("%w: %s", errModelsStatus, response.Status)
 	}
 	var body modelsPage
-	decodeErr := json.NewDecoder(io.LimitReader(response.Body, modelsMaxBodyBytes)).Decode(&body)
-	if err := response.Body.Close(); err != nil {
-		return modelsPage{}, fmt.Errorf("close models response: %w", err)
-	}
-	if decodeErr != nil {
-		return modelsPage{}, fmt.Errorf("decode models page: %w", decodeErr)
+	if err := json.NewDecoder(io.LimitReader(response.Body, modelsMaxBodyBytes)).Decode(&body); err != nil {
+		return modelsPage{}, fmt.Errorf("decode models page: %w", err)
 	}
 	return body, nil
 }
