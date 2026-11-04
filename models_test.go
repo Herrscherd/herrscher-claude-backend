@@ -61,3 +61,23 @@ func TestManifestPublishesModels(t *testing.T) {
 		t.Fatal("claude backend did not self-register")
 	}
 }
+
+func TestCurrentModelsAreNativeWithTheirOwnArg(t *testing.T) {
+	want := map[string]contracts.Route{
+		"claude-sonnet-5-5": contracts.RouteNative,
+		"claude-haiku-5-5":  contracts.RouteNative,
+	}
+	for _, m := range Models() {
+		route, ok := want[m.ID]
+		if !ok {
+			continue
+		}
+		if m.Route != route || m.Arg != m.ID {
+			t.Errorf("model %q: route %q arg %q, want route %q and arg %q", m.ID, m.Route, m.Arg, route, m.ID)
+		}
+		delete(want, m.ID)
+	}
+	for id := range want {
+		t.Errorf("model %q missing from the catalog", id)
+	}
+}
