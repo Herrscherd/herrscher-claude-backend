@@ -498,38 +498,46 @@ func (r *streamResponder) currentSessionID() string {
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if err := ctx.Err(); err != nil {
+	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
+	turn, err := r.runTurn(ctx, content, onEvent)
+	if err != nil {
 		return "", err
+	}
+	if turn.IsError {
+		return turn.Text, errFromTurn(turn, turn.SessionID)
+	}
+	return turn.Text, nil
+}
+
+func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	if err := ctx.Err(); err != nil {
+		return turnResult{}, err
 	}
 	if r.sess == nil {
 		session, err := r.spawn(r.currentSessionID())
 		if err != nil {
-			return "", err
+			return turnResult{}, err
 		}
 		r.sess = session
 	}
-	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
 	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
 		if errors.Is(err, ErrStreamDrift) || ctx.Err() != nil {
-			return "", errors.Join(err, r.dropSession())
+			return turnResult{}, errors.Join(err, r.dropSession())
 		}
 		if onEvent != nil {
 			onEvent(contracts.BackendEvent{Kind: "reset"})
 		}
 		closeErr := r.dropSession()
 		if turn, err = r.restartAndSend(ctx, content, onEvent); err != nil {
-			return "", errors.Join(err, closeErr)
+			return turnResult{}, errors.Join(err, closeErr)
 		}
 		if closeErr != nil {
 			slog.Warn("closing the dead claude session", "error", closeErr)
 		}
 	}
 	r.publishSessionID(turn.SessionID)
-	if turn.IsError {
-		return turn.Text, errFromTurn(turn, turn.SessionID)
-	}
-	return turn.Text, nil
+	return turn, nil
 }
 
 func (r *streamResponder) dropSession() error {

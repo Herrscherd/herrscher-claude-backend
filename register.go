@@ -23,7 +23,7 @@ func init() {
 				{Key: "env", Env: "", Help: "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"},
 			},
 			Models:       Models(),
-			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool},
+			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true},
 		},
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{

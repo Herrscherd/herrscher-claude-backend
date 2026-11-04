@@ -61,6 +61,20 @@ vendor login, `gateway` uses the product's account.
 The host filters the catalog by route policy and builds its selector from it, so
 the core stays model-agnostic.
 
+## Compaction
+
+The stream backend implements `contracts.Compactor`, and the manifest declares
+`Capabilities.Compactor`. `Compact` sends `/compact`, or `/compact <instruction>`
+when the operator gave one, as an ordinary turn on the persistent session. It
+reports a note and no context size: the usage of the compaction turn most likely
+describes the context before compaction, so the size after it is measured on the
+next turn.
+
+`oneshot` has no session to compact and does not implement the port. The
+manifest flag covers the whole plugin, so for a `oneshot` instance the instance
+does not implement `Compactor`. The contract asks the host to refuse a compaction
+of a backend that lacks the port.
+
 ## Build and test
 
 ```bash
