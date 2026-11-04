@@ -166,11 +166,12 @@ func TestCompactAndRespondNeverOverlap(t *testing.T) {
 		return newStreamSession(&sentLines{}, strings.NewReader(turnReply+turnReply)), nil
 	}
 
+	compactErr := make(chan error, 1)
+	respondErr := make(chan error, 1)
 	var wg sync.WaitGroup
 	wg.Go(func() {
-		if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil); err != nil {
-			t.Errorf("Compact: %v", err)
-		}
+		_, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
+		compactErr <- err
 	})
 	select {
 	case <-entered:
@@ -178,11 +179,16 @@ func TestCompactAndRespondNeverOverlap(t *testing.T) {
 		t.Fatal("Compact never reached spawn")
 	}
 	wg.Go(func() {
-		if _, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil); err != nil {
-			t.Errorf("Respond: %v", err)
-		}
+		_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil)
+		respondErr <- err
 	})
 	wg.Wait()
+	if err := <-compactErr; err != nil {
+		t.Errorf("Compact: %v", err)
+	}
+	if err := <-respondErr; err != nil {
+		t.Errorf("Respond: %v", err)
+	}
 	if got := spawns.Load(); got != 1 {
 		t.Fatalf("spawned %d sessions, want 1: Compact and Respond ran in parallel on the same responder", got)
 	}
