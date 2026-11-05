@@ -2,14 +2,17 @@ package claude
 
 import "github.com/Herrscherd/herrscher-contracts/i18n"
 
-const frenchDirective = "Reply in French."
+const (
+	frenchDirective  = "Reply in French."
+	englishDirective = "Reply in English."
+)
 
 func languageDirective(lang i18n.Language) string {
 	switch lang {
 	case i18n.French:
 		return frenchDirective
 	case i18n.English:
-		return ""
+		return englishDirective
 	}
 	return ""
 }

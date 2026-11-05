@@ -60,11 +60,25 @@ func TestTurnWithoutLanguageHasNoDirective(t *testing.T) {
 	}
 }
 
-func TestTurnWithEnglishHasNoDirective(t *testing.T) {
+func TestTurnWithEnglishCarriesEnglishDirective(t *testing.T) {
 	r, sent := compactingResponder(t.Context(), successResult)
 	respondAll(t, r, contracts.Prompt{Content: "hi", Language: i18n.English})
-	if got := sentContents(t, sent); len(got) != 1 || got[0] != "hi" {
-		t.Fatalf("sent = %q, want [hi]", got)
+	want := englishDirective + "\n\nhi"
+	if got := sentContents(t, sent); len(got) != 1 || got[0] != want {
+		t.Fatalf("sent = %q, want [%q]", got, want)
+	}
+}
+
+func TestFrenchThenEnglishTurnCarriesEnglishDirective(t *testing.T) {
+	r, sent := compactingResponder(t.Context(), successResult+successResult)
+	respondAll(t, r,
+		contracts.Prompt{Content: "bonjour", Language: i18n.French},
+		contracts.Prompt{Content: "hello", Language: i18n.English},
+	)
+	want := []string{frenchDirective + "\n\nbonjour", englishDirective + "\n\nhello"}
+	got := sentContents(t, sent)
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("sent = %q, want %q", got, want)
 	}
 }
 
@@ -75,7 +89,7 @@ func TestLanguageChangeBetweenTurnsIsFollowed(t *testing.T) {
 		contracts.Prompt{Content: "deux", Language: i18n.English},
 		contracts.Prompt{Content: "trois", Language: i18n.French},
 	)
-	want := []string{frenchDirective + "\n\nun", "deux", frenchDirective + "\n\ntrois"}
+	want := []string{frenchDirective + "\n\nun", englishDirective + "\n\ndeux", frenchDirective + "\n\ntrois"}
 	got := sentContents(t, sent)
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("sent = %q, want %q", got, want)
