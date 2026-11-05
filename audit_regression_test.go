@@ -128,7 +128,7 @@ func TestErrFromTurnIsSentinel(t *testing.T) {
 		{"no message", turnResult{IsError: true}, "claude reported an error"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			err := errFromTurn(tc.tr, "s-1")
+			err := errFromTurn(tc.tr, "s-1", "claude reported an error")
 			if !errors.Is(err, ErrTurnFailed) {
 				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
 			}

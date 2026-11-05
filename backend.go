@@ -102,7 +102,7 @@ func NewBackend(ctx context.Context, cfg Config) (contracts.Backend, error) {
 
 func runCmd(ctx context.Context, cmdStr string, env map[string]string, prompt contracts.Prompt) (string, error) {
 	fields := strings.Fields(cmdStr)
-	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
+	content := turnContent(prompt)
 	args := append(slices.Clone(fields[1:]), content)
 	cmd := exec.CommandContext(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
