@@ -3,7 +3,6 @@ package claude
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,10 +27,10 @@ const (
 const anthropicAPIBaseURL = "https://api.anthropic.com"
 
 var (
-	errModelsStatus     = errors.New("models endpoint refused the request")
-	errModelsPagination = errors.New("models endpoint paginates without a cursor")
-	errModelsTooMany    = errors.New("models endpoint has more pages than the limit")
-	errModelsRedirect   = errors.New("models endpoint redirected away from its own https host, the key is not resent")
+	errModelsStatus     = newCatalogError(keyModelsRefused)
+	errModelsPagination = newCatalogError(keyModelsPagination)
+	errModelsTooMany    = newCatalogError(keyModelsTooMany)
+	errModelsRedirect   = newCatalogError(keyModelsRedirect)
 )
 
 type modelsPage struct {

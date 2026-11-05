@@ -15,7 +15,7 @@ import (
 
 var (
 	// ErrGatewayPairIncomplete reports a gateway base URL injected without its API key.
-	ErrGatewayPairIncomplete = errors.New("refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway")
+	ErrGatewayPairIncomplete = newCatalogError(keyGatewayPairIncomplete)
 	// ErrOneshotNeedsCmd reports a oneshot backend configured without a command.
 	ErrOneshotNeedsCmd = errors.New("oneshot backend requires a non-empty Cmd")
 )

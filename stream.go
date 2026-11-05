@@ -586,7 +586,7 @@ func errFromTurn(turn turnResult, sessID string) error {
 	if turn.ErrMsg != "" {
 		return &turnError{msg: turn.ErrMsg, sessID: sessID}
 	}
-	return &turnError{msg: "claude reported an error", sessID: sessID}
+	return &turnError{msg: englishText(keyTurnFailed), sessID: sessID}
 }
 
 type turnError struct {
