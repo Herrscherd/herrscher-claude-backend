@@ -286,11 +286,11 @@ func TestWithAttachments(t *testing.T) {
 		t.Errorf("no attachments should pass text through, got %q", got)
 	}
 	got := withAttachments("look", []string{"/tmp/a.png", "/tmp/b.png"})
-	want := "look\n\n[Image jointe : /tmp/a.png]\n[Image jointe : /tmp/b.png]"
+	want := "look\n\n[Attached image: /tmp/a.png]\n[Attached image: /tmp/b.png]"
 	if got != want {
 		t.Errorf("withAttachments = %q, want %q", got, want)
 	}
-	if got := withAttachments("", []string{"/tmp/a.png"}); got != "[Image jointe : /tmp/a.png]" {
+	if got := withAttachments("", []string{"/tmp/a.png"}); got != "[Attached image: /tmp/a.png]" {
 		t.Errorf("empty text should not add leading newlines, got %q", got)
 	}
 }
