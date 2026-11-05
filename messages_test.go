@@ -2,7 +2,11 @@ package claude
 
 import (
 	"encoding/json"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io/fs"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -63,25 +67,92 @@ func TestCatalogDeclaresEveryKeyInEveryLanguage(t *testing.T) {
 	i18ntest.CheckDeclared(t, declared, sources)
 }
 
+func sourceMessageKeys(t *testing.T) map[string]bool {
+	t.Helper()
+	keys := make(map[string]bool)
+	for _, decl := range parseMessagesSource(t).Decls {
+		for _, key := range keyConstValues(t, decl) {
+			keys[key] = true
+		}
+	}
+	return keys
+}
+
+func parseMessagesSource(t *testing.T) *ast.File {
+	t.Helper()
+	file, err := parser.ParseFile(token.NewFileSet(), "messages.go", nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return file
+}
+
+func keyConstValues(t *testing.T, decl ast.Decl) []string {
+	t.Helper()
+	gen, ok := decl.(*ast.GenDecl)
+	if !ok || gen.Tok != token.CONST {
+		return nil
+	}
+	var values []string
+	for _, spec := range gen.Specs {
+		valueSpec, ok := spec.(*ast.ValueSpec)
+		if !ok {
+			continue
+		}
+		for i, name := range valueSpec.Names {
+			if strings.HasPrefix(name.Name, "key") && i < len(valueSpec.Values) {
+				values = append(values, unquoteConst(t, name.Name, valueSpec.Values[i]))
+			}
+		}
+	}
+	return values
+}
+
+func unquoteConst(t *testing.T, name string, expr ast.Expr) string {
+	t.Helper()
+	lit, ok := expr.(*ast.BasicLit)
+	if !ok {
+		t.Fatalf("%s is not a string literal", name)
+	}
+	value, err := strconv.Unquote(lit.Value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return value
+}
+
+func diffKeySets(t *testing.T, label string, want, got map[string]bool) {
+	t.Helper()
+	for key := range want {
+		if !got[key] {
+			t.Errorf("%s lacks %q", label, key)
+		}
+	}
+	for key := range got {
+		if !want[key] {
+			t.Errorf("%s has %q, which the source does not declare", label, key)
+		}
+	}
+}
+
+func TestMessageKeysListAllSourceKeys(t *testing.T) {
+	t.Parallel()
+	listed := make(map[string]bool)
+	for _, key := range allMessageKeys() {
+		listed[key] = true
+	}
+	diffKeySets(t, "allMessageKeys", sourceMessageKeys(t), listed)
+}
+
 func TestMessageKeysMatchEachCatalogFile(t *testing.T) {
 	t.Parallel()
-	want := make(map[string]bool)
-	for _, key := range allMessageKeys() {
-		want[key] = true
-	}
+	want := sourceMessageKeys(t)
 	for _, file := range []string{"en.json", "fr.json"} {
 		got := make(map[string]bool)
 		for _, id := range catalogIDs(t, file) {
 			got[id] = true
-			if !want[id] {
-				t.Errorf("%s defines %q, which no constant lists", file, id)
-			}
 		}
-		for key := range want {
-			if !got[key] {
-				t.Errorf("%s does not define %q", file, key)
-			}
-		}
+		diffKeySets(t, file, want, got)
 	}
 }
 
