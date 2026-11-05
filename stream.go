@@ -67,6 +67,9 @@ func withContext(ctx, text string) string {
 }
 
 func turnContent(prompt contracts.Prompt) string {
+	if isSlashCommand(prompt.Content) {
+		return withAttachments(prompt.Content, prompt.Attachments)
+	}
 	return withLanguage(prompt.Language, withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments)))
 }
 

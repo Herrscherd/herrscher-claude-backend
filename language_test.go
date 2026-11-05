@@ -179,3 +179,44 @@ func TestCompactionNeverReceivesADirective(t *testing.T) {
 		t.Fatalf("sent = %q, want the compaction line to be exactly /compact", got)
 	}
 }
+
+func TestSlashCommandWithContextSendsNoMemoryBlock(t *testing.T) {
+	r, sent := compactingResponder(t.Context(), successResult)
+	respondAll(t, r, contracts.Prompt{Content: "/compact", Context: "project=herrscher", Language: i18n.French})
+	if got := sentContents(t, sent); len(got) != 1 || got[0] != "/compact" {
+		t.Fatalf("sent = %q, want the bare slash command", got)
+	}
+}
+
+func TestSlashCommandWithContextAndAttachmentKeepsTheAttachmentAfter(t *testing.T) {
+	r, sent := compactingResponder(t.Context(), successResult)
+	respondAll(t, r, contracts.Prompt{
+		Content:     "/ma-skill arg",
+		Context:     "project=herrscher",
+		Attachments: []string{"/tmp/a.png"},
+		Language:    i18n.French,
+	})
+	want := "/ma-skill arg\n\n[Attached image: /tmp/a.png]"
+	if got := sentContents(t, sent); len(got) != 1 || got[0] != want {
+		t.Fatalf("sent = %q, want [%q]", got, want)
+	}
+}
+
+func TestNormalTurnWithContextKeepsMemoryAndDirective(t *testing.T) {
+	r, sent := compactingResponder(t.Context(), successResult)
+	respondAll(t, r, contracts.Prompt{Content: "bonjour", Context: "project=herrscher", Language: i18n.French})
+	want := frenchDirective + "\n\n" + withContext("project=herrscher", "bonjour")
+	if got := sentContents(t, sent); len(got) != 1 || got[0] != want {
+		t.Fatalf("sent = %q, want [%q]", got, want)
+	}
+}
+
+func TestRunCmdSlashCommandWithContextIsIntact(t *testing.T) {
+	got, err := runCmd(context.Background(), "printf %s", nil, contracts.Prompt{Content: "/compact", Context: "project=herrscher", Language: i18n.French})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/compact" {
+		t.Fatalf("prompt = %q, want the bare slash command", got)
+	}
+}

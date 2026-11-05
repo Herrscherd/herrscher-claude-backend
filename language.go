@@ -24,7 +24,7 @@ func languageDirective(lang i18n.Language) string {
 
 func withLanguage(lang i18n.Language, text string) string {
 	directive := languageDirective(lang)
-	if directive == "" || isSlashCommand(text) {
+	if directive == "" {
 		return text
 	}
 	return directive + "\n\n" + text
