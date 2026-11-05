@@ -75,12 +75,13 @@ What the catalog does not model:
 - The batch discount (50%) and the US-only inference multiplier (1.1x on
   `inference_geo` requests).
 
-Gateway entries (`gw-*`) copy the price and window of the native entry with the
-same `Arg`, because the gateway route carries our prices and the same model
-carries the same list price. These are assumptions, not checked against the
-gateway's own tariff. The entries for GLM 4.7, Qwen3 Coder and DeepSeek V3 have
-no native twin in this catalog, so their prices and window stay 0, which means
-unknown.
+Gateway entries (`gw-*`) carry no price. The gateway route bills at our price,
+not Anthropic's (see the `InputPrice` contract on `ModelSpec`), and that price is
+not published in this catalog. Copying the native list price would show a price
+that is not ours, so their four price fields stay 0, which means unknown. Their
+context window is the window of the native entry with the same `Arg`, assumed to
+hold on the gateway as well. GLM 4.7, Qwen3 Coder and DeepSeek V3 have no native
+twin in this catalog, so their window stays 0.
 
 Retired or superseded models are `Hidden`. A model still listed as current is
 visible, including the `[1m]` variant of Opus 5.5, which has the same window as

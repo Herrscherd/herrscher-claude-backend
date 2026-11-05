@@ -127,7 +127,20 @@ func TestNativePricingFollowsPublishedTable(t *testing.T) {
 	}
 }
 
-func TestGatewayEntriesMirrorTheirNativeTwin(t *testing.T) {
+func TestGatewayEntriesCarryNoPrice(t *testing.T) {
+	models := Models()
+	for index := range models {
+		gateway := models[index]
+		if gateway.Route != contracts.RouteGateway {
+			continue
+		}
+		if gateway.InputPrice != 0 || gateway.OutputPrice != 0 || gateway.CacheReadPrice != 0 || gateway.CacheWritePrice != 0 {
+			t.Errorf("gateway model %q declares a price; the gateway price is ours and is not published in this catalog", gateway.ID)
+		}
+	}
+}
+
+func TestGatewayEntriesKeepTheirNativeWindow(t *testing.T) {
 	models := Models()
 	for index := range models {
 		gateway := models[index]
@@ -136,26 +149,13 @@ func TestGatewayEntriesMirrorTheirNativeTwin(t *testing.T) {
 		}
 		native, ok := nativeTwin(models, gateway.Arg)
 		if !ok {
+			if gateway.ContextWindow != 0 {
+				t.Errorf("gateway model %q has no native twin yet declares window %d", gateway.ID, gateway.ContextWindow)
+			}
 			continue
 		}
-		if gateway.InputPrice != native.InputPrice || gateway.OutputPrice != native.OutputPrice || gateway.CacheReadPrice != native.CacheReadPrice || gateway.CacheWritePrice != native.CacheWritePrice || gateway.ContextWindow != native.ContextWindow {
-			t.Errorf("gateway model %q does not mirror native %q: %+v versus %+v", gateway.ID, native.ID, gateway, native)
-		}
-	}
-}
-
-func TestGatewayEntriesWithoutNativeTwinStayUnpriced(t *testing.T) {
-	models := Models()
-	for index := range models {
-		gateway := models[index]
-		if gateway.Route != contracts.RouteGateway {
-			continue
-		}
-		if _, ok := nativeTwin(models, gateway.Arg); ok {
-			continue
-		}
-		if gateway.InputPrice != 0 || gateway.OutputPrice != 0 || gateway.CacheReadPrice != 0 || gateway.CacheWritePrice != 0 || gateway.ContextWindow != 0 {
-			t.Errorf("gateway model %q has no native twin yet declares pricing or a window", gateway.ID)
+		if gateway.ContextWindow != native.ContextWindow {
+			t.Errorf("gateway model %q window = %d, native %q window = %d", gateway.ID, gateway.ContextWindow, native.ID, native.ContextWindow)
 		}
 	}
 }
