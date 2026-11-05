@@ -8,8 +8,10 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-var _ contracts.Compactor = (*streamResponder)(nil)
-var _ contracts.NoticeError = (*compactUnavailableError)(nil)
+var (
+	_ contracts.Compactor   = (*streamResponder)(nil)
+	_ contracts.NoticeError = (*compactUnavailableError)(nil)
+)
 
 const (
 	compactCommand        = "/compact"
