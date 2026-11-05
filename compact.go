@@ -9,6 +9,7 @@ import (
 )
 
 var _ contracts.Compactor = (*streamResponder)(nil)
+var _ contracts.NoticeError = (*compactUnavailableError)(nil)
 
 const (
 	compactCommand        = "/compact"
