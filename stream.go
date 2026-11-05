@@ -43,7 +43,7 @@ func withAttachments(text string, paths []string) string {
 	}
 	marks := make([]string, 0, len(paths))
 	for _, p := range paths {
-		marks = append(marks, "[Image jointe : "+p+"]")
+		marks = append(marks, "[Attached image: "+p+"]")
 	}
 	block := strings.Join(marks, "\n")
 	if text == "" {

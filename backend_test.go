@@ -26,7 +26,7 @@ func TestRunCmdIncludesAttachmentsInPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "look\n\n[Image jointe : /tmp/a.png]"
+	want := "look\n\n[Attached image: /tmp/a.png]"
 	if got != want {
 		t.Fatalf("prompt = %q, want %q", got, want)
 	}
