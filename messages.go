@@ -51,6 +51,14 @@ func (m *messages) render(lang i18n.Language, key string) (string, error) {
 	return catalog.Message(lang, key, nil)
 }
 
+func (m *messages) localized(lang i18n.Language, key string) string {
+	text, err := m.render(lang, key)
+	if err != nil {
+		return m.english(key)
+	}
+	return text
+}
+
 func (m *messages) english(key string) string {
 	text, err := m.render(i18n.English, key)
 	if err != nil {

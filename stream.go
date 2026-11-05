@@ -66,6 +66,10 @@ func withContext(ctx, text string) string {
 		ctx + "\n</memory>\n\n" + text
 }
 
+func turnContent(prompt contracts.Prompt) string {
+	return withLanguage(prompt.Language, withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments)))
+}
+
 func userLine(text string) ([]byte, error) {
 	msg := map[string]any{
 		"type": wireUser,
@@ -498,13 +502,12 @@ func (r *streamResponder) currentSessionID() string {
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	content := withContext(prompt.Context, withAttachments(prompt.Content, prompt.Attachments))
-	turn, err := r.runTurn(ctx, content, onEvent)
+	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
 		return "", err
 	}
 	if turn.IsError {
-		return turn.Text, errFromTurn(turn, turn.SessionID)
+		return turn.Text, errFromTurn(turn, turn.SessionID, localizedTurnFailure(prompt.Language))
 	}
 	return turn.Text, nil
 }
@@ -584,11 +587,11 @@ var errTurnReported = newCatalogError(keyTurnFailed)
 // The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
-func errFromTurn(turn turnResult, sessID string) error {
+func errFromTurn(turn turnResult, sessID, reported string) error {
 	if turn.ErrMsg != "" {
 		return &turnError{msg: turn.ErrMsg, sessID: sessID}
 	}
-	return &turnError{msg: errTurnReported.Error(), sessID: sessID}
+	return &turnError{msg: reported, sessID: sessID}
 }
 
 type turnError struct {

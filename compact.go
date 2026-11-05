@@ -46,7 +46,7 @@ func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequ
 		return contracts.CompactResult{}, &compactUnavailableError{cause: err}
 	}
 	if turn.IsError {
-		return contracts.CompactResult{}, &compactUnavailableError{cause: errFromTurn(turn, turn.SessionID)}
+		return contracts.CompactResult{}, &compactUnavailableError{cause: errFromTurn(turn, turn.SessionID, errTurnReported.Error())}
 	}
 	return contracts.CompactResult{
 		Note:   compactNote,
