@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"strings"
+	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -10,8 +11,9 @@ import (
 var _ contracts.Compactor = (*streamResponder)(nil)
 
 const (
-	compactCommand = "/compact"
-	compactNote    = "Contexte compacté, taille après compaction mesurée au prochain tour."
+	compactCommand        = "/compact"
+	compactNote           = "Context compacted, its size after compaction is measured on the next turn."
+	maxCompactReasonRunes = 200
 )
 
 type compactUnavailableError struct {
@@ -29,7 +31,7 @@ func (e *compactUnavailableError) Unwrap() error {
 func (e *compactUnavailableError) Notice() contracts.Notice {
 	return contracts.Notice{
 		Code: contracts.CodeCompactUnavailable,
-		Args: []contracts.Arg{contracts.Text("Reason", e.cause.Error())},
+		Args: []contracts.Arg{contracts.Text("Reason", compactReason(e.cause))},
 	}
 }
 
@@ -55,4 +57,20 @@ func compactMessage(instruction string) string {
 		return compactCommand
 	}
 	return compactCommand + " " + instruction
+}
+
+func compactReason(cause error) string {
+	for line := range strings.SplitSeq(cause.Error(), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			return truncateRunes(line, maxCompactReasonRunes)
+		}
+	}
+	return ""
+}
+
+func truncateRunes(text string, limit int) string {
+	if utf8.RuneCountInString(text) <= limit {
+		return text
+	}
+	return string([]rune(text)[:limit-1]) + "…"
 }

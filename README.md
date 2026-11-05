@@ -97,7 +97,10 @@ The stream backend implements `contracts.Compactor`, and the manifest declares
 when the operator gave one, as an ordinary turn on the persistent session. It
 reports a note and no context size: the usage of the compaction turn most likely
 describes the context before compaction, so the size after it is measured on the
-next turn.
+next turn. Its note is English, as the host reads it today. Its `Notice` is
+`compaction.done`, with no argument, and a failure is a `compact.unavailable`
+notice whose `Reason` is the first non blank line of the cause, cut to 200 runes
+with `…` when longer. `Error()` keeps the full cause for the logs.
 
 `oneshot` has no session to compact and does not implement the port. The
 manifest flag covers the whole plugin, so for a `oneshot` instance the instance
