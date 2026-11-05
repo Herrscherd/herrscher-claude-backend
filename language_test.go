@@ -137,3 +137,45 @@ func TestRunCmdCarriesTheLanguageDirective(t *testing.T) {
 		t.Fatalf("prompt = %q, want %q", got, want)
 	}
 }
+
+func TestLanguageDirectiveSkipsSlashCommands(t *testing.T) {
+	for _, tc := range []struct {
+		content string
+		want    string
+	}{
+		{"/compact", "/compact"},
+		{"/ma-skill arg", "/ma-skill arg"},
+		{"  /compact", "  /compact"},
+		{"bonjour", frenchDirective + "\n\nbonjour"},
+	} {
+		t.Run(tc.content, func(t *testing.T) {
+			r, sent := compactingResponder(t.Context(), successResult)
+			respondAll(t, r, contracts.Prompt{Content: tc.content, Language: i18n.French})
+			if got := sentContents(t, sent); len(got) != 1 || got[0] != tc.want {
+				t.Fatalf("sent = %q, want [%q]", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRunCmdLeavesSlashCommandsIntactInFrench(t *testing.T) {
+	got, err := runCmd(context.Background(), "printf %s", nil, contracts.Prompt{Content: "/ma-skill arg", Language: i18n.French})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "/ma-skill arg" {
+		t.Fatalf("prompt = %q, want the slash command untouched", got)
+	}
+}
+
+func TestCompactionNeverReceivesADirective(t *testing.T) {
+	r, sent := compactingResponder(t.Context(), successResult+successResult)
+	respondAll(t, r, contracts.Prompt{Content: "bonjour", Language: i18n.French})
+	if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil); err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	got := sentContents(t, sent)
+	if len(got) != 2 || got[1] != "/compact" {
+		t.Fatalf("sent = %q, want the compaction line to be exactly /compact", got)
+	}
+}
