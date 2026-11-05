@@ -578,6 +578,8 @@ func (r *streamResponder) Close() error {
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
 
+var errTurnReported = newCatalogError(keyTurnFailed)
+
 // ErrStreamDrift matches a stream event whose control fields no longer decode.
 // The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
@@ -586,7 +588,7 @@ func errFromTurn(turn turnResult, sessID string) error {
 	if turn.ErrMsg != "" {
 		return &turnError{msg: turn.ErrMsg, sessID: sessID}
 	}
-	return &turnError{msg: englishText(keyTurnFailed), sessID: sessID}
+	return &turnError{msg: errTurnReported.Error(), sessID: sessID}
 }
 
 type turnError struct {

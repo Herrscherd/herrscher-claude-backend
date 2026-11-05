@@ -1,13 +1,17 @@
 package claude
 
 import (
+	"encoding/json"
 	"io/fs"
+	"strings"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 	"github.com/Herrscherd/herrscher-contracts/i18n"
 	"github.com/Herrscherd/herrscher-contracts/i18n/i18ntest"
 )
+
+const nonBreakingSpace = " "
 
 func allMessageKeys() []string {
 	return []string{
@@ -16,6 +20,34 @@ func allMessageKeys() []string {
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
 		keyTurnFailed,
 	}
+}
+
+func mustRender(t *testing.T, lang i18n.Language, key string) string {
+	t.Helper()
+	text, err := newMessages().render(lang, key)
+	if err != nil {
+		t.Fatalf("%s in %s: %v", key, lang, err)
+	}
+	return text
+}
+
+func catalogIDs(t *testing.T, file string) []string {
+	t.Helper()
+	raw, err := fs.ReadFile(localeFiles, "locales/"+file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var entries []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		t.Fatalf("%s: %v", file, err)
+	}
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ids = append(ids, entry.ID)
+	}
+	return ids
 }
 
 func TestCatalogDeclaresEveryKeyInEveryLanguage(t *testing.T) {
@@ -29,6 +61,40 @@ func TestCatalogDeclaresEveryKeyInEveryLanguage(t *testing.T) {
 		declared[key] = nil
 	}
 	i18ntest.CheckDeclared(t, declared, sources)
+}
+
+func TestMessageKeysMatchEachCatalogFile(t *testing.T) {
+	t.Parallel()
+	want := make(map[string]bool)
+	for _, key := range allMessageKeys() {
+		want[key] = true
+	}
+	for _, file := range []string{"en.json", "fr.json"} {
+		got := make(map[string]bool)
+		for _, id := range catalogIDs(t, file) {
+			got[id] = true
+			if !want[id] {
+				t.Errorf("%s defines %q, which no constant lists", file, id)
+			}
+		}
+		for key := range want {
+			if !got[key] {
+				t.Errorf("%s does not define %q", file, key)
+			}
+		}
+	}
+}
+
+func TestEmbeddedCatalogLoads(t *testing.T) {
+	t.Parallel()
+	messages := newMessages()
+	for _, lang := range []i18n.Language{i18n.English, i18n.French} {
+		for _, key := range allMessageKeys() {
+			if _, err := messages.render(lang, key); err != nil {
+				t.Fatalf("%s in %s: %v", key, lang, err)
+			}
+		}
+	}
 }
 
 func TestEnglishMessages(t *testing.T) {
@@ -48,11 +114,7 @@ func TestEnglishMessages(t *testing.T) {
 		keyTurnFailed:            "claude reported an error",
 	}
 	for key, text := range want {
-		got, err := renderText(i18n.English, key)
-		if err != nil {
-			t.Fatalf("%s: %v", key, err)
-		}
-		if got != text {
+		if got := mustRender(t, i18n.English, key); got != text {
 			t.Errorf("%s = %q, want %q", key, got, text)
 		}
 	}
@@ -66,20 +128,36 @@ func TestFrenchMessages(t *testing.T) {
 		keySettingStream:         "mode stream-json (false pour le désactiver)",
 		keySettingDir:            "dossier de travail",
 		keySettingKind:           "type de backend",
-		keyGatewayPairIncomplete: "lancement refusé : la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle",
+		keySettingEnv:            "environnement propre à la session, injecté au lancement (K=V par ligne)" + nonBreakingSpace + "; fourni par l'hôte, jamais lu depuis l'environnement",
+		keyGatewayPairIncomplete: "lancement refusé" + nonBreakingSpace + ": la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle",
 		keyModelsRefused:         "le service de liste des modèles a refusé la requête",
-		keyModelsPagination:      "le service de liste des modèles pagine sans curseur",
+		keyModelsPagination:      "le service de liste des modèles annonce une page suivante sans curseur",
 		keyModelsTooMany:         "le service de liste des modèles a plus de pages que la limite",
 		keyModelsRedirect:        "le service de liste des modèles a redirigé hors de son hôte https, la clé n'est pas renvoyée",
 		keyTurnFailed:            "claude a signalé une erreur",
 	}
 	for key, text := range want {
-		got, err := renderText(i18n.French, key)
-		if err != nil {
-			t.Fatalf("%s: %v", key, err)
-		}
-		if got != text {
+		if got := mustRender(t, i18n.French, key); got != text {
 			t.Errorf("%s = %q, want %q", key, got, text)
+		}
+	}
+}
+
+func TestFrenchPunctuationUsesNonBreakingSpace(t *testing.T) {
+	t.Parallel()
+	for _, key := range allMessageKeys() {
+		text := mustRender(t, i18n.French, key)
+		for _, mark := range []string{":", ";", "?", "!"} {
+			for idx := strings.Index(text, mark); idx >= 0; {
+				if !strings.HasSuffix(text[:idx], nonBreakingSpace) {
+					t.Errorf("%s: %q is not preceded by a non-breaking space in %q", key, mark, text)
+				}
+				next := strings.Index(text[idx+len(mark):], mark)
+				if next < 0 {
+					break
+				}
+				idx += len(mark) + next
+			}
 		}
 	}
 }
@@ -87,14 +165,8 @@ func TestFrenchMessages(t *testing.T) {
 func TestEveryKeyIsTranslated(t *testing.T) {
 	t.Parallel()
 	for _, key := range allMessageKeys() {
-		english, err := renderText(i18n.English, key)
-		if err != nil {
-			t.Fatalf("%s: %v", key, err)
-		}
-		french, err := renderText(i18n.French, key)
-		if err != nil {
-			t.Fatalf("%s: %v", key, err)
-		}
+		english := mustRender(t, i18n.English, key)
+		french := mustRender(t, i18n.French, key)
 		if english == french {
 			t.Errorf("%s is not translated: %q", key, french)
 		}
@@ -112,19 +184,16 @@ func TestErrorsCarryTheCatalogEnglish(t *testing.T) {
 		{errModelsPagination, keyModelsPagination},
 		{errModelsTooMany, keyModelsTooMany},
 		{errModelsRedirect, keyModelsRedirect},
+		{errTurnReported, keyTurnFailed},
 	}
 	for _, tc := range cases {
-		want, err := renderText(i18n.English, tc.key)
-		if err != nil {
-			t.Fatalf("%s: %v", tc.key, err)
-		}
-		if got := tc.err.Error(); got != want {
-			t.Errorf("%s: Error() = %q, want %q", tc.key, got, want)
+		if want := mustRender(t, i18n.English, tc.key); tc.err.Error() != want {
+			t.Errorf("%s: Error() = %q, want %q", tc.key, tc.err.Error(), want)
 		}
 	}
 }
 
-func TestSettingHelpComesFromCatalog(t *testing.T) {
+func TestSettingHelpEqualsEnglishCatalog(t *testing.T) {
 	t.Parallel()
 	keys := map[string]string{
 		"cmd":    keySettingCmd,
@@ -145,7 +214,7 @@ func TestSettingHelpComesFromCatalog(t *testing.T) {
 			if !ok {
 				t.Fatalf("setting %q has no catalog key", setting.Key)
 			}
-			if want := englishText(key); setting.Help != want {
+			if want := mustRender(t, i18n.English, key); setting.Help != want {
 				t.Errorf("setting %q help = %q, want %q", setting.Key, setting.Help, want)
 			}
 		}

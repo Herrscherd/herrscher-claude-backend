@@ -9,18 +9,19 @@ import (
 const backendKind = "claude"
 
 func init() {
+	texts := newMessages()
 	contracts.Register(contracts.Plugin{
 		Manifest: contracts.Manifest{
 			Kind:     backendKind,
 			Category: contracts.CategoryBackend,
 			Status:   contracts.StatusLive,
 			Config: []contracts.Setting{
-				{Key: "cmd", Env: "CLAUDE_CMD", Help: englishText(keySettingCmd), Default: backendKind},
-				{Key: "model", Env: "CLAUDE_MODEL", Help: englishText(keySettingModel)},
-				{Key: "stream", Env: "CLAUDE_STREAM", Help: englishText(keySettingStream), Default: "true"},
-				{Key: "dir", Env: "CLAUDE_DIR", Help: englishText(keySettingDir)},
-				{Key: "kind", Env: "CLAUDE_KIND", Help: englishText(keySettingKind)},
-				{Key: "env", Env: "", Help: englishText(keySettingEnv)},
+				{Key: "cmd", Env: "CLAUDE_CMD", Help: texts.english(keySettingCmd), Default: backendKind},
+				{Key: "model", Env: "CLAUDE_MODEL", Help: texts.english(keySettingModel)},
+				{Key: "stream", Env: "CLAUDE_STREAM", Help: texts.english(keySettingStream), Default: "true"},
+				{Key: "dir", Env: "CLAUDE_DIR", Help: texts.english(keySettingDir)},
+				{Key: "kind", Env: "CLAUDE_KIND", Help: texts.english(keySettingKind)},
+				{Key: "env", Env: "", Help: texts.english(keySettingEnv)},
 			},
 			Models:       Models(),
 			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true},

@@ -1,7 +1,7 @@
 [
   {
     "id": "setting.cmd",
-    "description": "Aide du réglage cmd : la commande de base qui lance l'agent",
+    "description": "Aide du réglage cmd : la commande de base qui lance l'agent",
     "other": "commande de base qui lance l'agent"
   },
   {
@@ -27,12 +27,12 @@
   {
     "id": "setting.env",
     "description": "Aide du réglage env, injecté par l'hôte au lancement",
-    "other": "environnement propre à la session, injecté au lancement (K=V par ligne) ; fourni par l'hôte, jamais lu depuis l'environnement"
+    "other": "environnement propre à la session, injecté au lancement (K=V par ligne) ; fourni par l'hôte, jamais lu depuis l'environnement"
   },
   {
     "id": "gateway.pair_incomplete",
     "description": "Une session refusée au lancement parce qu'une URL de base de passerelle arrive sans sa clé d'API",
-    "other": "lancement refusé : la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle"
+    "other": "lancement refusé : la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle"
   },
   {
     "id": "models.refused",
@@ -42,7 +42,7 @@
   {
     "id": "models.pagination",
     "description": "Le service de liste des modèles annonce une page suivante sans curseur",
-    "other": "le service de liste des modèles pagine sans curseur"
+    "other": "le service de liste des modèles annonce une page suivante sans curseur"
   },
   {
     "id": "models.too_many_pages",

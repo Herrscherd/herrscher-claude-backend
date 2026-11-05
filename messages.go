@@ -4,6 +4,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"sync"
 
 	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
@@ -26,7 +27,15 @@ const (
 	keyTurnFailed            = "turn.failed"
 )
 
-func newCatalog() (*i18n.Catalog, error) {
+type messages struct {
+	load func() (*i18n.Catalog, error)
+}
+
+func newMessages() *messages {
+	return &messages{load: sync.OnceValues(loadCatalog)}
+}
+
+func loadCatalog() (*i18n.Catalog, error) {
 	sources, err := fs.Sub(localeFiles, "locales")
 	if err != nil {
 		return nil, fmt.Errorf("claude locales: %w", err)
@@ -34,18 +43,18 @@ func newCatalog() (*i18n.Catalog, error) {
 	return i18n.NewCatalog(nil, sources)
 }
 
-func renderText(lang i18n.Language, key string) (string, error) {
-	catalog, err := newCatalog()
+func (m *messages) render(lang i18n.Language, key string) (string, error) {
+	catalog, err := m.load()
 	if err != nil {
 		return "", err
 	}
 	return catalog.Message(lang, key, nil)
 }
 
-func englishText(key string) string {
-	text, err := renderText(i18n.English, key)
+func (m *messages) english(key string) string {
+	text, err := m.render(i18n.English, key)
 	if err != nil {
-		return key
+		return fmt.Sprintf("message %s unavailable: %v", key, err)
 	}
 	return text
 }
@@ -55,7 +64,7 @@ type catalogError struct {
 }
 
 func newCatalogError(key string) error {
-	return &catalogError{text: englishText(key)}
+	return &catalogError{text: newMessages().english(key)}
 }
 
 func (e *catalogError) Error() string {
