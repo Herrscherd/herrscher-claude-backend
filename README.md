@@ -56,7 +56,35 @@ is neutralized first, so it cannot forge or close the fence.
 
 `Models` is the declared catalog, published through `Manifest.Models`. Each entry
 carries its id, label, efforts and its `Route`: `native` uses the machine's own
-vendor login, `gateway` uses the product's account.
+vendor login, `gateway` uses the product's account. `Arg` is what goes on the
+CLI's `--model`, and `ID` is what the host persists.
+
+Each native entry carries its price in USD per million tokens (input, output,
+cache read, and the 5-minute cache write) and its context window in tokens. The
+values are the base tier of the Anthropic pricing page
+(https://platform.claude.com/docs/en/about-claude/pricing) and the model pages of
+the Anthropic docs. Haiku 4.5 is 200K tokens, every other model listed is 1M.
+
+What the catalog does not model:
+
+- The 1-hour cache write. Only the 5-minute write goes in `CacheWritePrice`.
+- The Claude Haiku 5.5 long-prompt tier. A prompt over 100,000 tokens costs $0.50
+  input, $0.625 5-minute cache write, $1 1-hour cache write, $0.05 cache read and
+  $2.50 output. The contract has no tier field, so the entry carries the base
+  tier only, and a request over 100,000 tokens is under-priced by a factor of five.
+- The batch discount (50%) and the US-only inference multiplier (1.1x on
+  `inference_geo` requests).
+
+Gateway entries (`gw-*`) copy the price and window of the native entry with the
+same `Arg`, because the gateway route carries our prices and the same model
+carries the same list price. These are assumptions, not checked against the
+gateway's own tariff. The entries for GLM 4.7, Qwen3 Coder and DeepSeek V3 have
+no native twin in this catalog, so their prices and window stay 0, which means
+unknown.
+
+Retired or superseded models are `Hidden`. A model still listed as current is
+visible, including the `[1m]` variant of Opus 5.5, which has the same window as
+its base entry.
 
 The host filters the catalog by route policy and builds its selector from it, so
 the core stays model-agnostic.

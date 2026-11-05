@@ -127,17 +127,46 @@ func TestNativePricingFollowsPublishedTable(t *testing.T) {
 	}
 }
 
-func TestGatewayEntriesDeclareNoPricing(t *testing.T) {
+func TestGatewayEntriesMirrorTheirNativeTwin(t *testing.T) {
 	models := Models()
 	for index := range models {
-		spec := models[index]
-		if spec.Route != contracts.RouteGateway {
+		gateway := models[index]
+		if gateway.Route != contracts.RouteGateway {
 			continue
 		}
-		if spec.InputPrice != 0 || spec.OutputPrice != 0 || spec.CacheReadPrice != 0 || spec.CacheWritePrice != 0 || spec.ContextWindow != 0 {
-			t.Errorf("gateway model %q declares pricing or a window; those belong to the gateway and stay 0 here", spec.ID)
+		native, ok := nativeTwin(models, gateway.Arg)
+		if !ok {
+			continue
+		}
+		if gateway.InputPrice != native.InputPrice || gateway.OutputPrice != native.OutputPrice || gateway.CacheReadPrice != native.CacheReadPrice || gateway.CacheWritePrice != native.CacheWritePrice || gateway.ContextWindow != native.ContextWindow {
+			t.Errorf("gateway model %q does not mirror native %q: %+v versus %+v", gateway.ID, native.ID, gateway, native)
 		}
 	}
+}
+
+func TestGatewayEntriesWithoutNativeTwinStayUnpriced(t *testing.T) {
+	models := Models()
+	for index := range models {
+		gateway := models[index]
+		if gateway.Route != contracts.RouteGateway {
+			continue
+		}
+		if _, ok := nativeTwin(models, gateway.Arg); ok {
+			continue
+		}
+		if gateway.InputPrice != 0 || gateway.OutputPrice != 0 || gateway.CacheReadPrice != 0 || gateway.CacheWritePrice != 0 || gateway.ContextWindow != 0 {
+			t.Errorf("gateway model %q has no native twin yet declares pricing or a window", gateway.ID)
+		}
+	}
+}
+
+func nativeTwin(models []contracts.ModelSpec, arg string) (contracts.ModelSpec, bool) {
+	for index := range models {
+		if models[index].Route == contracts.RouteNative && models[index].Arg == arg {
+			return models[index], true
+		}
+	}
+	return contracts.ModelSpec{}, false
 }
 
 func TestSupersededModelsAreHidden(t *testing.T) {

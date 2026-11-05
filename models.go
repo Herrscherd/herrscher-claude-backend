@@ -69,12 +69,12 @@ func Models() []contracts.ModelSpec {
 		{ID: modelOpus48, Label: "Opus 4.8", Arg: modelOpus48, Efforts: efforts, Route: contracts.RouteNative, InputPrice: opus5Input, OutputPrice: opus5Output, CacheReadPrice: opus5CacheRead, CacheWritePrice: opus5CacheWrite, ContextWindow: context1M, Hidden: true},
 		{ID: "claude-opus-4-8-1m", Label: "Opus 4.8 · 1M", Arg: "claude-opus-4-8[1m]", Efforts: efforts, Route: contracts.RouteNative, InputPrice: opus5Input, OutputPrice: opus5Output, CacheReadPrice: opus5CacheRead, CacheWritePrice: opus5CacheWrite, ContextWindow: context1M, Hidden: true},
 
-		{ID: "gw-claude-opus-5-5", Label: "Opus 5.5", Arg: modelOpus55, Efforts: efforts, Route: contracts.RouteGateway},
-		{ID: "gw-claude-fable-5-1", Label: "Fable 5.1", Arg: modelFable51, Efforts: efforts, Route: contracts.RouteGateway},
-		{ID: "gw-claude-opus-5", Label: "Opus 5", Arg: modelOpus5, Efforts: efforts, Route: contracts.RouteGateway, Hidden: true},
-		{ID: "gw-claude-sonnet-5", Label: "Sonnet 5", Arg: modelSonnet5, Efforts: efforts, Route: contracts.RouteGateway, Hidden: true},
-		{ID: "gw-claude-sonnet-5-5", Label: "Sonnet 5.5", Arg: modelSonnet55, Efforts: efforts, Route: contracts.RouteGateway},
-		{ID: "gw-claude-haiku-4-5", Label: "Haiku 4.5", Arg: modelHaiku45Dated, Efforts: efforts, Route: contracts.RouteGateway, Hidden: true},
+		{ID: "gw-claude-opus-5-5", Label: "Opus 5.5", Arg: modelOpus55, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: opus55Input, OutputPrice: opus55Output, CacheReadPrice: opus55CacheRead, CacheWritePrice: opus55CacheWrite, ContextWindow: context1M},
+		{ID: "gw-claude-fable-5-1", Label: "Fable 5.1", Arg: modelFable51, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: fableInput, OutputPrice: fableOutput, CacheReadPrice: fable51CacheRead, CacheWritePrice: fableCacheWrite, ContextWindow: context1M},
+		{ID: "gw-claude-opus-5", Label: "Opus 5", Arg: modelOpus5, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: opus5Input, OutputPrice: opus5Output, CacheReadPrice: opus5CacheRead, CacheWritePrice: opus5CacheWrite, ContextWindow: context1M, Hidden: true},
+		{ID: "gw-claude-sonnet-5", Label: "Sonnet 5", Arg: modelSonnet5, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: sonnet5Input, OutputPrice: sonnet5Output, CacheReadPrice: sonnet5CacheRead, CacheWritePrice: sonnet5CacheWrite, ContextWindow: context1M, Hidden: true},
+		{ID: "gw-claude-sonnet-5-5", Label: "Sonnet 5.5", Arg: modelSonnet55, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: sonnet5Input, OutputPrice: sonnet5Output, CacheReadPrice: sonnet55CacheRead, CacheWritePrice: sonnet5CacheWrite, ContextWindow: context1M},
+		{ID: "gw-claude-haiku-4-5", Label: "Haiku 4.5", Arg: modelHaiku45Dated, Efforts: efforts, Route: contracts.RouteGateway, InputPrice: haiku45Input, OutputPrice: haiku45Output, CacheReadPrice: haiku45CacheRead, CacheWritePrice: haiku45CacheWrite, ContextWindow: context200K, Hidden: true},
 
 		{ID: "gw-glm-4.7", Label: "GLM-4.7", Arg: "glm-4.7", Route: contracts.RouteGateway},
 		{ID: "gw-qwen3-coder", Label: "Qwen3 Coder", Arg: "qwen3-coder", Route: contracts.RouteGateway},
