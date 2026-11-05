@@ -94,13 +94,98 @@ func TestDiscoverGatewayUsesGatewayRouteAndPrefix(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	models, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Gateway: creds, Getenv: keyEnv("sk-ignored")}, server.Client(), "http://unused.invalid")
+	models, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Gateway: creds, Policy: contracts.PolicyGatewayOnly, Getenv: keyEnv("sk-ignored")}, server.Client(), "http://unused.invalid")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(models) != 1 || models[0].ID != "gw-claude-opus-6" || models[0].Arg != "claude-opus-6" || models[0].Route != contracts.RouteGateway {
 		t.Fatalf("gateway models = %+v", models)
 	}
+}
+
+func countingModelsServer(t *testing.T, body string) (*httptest.Server, *atomic.Int32) {
+	t.Helper()
+	var hits atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		writeBody(t, w, body)
+	}))
+	t.Cleanup(server.Close)
+	return server, &hits
+}
+
+func TestDiscoverAllPolicyListsNativeAndGateway(t *testing.T) {
+	gateway, _ := countingModelsServer(t, `{"data":[{"id":"claude-opus-6","display_name":"Opus 6","type":"model","lifecycle":"active"}],"has_more":false,"last_id":"claude-opus-6"}`)
+	native, _ := countingModelsServer(t, `{"data":[{"id":"claude-sonnet-6","display_name":"Sonnet 6","type":"model","lifecycle":"active"}],"has_more":false,"last_id":"claude-sonnet-6"}`)
+	creds, err := contracts.NewGatewayCreds(gateway.URL, "gw-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	models, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Gateway: creds, Policy: contracts.PolicyAll, Getenv: keyEnv("sk-test")}, native.Client(), native.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 || models[0].ID != "gw-claude-opus-6" || models[0].Route != contracts.RouteGateway || models[1].ID != "claude-sonnet-6" || models[1].Route != contracts.RouteNative {
+		t.Fatalf("models = %+v, want the gateway model then the native one", models)
+	}
+}
+
+func TestDiscoverGatewayOnlyWithCredentialsNeverCallsNative(t *testing.T) {
+	gateway, _ := countingModelsServer(t, `{"data":[{"id":"claude-opus-6","display_name":"Opus 6","type":"model","lifecycle":"active"}],"has_more":false,"last_id":"claude-opus-6"}`)
+	native, nativeHits := countingModelsServer(t, `{"data":[{"id":"claude-sonnet-6","display_name":"Sonnet 6","type":"model","lifecycle":"active"}],"has_more":false,"last_id":"claude-sonnet-6"}`)
+	creds, err := contracts.NewGatewayCreds(gateway.URL, "gw-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	models, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Gateway: creds, Policy: contracts.PolicyGatewayOnly, Getenv: keyEnv("sk-test")}, native.Client(), native.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].Route != contracts.RouteGateway {
+		t.Fatalf("models = %+v, want only the gateway model", models)
+	}
+	if nativeHits.Load() != 0 {
+		t.Fatalf("native endpoint called %d time(s) under gateway-only", nativeHits.Load())
+	}
+}
+
+func TestDiscoverGatewayOnlyWithoutCredentialsListsNothing(t *testing.T) {
+	native, nativeHits := countingModelsServer(t, `{"data":[{"id":"claude-sonnet-6","display_name":"Sonnet 6","type":"model","lifecycle":"active"}],"has_more":false,"last_id":"claude-sonnet-6"}`)
+
+	models, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Policy: contracts.PolicyGatewayOnly, Getenv: keyEnv("sk-test")}, native.Client(), native.URL)
+	if err != nil || models != nil {
+		t.Fatalf("discover = %v, %v; want nil, nil", models, err)
+	}
+	if nativeHits.Load() != 0 {
+		t.Fatalf("native endpoint called %d time(s) under gateway-only", nativeHits.Load())
+	}
+}
+
+func TestRedirectGuardMatchesHostIgnoringCase(t *testing.T) {
+	origin := mustRequest(t, "https://Api.Example.com/v1/models")
+	sameHost := mustRequest(t, "https://api.example.com/v1/moved")
+	if err := keepKeyOnSameHostHTTPS(sameHost, []*http.Request{origin}); err != nil {
+		t.Fatalf("same host, other case refused: %v", err)
+	}
+}
+
+func TestRedirectGuardComparesPortExactly(t *testing.T) {
+	origin := mustRequest(t, "https://api.example.com/v1/models")
+	otherPort := mustRequest(t, "https://api.example.com:8443/v1/moved")
+	if err := keepKeyOnSameHostHTTPS(otherPort, []*http.Request{origin}); !errors.Is(err, errModelsRedirect) {
+		t.Fatalf("other port accepted: %v", err)
+	}
+}
+
+func mustRequest(t *testing.T, rawURL string) *http.Request {
+	t.Helper()
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return request
 }
 
 func TestSpecFromAPIKeepsOnlyActiveClaudeModels(t *testing.T) {
@@ -223,8 +308,16 @@ func TestDiscoverNeverFollowsRedirectToPlainHTTP(t *testing.T) {
 		http.Redirect(w, r, "http://"+r.Host+r.URL.RequestURI(), http.StatusTemporaryRedirect)
 	}))
 	defer redirecting.Close()
+	client := tlsModelsClient(redirecting)
+	transport := client.Transport
+	client.Transport = roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Scheme == "http" && request.Header.Get("X-Api-Key") != "" {
+			leaked.Add(1)
+		}
+		return transport.RoundTrip(request)
+	})
 
-	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, tlsModelsClient(redirecting), redirecting.URL)
+	_, err := discoverFrom(context.Background(), contracts.DiscoveryAccess{Getenv: keyEnv("sk-test")}, client, redirecting.URL)
 	if !errors.Is(err, errModelsRedirect) {
 		t.Fatalf("err = %v, want errModelsRedirect", err)
 	}

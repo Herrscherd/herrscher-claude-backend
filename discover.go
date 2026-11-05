@@ -75,21 +75,33 @@ func newModelsClient() *http.Client {
 
 func keepKeyOnSameHostHTTPS(next *http.Request, via []*http.Request) error {
 	origin := via[0].URL
-	if origin.Scheme != "https" || next.URL.Scheme != "https" || next.URL.Host != origin.Host {
+	if origin.Scheme != "https" || next.URL.Scheme != "https" || !strings.EqualFold(next.URL.Host, origin.Host) {
 		return errModelsRedirect
 	}
 	return nil
 }
 
 func discoverFrom(ctx context.Context, access contracts.DiscoveryAccess, client *http.Client, nativeBaseURL string) ([]contracts.ModelSpec, error) {
+	var specs []contracts.ModelSpec
 	if access.Gateway.BaseURL() != "" && access.Gateway.Token() != "" {
-		return listModels(ctx, client, access.Gateway.BaseURL(), access.Gateway.Token(), contracts.RouteGateway)
+		gateway, err := listModels(ctx, client, access.Gateway.BaseURL(), access.Gateway.Token(), contracts.RouteGateway)
+		if err != nil {
+			return nil, err
+		}
+		specs = append(specs, gateway...)
+	}
+	if !access.Policy.Allows(contracts.RouteNative) {
+		return specs, nil
 	}
 	key := strings.TrimSpace(access.Getenv(contracts.EnvAnthropicAPIKey))
 	if key == "" {
-		return nil, nil
+		return specs, nil
 	}
-	return listModels(ctx, client, nativeBaseURL, key, contracts.RouteNative)
+	native, err := listModels(ctx, client, nativeBaseURL, key, contracts.RouteNative)
+	if err != nil {
+		return nil, err
+	}
+	return append(specs, native...), nil
 }
 
 func listModels(ctx context.Context, client *http.Client, baseURL, key string, route contracts.Route) ([]contracts.ModelSpec, error) {
