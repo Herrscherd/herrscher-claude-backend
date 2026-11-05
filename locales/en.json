@@ -1,0 +1,62 @@
+[
+  {
+    "id": "setting.cmd",
+    "description": "Help of the cmd setting: the base command that runs the agent",
+    "other": "base command to run the agent"
+  },
+  {
+    "id": "setting.model",
+    "description": "Help of the model setting",
+    "other": "model override"
+  },
+  {
+    "id": "setting.stream",
+    "description": "Help of the stream setting",
+    "other": "stream-json mode (false to disable)"
+  },
+  {
+    "id": "setting.dir",
+    "description": "Help of the dir setting",
+    "other": "working directory"
+  },
+  {
+    "id": "setting.kind",
+    "description": "Help of the kind setting",
+    "other": "backend kind"
+  },
+  {
+    "id": "setting.env",
+    "description": "Help of the env setting, injected by the host at spawn",
+    "other": "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"
+  },
+  {
+    "id": "gateway.pair_incomplete",
+    "description": "A session refused to spawn because a gateway base URL came without its API key",
+    "other": "refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway"
+  },
+  {
+    "id": "models.refused",
+    "description": "The model listing endpoint answered with an error status",
+    "other": "models endpoint refused the request"
+  },
+  {
+    "id": "models.pagination",
+    "description": "The model listing endpoint sent a next page without a cursor",
+    "other": "models endpoint paginates without a cursor"
+  },
+  {
+    "id": "models.too_many_pages",
+    "description": "The model listing endpoint went past the page limit",
+    "other": "models endpoint has more pages than the limit"
+  },
+  {
+    "id": "models.redirect",
+    "description": "The model listing endpoint redirected away from its own host",
+    "other": "models endpoint redirected away from its own https host, the key is not resent"
+  },
+  {
+    "id": "turn.failed",
+    "description": "A turn the claude CLI reported as failed without saying why",
+    "other": "claude reported an error"
+  }
+]

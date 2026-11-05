@@ -1,0 +1,62 @@
+[
+  {
+    "id": "setting.cmd",
+    "description": "Aide du réglage cmd : la commande de base qui lance l'agent",
+    "other": "commande de base qui lance l'agent"
+  },
+  {
+    "id": "setting.model",
+    "description": "Aide du réglage model",
+    "other": "remplacement du modèle"
+  },
+  {
+    "id": "setting.stream",
+    "description": "Aide du réglage stream",
+    "other": "mode stream-json (false pour le désactiver)"
+  },
+  {
+    "id": "setting.dir",
+    "description": "Aide du réglage dir",
+    "other": "dossier de travail"
+  },
+  {
+    "id": "setting.kind",
+    "description": "Aide du réglage kind",
+    "other": "type de backend"
+  },
+  {
+    "id": "setting.env",
+    "description": "Aide du réglage env, injecté par l'hôte au lancement",
+    "other": "environnement propre à la session, injecté au lancement (K=V par ligne) ; fourni par l'hôte, jamais lu depuis l'environnement"
+  },
+  {
+    "id": "gateway.pair_incomplete",
+    "description": "Une session refusée au lancement parce qu'une URL de base de passerelle arrive sans sa clé d'API",
+    "other": "lancement refusé : la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle"
+  },
+  {
+    "id": "models.refused",
+    "description": "Le service de liste des modèles a répondu par un statut d'erreur",
+    "other": "le service de liste des modèles a refusé la requête"
+  },
+  {
+    "id": "models.pagination",
+    "description": "Le service de liste des modèles annonce une page suivante sans curseur",
+    "other": "le service de liste des modèles annonce une page suivante sans curseur"
+  },
+  {
+    "id": "models.too_many_pages",
+    "description": "Le service de liste des modèles dépasse la limite de pages",
+    "other": "le service de liste des modèles a plus de pages que la limite"
+  },
+  {
+    "id": "models.redirect",
+    "description": "Le service de liste des modèles a redirigé hors de son propre hôte",
+    "other": "le service de liste des modèles a redirigé hors de son hôte https, la clé n'est pas renvoyée"
+  },
+  {
+    "id": "turn.failed",
+    "description": "Un tour que la CLI claude a signalé en échec sans en donner la raison",
+    "other": "claude a signalé une erreur"
+  }
+]

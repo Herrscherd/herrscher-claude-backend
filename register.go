@@ -9,18 +9,19 @@ import (
 const backendKind = "claude"
 
 func init() {
+	texts := newMessages()
 	contracts.Register(contracts.Plugin{
 		Manifest: contracts.Manifest{
 			Kind:     backendKind,
 			Category: contracts.CategoryBackend,
 			Status:   contracts.StatusLive,
 			Config: []contracts.Setting{
-				{Key: "cmd", Env: "CLAUDE_CMD", Help: "base command to run the agent", Default: backendKind},
-				{Key: "model", Env: "CLAUDE_MODEL", Help: "model override"},
-				{Key: "stream", Env: "CLAUDE_STREAM", Help: "stream-json mode (false to disable)", Default: "true"},
-				{Key: "dir", Env: "CLAUDE_DIR", Help: "working directory"},
-				{Key: "kind", Env: "CLAUDE_KIND", Help: "backend kind"},
-				{Key: "env", Env: "", Help: "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"},
+				{Key: "cmd", Env: "CLAUDE_CMD", Help: texts.english(keySettingCmd), Default: backendKind},
+				{Key: "model", Env: "CLAUDE_MODEL", Help: texts.english(keySettingModel)},
+				{Key: "stream", Env: "CLAUDE_STREAM", Help: texts.english(keySettingStream), Default: "true"},
+				{Key: "dir", Env: "CLAUDE_DIR", Help: texts.english(keySettingDir)},
+				{Key: "kind", Env: "CLAUDE_KIND", Help: texts.english(keySettingKind)},
+				{Key: "env", Env: "", Help: texts.english(keySettingEnv)},
 			},
 			Models:       Models(),
 			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true},
