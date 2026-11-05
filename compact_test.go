@@ -12,6 +12,7 @@ import (
 	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 type sentLines struct{ bytes.Buffer }
@@ -219,4 +220,69 @@ func TestClaudeManifestDeclaresCompactor(t *testing.T) {
 		return
 	}
 	t.Fatalf("no %q backend registered", backendKind)
+}
+
+func TestCompactReportsItsSuccessAsACode(t *testing.T) {
+	r, _ := compactingResponder(t.Context(), compactSuccessWithUsage)
+	got, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
+	if err != nil {
+		t.Fatalf("Compact: %v", err)
+	}
+	if got.Notice.Code != contracts.CodeCompacted {
+		t.Fatalf("Notice.Code = %v, want CodeCompacted", got.Notice.Code)
+	}
+	if len(got.Notice.Args) != 0 {
+		t.Fatalf("Notice.Args = %+v, want none", got.Notice.Args)
+	}
+}
+
+func TestCompactUnavailableCarriesItsReasonAsACode(t *testing.T) {
+	turnError := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}` + "\n"
+	cases := []struct {
+		name      string
+		cancelled bool
+		reply     string
+		is        error
+	}{
+		{name: "turn reports an error", reply: turnError, is: ErrTurnFailed},
+		{name: "context cancelled", cancelled: true, reply: compactSuccessWithUsage, is: context.Canceled},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := t.Context()
+			if tc.cancelled {
+				cancelled, cancel := context.WithCancel(ctx)
+				cancel()
+				ctx = cancelled
+			}
+			r, _ := compactingResponder(ctx, tc.reply)
+			_, err := r.Compact(ctx, contracts.CompactRequest{}, nil)
+			if !errors.Is(err, tc.is) {
+				t.Fatalf("err = %v, want it to match %v", err, tc.is)
+			}
+			assertUnavailableReason(t, err)
+		})
+	}
+}
+
+func assertUnavailableReason(t *testing.T, err error) {
+	t.Helper()
+	notice := contracts.NoticeOf(err)
+	if notice.Code != contracts.CodeCompactUnavailable {
+		t.Fatalf("Notice.Code = %v, want CodeCompactUnavailable", notice.Code)
+	}
+	if len(notice.Args) != 1 || notice.Args[0].Name() != "Reason" || notice.Args[0].Kind() != contracts.ArgText {
+		t.Fatalf("Notice.Args = %+v, want one text argument named Reason", notice.Args)
+	}
+	reason := strings.TrimPrefix(err.Error(), "claude compaction: ")
+	if notice.Args[0].Value() != reason {
+		t.Fatalf("Reason = %v, want %q", notice.Args[0].Value(), reason)
+	}
+	text, renderErr := contracts.NewRenderer().Render(i18n.English, notice)
+	if renderErr != nil {
+		t.Fatalf("Render: %v", renderErr)
+	}
+	if !strings.Contains(text, reason) {
+		t.Fatalf("rendered %q does not show the reason %q", text, reason)
+	}
 }
