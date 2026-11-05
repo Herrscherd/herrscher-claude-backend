@@ -45,6 +45,7 @@ type apiModel struct {
 	DisplayName  string          `json:"display_name"`
 	Type         string          `json:"type"`
 	Lifecycle    string          `json:"lifecycle"`
+	MaxInput     int             `json:"max_input_tokens"`
 	Capabilities apiCapabilities `json:"capabilities"`
 }
 
@@ -182,11 +183,12 @@ func specFromAPI(model apiModel, route contracts.Route) (contracts.ModelSpec, bo
 		return contracts.ModelSpec{}, false
 	}
 	spec := contracts.ModelSpec{
-		ID:      model.ID,
-		Label:   model.DisplayName,
-		Arg:     model.ID,
-		Efforts: efforts(model.Capabilities.Effort),
-		Route:   route,
+		ID:            model.ID,
+		Label:         model.DisplayName,
+		Arg:           model.ID,
+		Efforts:       efforts(model.Capabilities.Effort),
+		ContextWindow: model.MaxInput,
+		Route:         route,
 	}
 	if route == contracts.RouteGateway {
 		spec.ID = gatewayIDPrefix + model.ID

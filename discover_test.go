@@ -387,3 +387,13 @@ func TestDiscoverPageOverBodyCapIsAnError(t *testing.T) {
 		t.Fatal("oversized page accepted")
 	}
 }
+
+func TestSpecFromAPIKeepsContextWindow(t *testing.T) {
+	spec, ok := specFromAPI(apiModel{ID: "claude-sonnet-6", Type: "model", Lifecycle: "active", MaxInput: 1_000_000}, contracts.RouteNative)
+	if !ok {
+		t.Fatal("active claude model dropped")
+	}
+	if spec.ContextWindow != 1_000_000 {
+		t.Fatalf("ContextWindow = %d, want the max_input_tokens value", spec.ContextWindow)
+	}
+}
