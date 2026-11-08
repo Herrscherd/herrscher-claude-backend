@@ -400,7 +400,7 @@ func assertOnlyTheTranscript(t *testing.T, path, want string) {
 
 func TestPruneTranscriptRefusesAFileAppendedSinceItWasRead(t *testing.T) {
 	path := newTranscriptCase(t).path
-	read, err := readTranscript(transcriptFile{dir: filepath.Dir(path), name: filepath.Base(path)})
+	read, err := readTranscript(t.Context(), transcriptFile{dir: filepath.Dir(path), name: filepath.Base(path)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -409,7 +409,7 @@ func TestPruneTranscriptRefusesAFileAppendedSinceItWasRead(t *testing.T) {
 		t.Fatal(err)
 	}
 	appendToTranscript(t, path)
-	if err = pruneTranscript(read, plan); !errors.Is(err, ErrTranscriptChanged) {
+	if err = pruneTranscript(t.Context(), read, plan); !errors.Is(err, ErrTranscriptChanged) {
 		t.Fatalf("pruneTranscript error = %v, want ErrTranscriptChanged", err)
 	}
 	assertOnlyTheTranscript(t, path, transcriptFixture()+appendedLine)
@@ -439,4 +439,26 @@ func TestSwapTranscriptRefusesAFileAppendedRightBeforeTheRename(t *testing.T) {
 		t.Fatalf("the staged file is gone after a refused swap: %v", err)
 	}
 	assertOnlyTheTranscript(t, path, transcriptFixture()+appendedLine)
+}
+
+func TestTranscriptLoopsStopOnACancelledContext(t *testing.T) {
+	path := newTranscriptCase(t).path
+	transcript := transcriptFile{dir: filepath.Dir(path), name: filepath.Base(path)}
+	read, err := readTranscript(t.Context(), transcript)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planEdits(read, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	if _, err = readTranscript(cancelled, transcript); !errors.Is(err, context.Canceled) {
+		t.Fatalf("readTranscript error = %v, want context.Canceled", err)
+	}
+	if err = pruneTranscript(cancelled, read, plan); !errors.Is(err, context.Canceled) {
+		t.Fatalf("pruneTranscript error = %v, want context.Canceled", err)
+	}
+	assertOnlyTheTranscript(t, path, transcriptFixture())
 }

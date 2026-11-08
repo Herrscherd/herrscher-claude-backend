@@ -38,7 +38,7 @@ func (r *streamResponder) PruneHistory(ctx context.Context, edits []contracts.Hi
 			return contracts.PruneOutcome{}, dropErr
 		}
 	}
-	if pruneErr := pruneTranscript(read, plan); pruneErr != nil {
+	if pruneErr := pruneTranscript(ctx, read, plan); pruneErr != nil {
 		return contracts.PruneOutcome{}, pruneErr
 	}
 	return outcome, nil
@@ -63,5 +63,5 @@ func (r *streamResponder) loadTranscript(ctx context.Context) (*historyBuilder, 
 	if err != nil {
 		return nil, err
 	}
-	return readTranscript(transcript)
+	return readTranscript(ctx, transcript)
 }

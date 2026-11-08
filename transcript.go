@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -122,9 +123,12 @@ func (e transcriptEntry) isCompactBoundary() bool {
 	return e.Type == "system" && e.Subtype == "compact_boundary"
 }
 
-func eachTranscriptLine(source io.Reader, visit func(lineIndex int, line []byte) error) error {
+func eachTranscriptLine(ctx context.Context, source io.Reader, visit func(lineIndex int, line []byte) error) error {
 	reader := bufio.NewReader(source)
 	for lineIndex := 0; ; lineIndex++ {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("claude transcript at line %d: %w", lineIndex, err)
+		}
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
 			if visitErr := visit(lineIndex, line); visitErr != nil {
@@ -334,7 +338,7 @@ func resultText(content json.RawMessage) string {
 	return joined
 }
 
-func readTranscript(transcript transcriptFile) (*historyBuilder, error) {
+func readTranscript(ctx context.Context, transcript transcriptFile) (*historyBuilder, error) {
 	root, err := os.OpenRoot(transcript.dir)
 	if err != nil {
 		return nil, fmt.Errorf("open claude transcript directory: %w", err)
@@ -350,14 +354,14 @@ func readTranscript(transcript transcriptFile) (*historyBuilder, error) {
 		return nil, fmt.Errorf("stat claude transcript: %w", err)
 	}
 	index := newChainIndex()
-	if err = eachTranscriptLine(io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
+	if err = eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		index.add(lineIndex, line)
 		return nil
 	}); err != nil {
 		return nil, err
 	}
 	builder := newHistoryBuilder(transcript, info, index)
-	err = eachTranscriptLine(io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
+	err = eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		builder.add(lineIndex, line)
 		return nil
 	})
@@ -625,7 +629,7 @@ func planEdits(read *historyBuilder, edits []contracts.HistoryEdit) (map[string]
 	return plan, nil
 }
 
-func pruneTranscript(read *historyBuilder, plan map[string]pruneEdit) error {
+func pruneTranscript(ctx context.Context, read *historyBuilder, plan map[string]pruneEdit) error {
 	root, err := os.OpenRoot(read.file.dir)
 	if err != nil {
 		return fmt.Errorf("open claude transcript directory: %w", err)
@@ -646,7 +650,7 @@ func pruneTranscript(read *historyBuilder, plan map[string]pruneEdit) error {
 		return fmt.Errorf("stage claude transcript: %w", err)
 	}
 	defer removeStaged(root, stagedName)
-	if err = writePrunedTranscript(io.NewSectionReader(source, 0, read.read.Size()), staged, read.onChain, plan); err != nil {
+	if err = writePrunedTranscript(ctx, io.NewSectionReader(source, 0, read.read.Size()), staged, read.onChain, plan); err != nil {
 		return errors.Join(err, staged.Close())
 	}
 	if err = staged.Sync(); err != nil {
@@ -699,9 +703,9 @@ func removeStaged(root *os.Root, name string) {
 	}
 }
 
-func writePrunedTranscript(source io.Reader, target io.Writer, onChain map[int]bool, plan map[string]pruneEdit) error {
+func writePrunedTranscript(ctx context.Context, source io.Reader, target io.Writer, onChain map[int]bool, plan map[string]pruneEdit) error {
 	writer := bufio.NewWriter(target)
-	err := eachTranscriptLine(source, func(lineIndex int, line []byte) error {
+	err := eachTranscriptLine(ctx, source, func(lineIndex int, line []byte) error {
 		if onChain[lineIndex] {
 			line = prunedLine(line, plan)
 		}
