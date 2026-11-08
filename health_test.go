@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -119,11 +120,72 @@ func TestProbeDeepRunsCheapestNativeModelWithoutTools(t *testing.T) {
 		t.Fatalf("read args: %v", err)
 	}
 	args := string(raw)
-	if want := "--model " + cheapestModel(); !strings.Contains(args, want) {
+	if want := "--model claude-haiku-5-5"; !strings.Contains(args, want) {
 		t.Fatalf("args %q lack %q", args, want)
 	}
 	if !strings.Contains(args, "--tools") {
 		t.Fatalf("args %q disable no tool", args)
+	}
+}
+
+func TestCheapestModelIsTheLowestPricedVisibleNativeModel(t *testing.T) {
+	cheapest := cheapestModel()
+	if cheapest != "claude-haiku-5-5" {
+		t.Fatalf("cheapestModel() = %q, want claude-haiku-5-5", cheapest)
+	}
+	specs := Models()
+	price := func(arg string) float64 {
+		for _, spec := range specs {
+			if spec.Arg == arg {
+				return spec.InputPrice + spec.OutputPrice
+			}
+		}
+		t.Fatalf("%q is not in the catalogue", arg)
+		return 0
+	}
+	for _, spec := range specs {
+		if spec.Route != contracts.RouteNative || spec.Hidden {
+			continue
+		}
+		if price(spec.Arg) < price(cheapest) {
+			t.Fatalf("%s is cheaper than the cheapest %q", spec.Arg, cheapest)
+		}
+	}
+}
+
+func fakeSleepingClaude(t *testing.T, authJSON string) string {
+	t.Helper()
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "claude")
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = auth ]; then\n" +
+		"  echo '" + authJSON + "'\n" +
+		"  exit 0\n" +
+		"fi\n" +
+		"exec sleep 30\n"
+	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
+		t.Fatalf("write fake claude: %v", err)
+	}
+	return binary
+}
+
+func TestProbeDeepTurnPastDeadlineIsDegradedTimeout(t *testing.T) {
+	binary := fakeSleepingClaude(t, `{"loggedIn": true}`)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	started := time.Now()
+	report := probe(ctx, probeAccess(binary, "", true))
+	if elapsed := time.Since(started); elapsed > 5*time.Second {
+		t.Fatalf("probe took %v, want it to return once the deadline passes", elapsed)
+	}
+	if report.State != contracts.HealthDegraded {
+		t.Fatalf("state = %v, want degraded", report.State)
+	}
+	if report.Detail.Code != contracts.CodeHealthUnreachable || len(report.Detail.Args) != 1 {
+		t.Fatalf("detail = %+v, want unreachable with a reason", report.Detail)
+	}
+	if got := report.Detail.Args[0].Value(); got != reasonTimeout {
+		t.Fatalf("reason = %v, want %q", got, reasonTimeout)
 	}
 }
 

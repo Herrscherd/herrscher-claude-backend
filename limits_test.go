@@ -128,65 +128,111 @@ func TestLimitsFromReportMapsFiveHourWindow(t *testing.T) {
 
 func TestLimitsFromFailures(t *testing.T) {
 	tests := []struct {
-		name            string
-		missingFile     bool
-		expiresAt       time.Time
-		status          int
-		wantUnavailable bool
-		wantCause       error
+		name        string
+		missingFile bool
+		expiresAt   time.Time
+		status      int
+		body        string
+		wantCause   error
 	}{
 		{
-			name:            "no credentials file",
-			missingFile:     true,
-			status:          http.StatusOK,
-			wantUnavailable: true,
-			wantCause:       errNoOAuthLogin,
+			name:        "no credentials file",
+			missingFile: true,
+			status:      http.StatusOK,
+			body:        `{}`,
+			wantCause:   errNoOAuthLogin,
 		},
 		{
-			name:            "expired token",
-			expiresAt:       testNow().Add(-time.Minute),
-			status:          http.StatusOK,
-			wantUnavailable: true,
-			wantCause:       errOAuthExpired,
+			name:      "expired token",
+			expiresAt: testNow().Add(-time.Minute),
+			status:    http.StatusOK,
+			body:      `{}`,
+			wantCause: errOAuthExpired,
 		},
 		{
-			name:            "token refused",
-			expiresAt:       testNow().Add(time.Hour),
-			status:          http.StatusUnauthorized,
-			wantUnavailable: true,
-			wantCause:       errUsageRefused,
+			name:      "token refused",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusUnauthorized,
+			body:      `{}`,
+			wantCause: errUsageRefused,
 		},
 		{
-			name:            "server error",
-			expiresAt:       testNow().Add(time.Hour),
-			status:          http.StatusInternalServerError,
-			wantUnavailable: false,
-			wantCause:       errUsageRefused,
+			name:      "server error",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusInternalServerError,
+			body:      `{}`,
+			wantCause: errUsageRefused,
+		},
+		{
+			name:      "rate limited",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusTooManyRequests,
+			body:      `{}`,
+			wantCause: errUsageRefused,
+		},
+		{
+			name:      "service unavailable",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusServiceUnavailable,
+			body:      `{}`,
+			wantCause: errUsageRefused,
+		},
+		{
+			name:      "empty object",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `{}`,
+			wantCause: errUsageUnknown,
+		},
+		{
+			name:      "only unknown keys",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `{"seven_day_oauth_apps":{"utilization":3,"resets_at":"2026-11-13T14:00:00+00:00"},"extra_usage":null}`,
+			wantCause: errUsageUnknown,
+		},
+		{
+			name:      "array instead of object",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `[]`,
+		},
+		{
+			name:      "window of the wrong type",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `{"five_hour":"x"}`,
+		},
+		{
+			name:      "limits of the wrong type",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `{"five_hour":{"utilization":30,"resets_at":"2026-11-08T16:00:00+00:00"},"limits":{}}`,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var gotAuth, gotBeta string
-			server := usageServer(t, tt.status, `{}`, &gotAuth, &gotBeta)
+			server := usageServer(t, tt.status, tt.body, &gotAuth, &gotBeta)
 			dir := t.TempDir()
 			if !tt.missingFile {
 				dir = writeCredentials(t, tt.expiresAt)
 			}
 			_, err := limitsFrom(context.Background(), contracts.ProbeAccess{Getenv: configEnv(dir)}, newUsageClient(), server.URL, testNow())
-			assertUsageFailure(t, err, tt.wantUnavailable, tt.wantCause)
+			assertUsageFailure(t, err, tt.wantCause)
 		})
 	}
 }
 
-func assertUsageFailure(t *testing.T, err error, wantUnavailable bool, wantCause error) {
+func assertUsageFailure(t *testing.T, err, wantCause error) {
 	t.Helper()
 	if err == nil {
 		t.Fatal("want an error")
 	}
-	if got := errors.Is(err, contracts.ErrLimitsUnavailable); got != wantUnavailable {
-		t.Fatalf("ErrLimitsUnavailable match = %v, want %v: %v", got, wantUnavailable, err)
+	if !errors.Is(err, contracts.ErrLimitsUnavailable) {
+		t.Fatalf("error does not match ErrLimitsUnavailable: %v", err)
 	}
-	if !errors.Is(err, wantCause) {
+	if wantCause != nil && !errors.Is(err, wantCause) {
 		t.Fatalf("error %v does not carry its cause %v", err, wantCause)
 	}
 	if strings.Contains(err.Error(), testOAuthToken) {

@@ -196,9 +196,13 @@ credentials are `down`, a server error is `degraded`, and a missing CLI is
 access token stored under `claudeAiOauth` in `<config>/.credentials.json`, where
 `<config>` is the same directory as in the history section. It maps `five_hour`,
 `seven_day` and the weekly windows of each model family, whether they come as
-`seven_day_<family>` or in the `limits` array, to `contracts.Limit`. An absent,
-expired or refused token returns an error matching `ErrLimitsUnavailable`. The
-token is never logged and never put in an error.
+`seven_day_<family>` or in the `limits` array, to `contracts.Limit`. The
+`seven_day_<family>` keys are kept only for the families of the model catalogue
+(`Models`); other keys such as `seven_day_oauth_apps` are ignored. A response
+with no known window, an unreadable body, an absent, expired or refused token,
+a 429 or a 5xx all return an error matching `ErrLimitsUnavailable`. The token is
+never logged and never put in an error. The HTTP client has no timeout of its
+own: its deadline is the context of the caller.
 
 The endpoint is not a documented API: its shape is the one the claude CLI reads,
 and the CLI itself marks it experimental. `Models` on a result event comes from

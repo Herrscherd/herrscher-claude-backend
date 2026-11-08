@@ -62,7 +62,7 @@ func readOAuthToken(getenv func(string) string, now time.Time) (string, error) {
 		return "", fmt.Errorf("%w: %w", contracts.ErrLimitsUnavailable, errNoOAuthLogin)
 	}
 	if err != nil {
-		return "", err
+		return "", limitsUnavailable(err)
 	}
 	oauth := credentials.ClaudeAiOauth
 	if oauth == nil || strings.TrimSpace(oauth.AccessToken) == "" {

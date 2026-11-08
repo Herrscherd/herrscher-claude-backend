@@ -28,7 +28,10 @@ const (
 	weekSpan          = 7 * 24 * time.Hour
 )
 
-var errUsageRefused = newCatalogError(keyUsageRefused)
+var (
+	errUsageRefused = newCatalogError(keyUsageRefused)
+	errUsageUnknown = newCatalogError(keyUsageUnknown)
+)
 
 type usageWindow struct {
 	Utilization *float64 `json:"utilization"`
@@ -63,9 +66,17 @@ func limitsFrom(ctx context.Context, access contracts.ProbeAccess, client *http.
 	}
 	report, err := fetchUsage(ctx, client, baseURL, token)
 	if err != nil {
-		return nil, err
+		return nil, limitsUnavailable(err)
 	}
-	return limitsFromReport(report)
+	limits, err := limitsFromReport(report)
+	if err != nil {
+		return nil, limitsUnavailable(err)
+	}
+	return limits, nil
+}
+
+func limitsUnavailable(cause error) error {
+	return fmt.Errorf("%w: %w", contracts.ErrLimitsUnavailable, cause)
 }
 
 func fetchUsage(ctx context.Context, client *http.Client, baseURL, token string) (map[string]json.RawMessage, error) {
@@ -90,7 +101,7 @@ func fetchUsage(ctx context.Context, client *http.Client, baseURL, token string)
 func decodeUsage(response *http.Response) (map[string]json.RawMessage, error) {
 	switch {
 	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
-		return nil, fmt.Errorf("%w: %w: %s", contracts.ErrLimitsUnavailable, errUsageRefused, response.Status)
+		return nil, fmt.Errorf("%w: %s", errUsageRefused, response.Status)
 	case response.StatusCode < http.StatusOK || response.StatusCode >= http.StatusMultipleChoices:
 		return nil, fmt.Errorf("%w: %s", errUsageRefused, response.Status)
 	}
@@ -126,6 +137,9 @@ func limitsFromReport(report map[string]json.RawMessage) ([]contracts.Limit, err
 		if !hasLimit(found, limit.Window, limit.Scope) {
 			found = append(found, limit)
 		}
+	}
+	if len(found) == 0 {
+		return nil, errUsageUnknown
 	}
 	slices.SortStableFunc(found, func(a, b contracts.Limit) int {
 		return cmp.Or(cmp.Compare(a.Window, b.Window), cmp.Compare(a.Scope, b.Scope))

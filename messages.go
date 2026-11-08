@@ -28,6 +28,7 @@ const (
 	keyUsageNoLogin          = "usage.no_oauth_login"
 	keyUsageExpired          = "usage.token_expired"
 	keyUsageRefused          = "usage.refused"
+	keyUsageUnknown          = "usage.unknown"
 )
 
 type messages struct {
