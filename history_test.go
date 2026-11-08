@@ -309,6 +309,16 @@ func prunedResultBlocks(t *testing.T, path string) []json.RawMessage {
 	return entry.Message.Content[0].Content
 }
 
+func assertPrunedBlocks(t *testing.T, blocks []json.RawMessage, wantText string) {
+	t.Helper()
+	if len(blocks) != 3 || string(blocks[1]) != imageBlock || string(blocks[2]) != referenceBlock {
+		t.Fatalf("pruned blocks = %s, want one text block then the image and the reference untouched", blocks)
+	}
+	if text, isText := blockOfText(blocks[0]); !isText || text != wantText {
+		t.Fatalf("pruned text block = %s, want %q", blocks[0], wantText)
+	}
+}
+
 func TestPruneHistoryRewritesOnlyTheTextBlocksOfAResult(t *testing.T) {
 	cases := map[string]struct {
 		edit contracts.HistoryEdit
@@ -329,13 +339,7 @@ func TestPruneHistoryRewritesOnlyTheTextBlocksOfAResult(t *testing.T) {
 			if _, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{tc.edit}); err != nil {
 				t.Fatalf("PruneHistory: %v", err)
 			}
-			blocks := prunedResultBlocks(t, fixture.path)
-			if len(blocks) != 3 || string(blocks[1]) != imageBlock || string(blocks[2]) != referenceBlock {
-				t.Fatalf("pruned blocks = %s, want one text block then the image and the reference untouched", blocks)
-			}
-			if text, isText := blockOfText(blocks[0]); !isText || text != tc.want {
-				t.Fatalf("pruned text block = %s, want %q", blocks[0], tc.want)
-			}
+			assertPrunedBlocks(t, prunedResultBlocks(t, fixture.path), tc.want)
 			history, err := fixture.r.ReadHistory(t.Context())
 			if err != nil || history.Calls()[0].Result != tc.want {
 				t.Fatalf("ReadHistory after prune = %+v, %v, want result %q", history, err, tc.want)
@@ -394,8 +398,9 @@ func TestReadHistoryFollowsTheBranchOfTheLeafAfterARewind(t *testing.T) {
 		t.Fatalf("PruneHistory: %v", err)
 	}
 	assertUntouchedLines(t, fixture.path, rewoundFixture(), "u0", "a0", "u1", "a1", "u2", "u3", "a3")
-	if pruned, _ := os.ReadFile(fixture.path); bytes.Contains(pruned, []byte("kept output")) {
-		t.Fatal("the result on the branch of the leaf was not pruned")
+	pruned, err := os.ReadFile(fixture.path)
+	if err != nil || bytes.Contains(pruned, []byte("kept output")) {
+		t.Fatalf("the result on the branch of the leaf was not pruned: %v", err)
 	}
 }
 

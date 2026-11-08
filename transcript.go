@@ -355,11 +355,11 @@ func readTranscript(ctx context.Context, transcript transcriptFile) (*historyBui
 		return nil, fmt.Errorf("stat claude transcript: %w", err)
 	}
 	index := newChainIndex()
-	if err = eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
+	if indexErr := eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		index.add(lineIndex, line)
 		return nil
-	}); err != nil {
-		return nil, err
+	}); indexErr != nil {
+		return nil, indexErr
 	}
 	builder := newHistoryBuilder(transcript, info, index)
 	err = eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
@@ -452,16 +452,18 @@ type textBlock struct {
 	Text string `json:"text"`
 }
 
+func contentBlocks(content json.RawMessage) ([]json.RawMessage, bool) {
+	var blocks []json.RawMessage
+	return blocks, json.Unmarshal(content, &blocks) == nil
+}
+
 func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
-	if len(content) == 0 {
-		return nil, nil
-	}
 	var text string
 	if json.Unmarshal(content, &text) == nil {
 		return prunedTextContent(edit, text)
 	}
-	var blocks []json.RawMessage
-	if json.Unmarshal(content, &blocks) != nil {
+	blocks, isList := contentBlocks(content)
+	if !isList {
 		return nil, nil
 	}
 	var pruned []json.RawMessage
@@ -580,28 +582,30 @@ func withText(block json.RawMessage, text string) (json.RawMessage, error) {
 	return encoded, nil
 }
 
+func prunedCall(call contracts.HistoryCall, edit pruneEdit) contracts.HistoryCall {
+	if edit.Action == contracts.PruneCall {
+		call.Input = prunedInput(call.Input)
+	}
+	if edit.content != nil {
+		call.Result = resultText(edit.content)
+	}
+	return call
+}
+
 func pruneOutcome(history contracts.History, edits map[string]pruneEdit) contracts.PruneOutcome {
 	pruned := contracts.History{Messages: make([]contracts.HistoryMessage, len(history.Messages))}
 	edited := 0
 	for index, message := range history.Messages {
 		message.Calls = append([]contracts.HistoryCall(nil), message.Calls...)
-		for callIndex := range message.Calls {
-			call := &message.Calls[callIndex]
+		for callIndex, call := range message.Calls {
 			edit, ok := edits[call.ID]
 			if !ok {
 				continue
 			}
-			input := call.Input
-			if edit.Action == contracts.PruneCall {
-				input = prunedInput(call.Input)
-			}
-			if edit.content != nil || input != call.Input {
+			if pruned := prunedCall(call, edit); pruned != call {
+				message.Calls[callIndex] = pruned
 				edited++
 			}
-			if edit.content != nil {
-				call.Result = resultText(edit.content)
-			}
-			call.Input = input
 		}
 		pruned.Messages[index] = message
 	}
@@ -641,8 +645,8 @@ func pruneTranscript(ctx context.Context, read *historyBuilder, plan map[string]
 		return fmt.Errorf("open claude transcript: %w", err)
 	}
 	defer closeAndLog(source)
-	if err = checkUnchanged(root, read.file.name, read.read); err != nil {
-		return err
+	if changedErr := checkUnchanged(root, read.file.name, read.read); changedErr != nil {
+		return changedErr
 	}
 	stagedName := read.file.name + transcriptStagedExt
 	removeStaged(root, stagedName)
