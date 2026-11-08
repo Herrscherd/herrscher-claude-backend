@@ -58,5 +58,20 @@
     "id": "turn.failed",
     "description": "A turn the claude CLI reported as failed without saying why",
     "other": "claude reported an error"
+  },
+  {
+    "id": "usage.no_oauth_login",
+    "description": "The account has no claude.ai login whose usage limits can be read",
+    "other": "no claude.ai login to read the usage limits from"
+  },
+  {
+    "id": "usage.token_expired",
+    "description": "The stored claude.ai access token has expired; the claude CLI renews it on its next turn",
+    "other": "the claude.ai access token has expired, the claude CLI renews it on its next turn"
+  },
+  {
+    "id": "usage.refused",
+    "description": "The OAuth usage endpoint answered with an error status",
+    "other": "usage endpoint refused the request"
   }
 ]

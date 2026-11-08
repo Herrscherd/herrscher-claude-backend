@@ -27,6 +27,8 @@ func init() {
 			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true, HistoryEditor: true},
 		},
 		Discover: discover,
+		Probe:    probe,
+		Limits:   limits,
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
 				Kind:     cfg.Get("kind"),

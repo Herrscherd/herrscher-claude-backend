@@ -25,6 +25,9 @@ const (
 	keyModelsTooMany         = "models.too_many_pages"
 	keyModelsRedirect        = "models.redirect"
 	keyTurnFailed            = "turn.failed"
+	keyUsageNoLogin          = "usage.no_oauth_login"
+	keyUsageExpired          = "usage.token_expired"
+	keyUsageRefused          = "usage.refused"
 )
 
 type messages struct {
