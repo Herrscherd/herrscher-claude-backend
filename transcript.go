@@ -25,6 +25,13 @@ var ErrTranscriptNotFound = errors.New("claude session transcript not found")
 // so never names a transcript file.
 var ErrBadSessionID = errors.New("claude session id is malformed")
 
+// ErrTranscriptChanged reports a transcript that another writer, such as a
+// `claude --resume` run in a terminal on the same session, changed after it was
+// read: PruneHistory leaves it untouched rather than drop what was appended. The
+// file is checked when the prune starts and again right before the rename, so
+// only a write landing between that last check and the rename escapes it.
+var ErrTranscriptChanged = errors.New("claude session transcript changed while being pruned")
+
 const (
 	configDirVar        = "CLAUDE_CONFIG_DIR"
 	transcriptBackupExt = ".herrscher-bak"
@@ -176,6 +183,8 @@ func (c *chainIndex) mainChain() map[string]bool {
 }
 
 type historyBuilder struct {
+	file          transcriptFile
+	read          os.FileInfo
 	history       contracts.History
 	lastMsgID     string
 	callAt        map[string][2]int
@@ -185,8 +194,10 @@ type historyBuilder struct {
 	boundaryAt    int
 }
 
-func newHistoryBuilder(index *chainIndex) *historyBuilder {
+func newHistoryBuilder(transcript transcriptFile, read os.FileInfo, index *chainIndex) *historyBuilder {
 	return &historyBuilder{
+		file:          transcript,
+		read:          read,
 		callAt:        make(map[string][2]int),
 		resultContent: make(map[string]json.RawMessage),
 		chain:         index.mainChain(),
@@ -345,7 +356,7 @@ func readTranscript(transcript transcriptFile) (*historyBuilder, error) {
 	}); err != nil {
 		return nil, err
 	}
-	builder := newHistoryBuilder(index)
+	builder := newHistoryBuilder(transcript, info, index)
 	err = eachTranscriptLine(io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		builder.add(lineIndex, line)
 		return nil
@@ -614,29 +625,28 @@ func planEdits(read *historyBuilder, edits []contracts.HistoryEdit) (map[string]
 	return plan, nil
 }
 
-func pruneTranscript(transcript transcriptFile, onChain map[int]bool, plan map[string]pruneEdit) error {
-	root, err := os.OpenRoot(transcript.dir)
+func pruneTranscript(read *historyBuilder, plan map[string]pruneEdit) error {
+	root, err := os.OpenRoot(read.file.dir)
 	if err != nil {
 		return fmt.Errorf("open claude transcript directory: %w", err)
 	}
 	defer closeAndLog(root)
-	source, err := root.Open(transcript.name)
+	source, err := root.Open(read.file.name)
 	if err != nil {
 		return fmt.Errorf("open claude transcript: %w", err)
 	}
 	defer closeAndLog(source)
-	info, err := source.Stat()
-	if err != nil {
-		return fmt.Errorf("stat claude transcript: %w", err)
+	if err = checkUnchanged(root, read.file.name, read.read); err != nil {
+		return err
 	}
-	stagedName := transcript.name + transcriptStagedExt
+	stagedName := read.file.name + transcriptStagedExt
 	removeStaged(root, stagedName)
-	staged, err := root.OpenFile(stagedName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	staged, err := root.OpenFile(stagedName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, read.read.Mode().Perm())
 	if err != nil {
 		return fmt.Errorf("stage claude transcript: %w", err)
 	}
 	defer removeStaged(root, stagedName)
-	if err = writePrunedTranscript(source, staged, onChain, plan); err != nil {
+	if err = writePrunedTranscript(io.NewSectionReader(source, 0, read.read.Size()), staged, read.onChain, plan); err != nil {
 		return errors.Join(err, staged.Close())
 	}
 	if err = staged.Sync(); err != nil {
@@ -645,16 +655,31 @@ func pruneTranscript(transcript transcriptFile, onChain map[int]bool, plan map[s
 	if err = staged.Close(); err != nil {
 		return fmt.Errorf("stage claude transcript: %w", err)
 	}
-	return swapTranscript(root, transcript.name, stagedName)
+	return swapTranscript(root, read.file.name, stagedName, read.read)
 }
 
-func swapTranscript(root *os.Root, name, stagedName string) error {
+func checkUnchanged(root *os.Root, name string, read os.FileInfo) error {
+	current, err := root.Stat(name)
+	if err != nil {
+		return fmt.Errorf("stat claude transcript: %w", err)
+	}
+	if !os.SameFile(read, current) || read.Size() != current.Size() || !read.ModTime().Equal(current.ModTime()) {
+		return fmt.Errorf("%w: %s", ErrTranscriptChanged, name)
+	}
+	return nil
+}
+
+func swapTranscript(root *os.Root, name, stagedName string, read os.FileInfo) error {
 	backup := name + transcriptBackupExt
 	if err := root.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("drop old claude transcript backup: %w", err)
 	}
 	if err := root.Link(name, backup); err != nil {
 		return fmt.Errorf("back up claude transcript: %w", err)
+	}
+	if err := checkUnchanged(root, name, read); err != nil {
+		removeStaged(root, backup)
+		return err
 	}
 	if err := root.Rename(stagedName, name); err != nil {
 		return fmt.Errorf("replace claude transcript: %w", err)

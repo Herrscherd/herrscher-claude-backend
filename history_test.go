@@ -374,3 +374,69 @@ func TestReadHistoryFollowsTheBranchOfTheLeafAfterARewind(t *testing.T) {
 		t.Fatal("the result on the branch of the leaf was not pruned")
 	}
 }
+
+const appendedLine = `{"type":"user","message":{"role":"user","content":"typed in a terminal"},"uuid":"u9","parentUuid":"a5"}` + "\n"
+
+func appendToTranscript(t *testing.T, path string) {
+	t.Helper()
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mustWriteString(t, file, appendedLine)
+	mustClose(t, file)
+}
+
+func assertOnlyTheTranscript(t *testing.T, path, want string) {
+	t.Helper()
+	if got, err := os.ReadFile(path); err != nil || string(got) != want {
+		t.Fatalf("transcript = %q, %v, want it untouched", got, err)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("transcript directory holds %v, %v, want the transcript alone", entries, err)
+	}
+}
+
+func TestPruneTranscriptRefusesAFileAppendedSinceItWasRead(t *testing.T) {
+	path := newTranscriptCase(t).path
+	read, err := readTranscript(transcriptFile{dir: filepath.Dir(path), name: filepath.Base(path)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan, err := planEdits(read, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appendToTranscript(t, path)
+	if err = pruneTranscript(read, plan); !errors.Is(err, ErrTranscriptChanged) {
+		t.Fatalf("pruneTranscript error = %v, want ErrTranscriptChanged", err)
+	}
+	assertOnlyTheTranscript(t, path, transcriptFixture()+appendedLine)
+}
+
+func TestSwapTranscriptRefusesAFileAppendedRightBeforeTheRename(t *testing.T) {
+	path := newTranscriptCase(t).path
+	dir, name := filepath.Dir(path), filepath.Base(path)
+	read, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stagedName := name + transcriptStagedExt
+	if err = os.WriteFile(filepath.Join(dir, stagedName), []byte("staged\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	appendToTranscript(t, path)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer mustClose(t, root)
+	if err = swapTranscript(root, name, stagedName, read); !errors.Is(err, ErrTranscriptChanged) {
+		t.Fatalf("swapTranscript error = %v, want ErrTranscriptChanged", err)
+	}
+	if err = os.Remove(filepath.Join(dir, stagedName)); err != nil {
+		t.Fatalf("the staged file is gone after a refused swap: %v", err)
+	}
+	assertOnlyTheTranscript(t, path, transcriptFixture()+appendedLine)
+}
