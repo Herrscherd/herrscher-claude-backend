@@ -210,3 +210,19 @@ func TestReadHistoryReportsAMissingOrMalformedSession(t *testing.T) {
 		}
 	}
 }
+
+func TestReadHistoryFindsATranscriptUnderAConfigDirWithGlobCharacters(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "conf[ig]*?")
+	dir := filepath.Join(root, "projects", "-work-[repo]")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, transcriptSessionID+".jsonl"), []byte(transcriptFixture()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := newStreamResponder(t.Context(), nil, "", transcriptSessionID, "", map[string]string{configDirVar: root})
+	history, err := r.ReadHistory(t.Context())
+	if err != nil || len(history.Messages) == 0 {
+		t.Fatalf("ReadHistory = %+v, %v, want the transcript found despite the brackets", history, err)
+	}
+}

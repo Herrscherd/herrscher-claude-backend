@@ -60,18 +60,20 @@ func transcriptPath(configRoot, sessionID string) (transcriptFile, error) {
 		return transcriptFile{}, fmt.Errorf("%w: %q", ErrBadSessionID, sessionID)
 	}
 	name := sessionID + ".jsonl"
-	matches, err := filepath.Glob(filepath.Join(configRoot, "projects", "*", name))
-	if err != nil {
+	projects := filepath.Join(configRoot, "projects")
+	entries, err := os.ReadDir(projects)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		return transcriptFile{}, fmt.Errorf("claude transcript lookup: %w", err)
 	}
 	newest, newestTime := "", int64(0)
-	for _, match := range matches {
-		info, statErr := os.Stat(match)
-		if statErr != nil {
+	for _, entry := range entries {
+		candidate := filepath.Join(projects, entry.Name(), name)
+		info, statErr := os.Stat(candidate)
+		if statErr != nil || !info.Mode().IsRegular() {
 			continue
 		}
 		if stamp := info.ModTime().UnixNano(); newest == "" || stamp > newestTime {
-			newest, newestTime = match, stamp
+			newest, newestTime = candidate, stamp
 		}
 	}
 	if newest == "" {
