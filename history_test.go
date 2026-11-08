@@ -20,20 +20,20 @@ func longInput() string { return strings.Repeat("x", 300) }
 
 func transcriptFixture() string {
 	return strings.Join([]string{
-		`{"type":"user","message":{"role":"user","content":"before the boundary"},"uuid":"u0"}`,
-		`{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"tool_use","id":"old","name":"Read","input":{"file_path":"a"}}]},"uuid":"a0"}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"old","content":"old result"}]},"uuid":"u1"}`,
-		`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","uuid":"b0"}`,
-		`{"type":"user","message":{"role":"user","content":"fix the parser"},"uuid":"u2","isCompactSummary":false}`,
-		`{"type":"attachment","attachment":{"type":"environment"},"uuid":"x0"}`,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"sig"}]},"uuid":"a1"}`,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"reading the file"}]},"uuid":"a2"}`,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a3"}`,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"out.go","content":"` + longInput() + `"}}]},"uuid":"a4"}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"package parser, with a body that is long"}]},"uuid":"u3","toolUseResult":{"kept":"as is"}}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"written"}],"is_error":true}]},"uuid":"u4"}`,
-		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"done"}]},"uuid":"a5"}`,
-		`{"type":"assistant","isSidechain":true,"message":{"id":"m3","role":"assistant","content":[{"type":"tool_use","id":"side","name":"Grep","input":{}}]},"uuid":"s0"}`,
+		`{"type":"user","message":{"role":"user","content":"before the boundary"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"tool_use","id":"old","name":"Read","input":{"file_path":"a"}}]},"uuid":"a0","parentUuid":"u0"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"old","content":"old result"}]},"uuid":"u1","parentUuid":"a0"}`,
+		`{"type":"system","subtype":"compact_boundary","content":"Conversation compacted","uuid":"b0","parentUuid":null}`,
+		`{"type":"user","message":{"role":"user","content":"fix the parser"},"uuid":"u2","parentUuid":"b0","isCompactSummary":false}`,
+		`{"type":"attachment","attachment":{"type":"environment"},"uuid":"x0","parentUuid":"u2"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"thinking","thinking":"","signature":"sig"}]},"uuid":"a1","parentUuid":"x0"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"reading the file"}]},"uuid":"a2","parentUuid":"a1"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a3","parentUuid":"a2"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Write","input":{"file_path":"out.go","content":"` + longInput() + `"}}]},"uuid":"a4","parentUuid":"a3"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"package parser, with a body that is long"}]},"uuid":"u3","parentUuid":"a3","toolUseResult":{"kept":"as is"}}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":[{"type":"text","text":"written"}],"is_error":true}]},"uuid":"u4","parentUuid":"a4"}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"done"}]},"uuid":"a5","parentUuid":"u4"}`,
+		`{"type":"assistant","isSidechain":true,"message":{"id":"m3","role":"assistant","content":[{"type":"tool_use","id":"side","name":"Grep","input":{}}]},"uuid":"s0","parentUuid":"a5"}`,
 	}, "\n") + "\n"
 }
 
@@ -123,17 +123,17 @@ func TestPruneHistoryEditsResultsInPlaceAndKeepsABackup(t *testing.T) {
 	if err != nil || string(backup) != transcriptFixture() {
 		t.Fatalf("backup = %q, %v, want the transcript before the prune", backup, err)
 	}
-	assertUntouchedLines(t, path, "u0", "a0", "u1", "b0", "u2", "x0", "a1", "a2", "a5", "s0")
+	assertUntouchedLines(t, path, transcriptFixture(), "u0", "a0", "u1", "b0", "u2", "x0", "a1", "a2", "a5", "s0")
 }
 
-func assertUntouchedLines(t *testing.T, path string, uuids ...string) {
+func assertUntouchedLines(t *testing.T, path, original string, uuids ...string) {
 	t.Helper()
 	pruned, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, uuid := range uuids {
-		for line := range strings.SplitSeq(transcriptFixture(), "\n") {
+		for line := range strings.SplitSeq(original, "\n") {
 			if strings.Contains(line, `"uuid":"`+uuid+`"`) && !bytes.Contains(pruned, []byte(line+"\n")) {
 				t.Fatalf("line %s changed, want it byte for byte", uuid)
 			}
@@ -336,5 +336,41 @@ func TestReadHistoryKeepsOneMessageAcrossAResultBetweenItsBlocks(t *testing.T) {
 	}
 	if len(history.Messages) != 4 || len(history.Messages[1].Calls) != 2 || history.Messages[1].Calls[1].Result != "two" || history.Messages[3].Text != "ok" {
 		t.Fatalf("ReadHistory = %+v, want the two calls of m1 in one message and the user text ending it", history.Messages)
+	}
+}
+
+func rewoundFixture() string {
+	return strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"start"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"text","text":"hello"}]},"uuid":"a0","parentUuid":"u0"}`,
+		`{"type":"user","message":{"role":"user","content":"do X"},"uuid":"u1","parentUuid":"a0"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"y1","name":"Bash","input":{"command":"` + longInput() + `"}}]},"uuid":"a1","parentUuid":"u1"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"y1","content":"abandoned output"}]},"uuid":"u2","parentUuid":"a1"}`,
+		`{"type":"user","message":{"role":"user","content":"do Y instead"},"uuid":"u3","parentUuid":"a0"}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"tool_use","id":"y1","name":"Bash","input":{"command":"` + longInput() + `"}}]},"uuid":"a2","parentUuid":"u3"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"y1","content":"kept output"}]},"uuid":"u4","parentUuid":"a2"}`,
+		`{"type":"assistant","message":{"id":"m3","role":"assistant","content":[{"type":"text","text":"done"}]},"uuid":"a3","parentUuid":"u4"}`,
+	}, "\n") + "\n"
+}
+
+func TestReadHistoryFollowsTheBranchOfTheLeafAfterARewind(t *testing.T) {
+	fixture := newTranscriptCaseWith(t, rewoundFixture())
+	history, err := fixture.r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	var texts []string
+	for _, message := range history.Messages {
+		texts = append(texts, message.Text)
+	}
+	if strings.Join(texts, "|") != "start|hello|do Y instead||done" || history.Calls()[0].Result != "kept output" {
+		t.Fatalf("ReadHistory = %+v, want only the branch of the leaf", history.Messages)
+	}
+	if _, err = fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "y1", Action: contracts.PruneCall}}); err != nil {
+		t.Fatalf("PruneHistory: %v", err)
+	}
+	assertUntouchedLines(t, fixture.path, rewoundFixture(), "u0", "a0", "u1", "a1", "u2", "u3", "a3")
+	if pruned, _ := os.ReadFile(fixture.path); bytes.Contains(pruned, []byte("kept output")) {
+		t.Fatal("the result on the branch of the leaf was not pruned")
 	}
 }

@@ -38,7 +38,7 @@ func (r *streamResponder) PruneHistory(ctx context.Context, edits []contracts.Hi
 			return contracts.PruneOutcome{}, dropErr
 		}
 	}
-	if pruneErr := pruneTranscript(*transcript, builder.boundaryAt, plan); pruneErr != nil {
+	if pruneErr := pruneTranscript(*transcript, builder.onChain, plan); pruneErr != nil {
 		return contracts.PruneOutcome{}, pruneErr
 	}
 	return outcome, nil
@@ -53,7 +53,7 @@ func (r *streamResponder) loadTranscript(ctx context.Context) (*historyBuilder, 
 		sessionID = r.sess.sessID
 	}
 	if sessionID == "" {
-		return newHistoryBuilder(), nil, nil
+		return newHistoryBuilder(newChainIndex()), nil, nil
 	}
 	root, err := configDir(r.env)
 	if err != nil {

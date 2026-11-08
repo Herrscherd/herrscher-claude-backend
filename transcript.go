@@ -85,6 +85,8 @@ func transcriptPath(configRoot, sessionID string) (transcriptFile, error) {
 type transcriptEntry struct {
 	Type        string          `json:"type"`
 	Subtype     string          `json:"subtype"`
+	UUID        string          `json:"uuid"`
+	ParentUUID  string          `json:"parentUuid"`
 	IsSidechain bool            `json:"isSidechain"`
 	Message     json.RawMessage `json:"message"`
 }
@@ -113,12 +115,12 @@ func (e transcriptEntry) isCompactBoundary() bool {
 	return e.Type == "system" && e.Subtype == "compact_boundary"
 }
 
-func eachTranscriptLine(source io.Reader, visit func(line []byte) error) error {
+func eachTranscriptLine(source io.Reader, visit func(lineIndex int, line []byte) error) error {
 	reader := bufio.NewReader(source)
-	for {
+	for lineIndex := 0; ; lineIndex++ {
 		line, err := reader.ReadBytes('\n')
 		if len(line) > 0 {
-			if visitErr := visit(line); visitErr != nil {
+			if visitErr := visit(lineIndex, line); visitErr != nil {
 				return visitErr
 			}
 		}
@@ -131,47 +133,106 @@ func eachTranscriptLine(source io.Reader, visit func(line []byte) error) error {
 	}
 }
 
-type historyBuilder struct {
-	history       contracts.History
-	lastMsgID     string
-	callAt        map[string][2]int
-	resultContent map[string]json.RawMessage
-	boundaryAt    int
+type chainIndex struct {
+	parents    map[string]string
+	leaf       string
+	boundaryAt int
 }
 
-func newHistoryBuilder() *historyBuilder {
-	return &historyBuilder{callAt: make(map[string][2]int), resultContent: make(map[string]json.RawMessage), boundaryAt: -1}
+func newChainIndex() *chainIndex {
+	return &chainIndex{parents: make(map[string]string), boundaryAt: -1}
 }
 
-func (b *historyBuilder) reset(lineIndex int) {
-	b.history = contracts.History{}
-	b.lastMsgID = ""
-	clear(b.callAt)
-	clear(b.resultContent)
-	b.boundaryAt = lineIndex
-}
-
-func (b *historyBuilder) add(lineIndex int, line []byte) {
+func (c *chainIndex) add(lineIndex int, line []byte) {
 	var entry transcriptEntry
 	if json.Unmarshal(line, &entry) != nil {
 		return
 	}
 	if entry.isCompactBoundary() {
-		b.reset(lineIndex)
+		clear(c.parents)
+		c.leaf = ""
+		c.boundaryAt = lineIndex
 		return
 	}
-	if !entry.inView() {
+	if entry.UUID == "" || entry.IsSidechain {
+		return
+	}
+	c.parents[entry.UUID] = entry.ParentUUID
+	c.leaf = entry.UUID
+}
+
+func (c *chainIndex) mainChain() map[string]bool {
+	chain := make(map[string]bool)
+	uuid := c.leaf
+	for uuid != "" && !chain[uuid] {
+		parent, ok := c.parents[uuid]
+		if !ok {
+			break
+		}
+		chain[uuid] = true
+		uuid = parent
+	}
+	return chain
+}
+
+type historyBuilder struct {
+	history       contracts.History
+	lastMsgID     string
+	callAt        map[string][2]int
+	resultContent map[string]json.RawMessage
+	chain         map[string]bool
+	onChain       map[int]bool
+	boundaryAt    int
+}
+
+func newHistoryBuilder(index *chainIndex) *historyBuilder {
+	return &historyBuilder{
+		callAt:        make(map[string][2]int),
+		resultContent: make(map[string]json.RawMessage),
+		chain:         index.mainChain(),
+		onChain:       make(map[int]bool),
+		boundaryAt:    index.boundaryAt,
+	}
+}
+
+func (b *historyBuilder) add(lineIndex int, line []byte) {
+	if lineIndex <= b.boundaryAt {
+		return
+	}
+	var entry transcriptEntry
+	if json.Unmarshal(line, &entry) != nil || !entry.inView() {
 		return
 	}
 	var message transcriptMessage
-	if json.Unmarshal(entry.Message, &message) != nil {
+	if json.Unmarshal(entry.Message, &message) != nil || !b.followsChain(entry, message) {
 		return
 	}
+	b.onChain[lineIndex] = true
 	if entry.Type == wireAssistant {
 		b.addAssistant(message)
 		return
 	}
 	b.addUser(message)
+}
+
+func (b *historyBuilder) followsChain(entry transcriptEntry, message transcriptMessage) bool {
+	if b.chain[entry.UUID] {
+		return true
+	}
+	return entry.Type == wireUser && b.chain[entry.ParentUUID] && onlyToolResults(message.Content)
+}
+
+func onlyToolResults(content json.RawMessage) bool {
+	var blocks []transcriptBlock
+	if json.Unmarshal(content, &blocks) != nil || len(blocks) == 0 {
+		return false
+	}
+	for index := range blocks {
+		if blocks[index].Type != blockToolResult {
+			return false
+		}
+	}
+	return true
 }
 
 func (b *historyBuilder) addAssistant(message transcriptMessage) {
@@ -273,11 +334,20 @@ func readTranscript(transcript transcriptFile) (*historyBuilder, error) {
 		return nil, fmt.Errorf("open claude transcript: %w", err)
 	}
 	defer closeAndLog(file)
-	builder := newHistoryBuilder()
-	lineIndex := 0
-	err = eachTranscriptLine(file, func(line []byte) error {
+	info, err := file.Stat()
+	if err != nil {
+		return nil, fmt.Errorf("stat claude transcript: %w", err)
+	}
+	index := newChainIndex()
+	if err = eachTranscriptLine(io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
+		index.add(lineIndex, line)
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+	builder := newHistoryBuilder(index)
+	err = eachTranscriptLine(io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		builder.add(lineIndex, line)
-		lineIndex++
 		return nil
 	})
 	return builder, err
@@ -544,7 +614,7 @@ func planEdits(read *historyBuilder, edits []contracts.HistoryEdit) (map[string]
 	return plan, nil
 }
 
-func pruneTranscript(transcript transcriptFile, boundaryAt int, plan map[string]pruneEdit) error {
+func pruneTranscript(transcript transcriptFile, onChain map[int]bool, plan map[string]pruneEdit) error {
 	root, err := os.OpenRoot(transcript.dir)
 	if err != nil {
 		return fmt.Errorf("open claude transcript directory: %w", err)
@@ -566,7 +636,7 @@ func pruneTranscript(transcript transcriptFile, boundaryAt int, plan map[string]
 		return fmt.Errorf("stage claude transcript: %w", err)
 	}
 	defer removeStaged(root, stagedName)
-	if err = writePrunedTranscript(source, staged, boundaryAt, plan); err != nil {
+	if err = writePrunedTranscript(source, staged, onChain, plan); err != nil {
 		return errors.Join(err, staged.Close())
 	}
 	if err = staged.Sync(); err != nil {
@@ -604,14 +674,12 @@ func removeStaged(root *os.Root, name string) {
 	}
 }
 
-func writePrunedTranscript(source io.Reader, target io.Writer, boundaryAt int, plan map[string]pruneEdit) error {
+func writePrunedTranscript(source io.Reader, target io.Writer, onChain map[int]bool, plan map[string]pruneEdit) error {
 	writer := bufio.NewWriter(target)
-	lineIndex := 0
-	err := eachTranscriptLine(source, func(line []byte) error {
-		if lineIndex > boundaryAt {
+	err := eachTranscriptLine(source, func(lineIndex int, line []byte) error {
+		if onChain[lineIndex] {
 			line = prunedLine(line, plan)
 		}
-		lineIndex++
 		if _, writeErr := writer.Write(line); writeErr != nil {
 			return fmt.Errorf("write claude transcript: %w", writeErr)
 		}
