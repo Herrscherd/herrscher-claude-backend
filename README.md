@@ -117,21 +117,43 @@ calls without a summary. The claude CLI keeps each session in
 `~/.claude`. The session id must look like one the CLI writes, so it never
 widens the lookup.
 
-`ReadHistory` reads the file as a stream, keeps the main chain after the last
-`compact_boundary`, skips sidechains, and joins the per block assistant entries
-of one API message back into one message with its calls and their results.
+`ReadHistory` reads the file as a stream, up to the size it had when it was
+opened, and keeps the conversation after the last `compact_boundary`. It walks
+`parentUuid` back from the last entry that is not a sidechain, so a branch left
+behind by a rewind stays out; the result entries of parallel calls, which hang
+off their own `tool_use` entry rather than off the chain, are taken in with it.
+The per block assistant entries of one API message are joined back into one
+message with its calls and their results, even when the CLI writes a result
+between two of them; a user entry with real text ends the message.
 
 `PruneHistory` checks every edit first, against the contract and against the
 calls of that history, and changes nothing when one fails. It edits only
-`message.content`: `prune_result` keeps the first `KeepChars` runes of a result
-and a note of what was pruned, `prune_call` replaces the result by a note and
-cuts the long strings of the call input to 200 runes. No entry is added or
-removed and no `uuid` or `parentUuid` moves, so the chain stays intact; every
-other line is copied byte for byte. When something changes, the live claude
-process is closed first, the new file is staged next to the old one, synced and
-renamed over it, and the old one stays as `<session>.jsonl.herrscher-bak`, a
-hard link that costs no copy. The next turn respawns claude with `--resume`, which
-reads the pruned history.
+`message.content`, and only on the lines of that chain: `prune_result` keeps the
+first `KeepChars` runes of a result and a note of what was pruned,
+`prune_call` replaces the result by a note and cuts the long strings of the call
+input to 200 runes. A result made of blocks keeps its images, tool references
+and every other non text block in place and in order: only the text blocks are
+rewritten, the rune budget runs across them in order, and the note closes the
+last text block kept. No entry is added or removed and no `uuid` or
+`parentUuid` moves, so the chain stays intact; every other line is copied byte
+for byte. A cancelled context stops the read or the rewrite between two lines
+and leaves the transcript as it was.
+
+When something changes, the live claude process is closed first, the new file
+is staged next to the old one and synced, the old one is kept as a hard link
+that costs no copy, the new one is renamed over it and the directory is synced.
+The first backup, `<session>.jsonl.herrscher-bak`, is never overwritten, so it
+always holds the transcript before the first prune; every later prune keeps its
+own `<session>.jsonl.herrscher-bak.<unix-nano>`. The next turn respawns claude
+with `--resume`, which reads the pruned history.
+
+Another writer may still hold the session, such as a `claude --resume` run in a
+terminal, which appends to the same file. The size, modification time and inode
+read are compared again when the prune starts and right before the rename; on
+any change the prune stops with `ErrTranscriptChanged`, removes its staged file
+and leaves the transcript alone. A write landing between that last check and
+the rename is the one case it cannot see: it lands in the backup, not in the
+live file.
 
 ## Build and test
 
