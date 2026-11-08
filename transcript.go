@@ -132,20 +132,22 @@ func eachTranscriptLine(source io.Reader, visit func(line []byte) error) error {
 }
 
 type historyBuilder struct {
-	history    contracts.History
-	lastMsgID  string
-	callAt     map[string][2]int
-	boundaryAt int
+	history       contracts.History
+	lastMsgID     string
+	callAt        map[string][2]int
+	resultContent map[string]json.RawMessage
+	boundaryAt    int
 }
 
 func newHistoryBuilder() *historyBuilder {
-	return &historyBuilder{callAt: make(map[string][2]int), boundaryAt: -1}
+	return &historyBuilder{callAt: make(map[string][2]int), resultContent: make(map[string]json.RawMessage), boundaryAt: -1}
 }
 
 func (b *historyBuilder) reset(lineIndex int) {
 	b.history = contracts.History{}
 	b.lastMsgID = ""
 	clear(b.callAt)
+	clear(b.resultContent)
 	b.boundaryAt = lineIndex
 }
 
@@ -227,6 +229,7 @@ func (b *historyBuilder) attachResult(block *transcriptBlock) {
 	call := &b.history.Messages[position[0]].Calls[position[1]]
 	call.Result = resultText(block.Content)
 	call.ResultIsError = block.IsError
+	b.resultContent[block.ToolUseID] = block.Content
 }
 
 func joinText(have, more string) string {
@@ -353,14 +356,140 @@ func shortenStrings(value any) (any, bool) {
 type pruneEdit struct {
 	contracts.HistoryEdit
 
-	result string
+	content json.RawMessage
 }
 
-func (e pruneEdit) newResult() (string, bool) {
-	if e.Action == contracts.PruneCall {
-		return prunedCallNote, e.result != prunedCallNote
+type textBlock struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
+	if len(content) == 0 {
+		return nil, nil
 	}
-	return prunedResult(e.result, e.KeepChars)
+	var text string
+	if json.Unmarshal(content, &text) == nil {
+		return prunedTextContent(edit, text)
+	}
+	var blocks []json.RawMessage
+	if json.Unmarshal(content, &blocks) != nil {
+		return nil, nil
+	}
+	var pruned []json.RawMessage
+	var err error
+	if edit.Action == contracts.PruneCall {
+		pruned, err = noteBlocks(blocks)
+	} else {
+		pruned, err = truncatedBlocks(blocks, edit.KeepChars)
+	}
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := json.Marshal(pruned)
+	if err != nil {
+		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
+	}
+	if resultText(encoded) == resultText(content) {
+		return nil, nil
+	}
+	return encoded, nil
+}
+
+func prunedTextContent(edit contracts.HistoryEdit, text string) (json.RawMessage, error) {
+	result, changed := prunedCallNote, text != prunedCallNote
+	if edit.Action != contracts.PruneCall {
+		result, changed = prunedResult(text, edit.KeepChars)
+	}
+	if !changed {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
+	}
+	return encoded, nil
+}
+
+func blockOfText(raw json.RawMessage) (string, bool) {
+	var block textBlock
+	if json.Unmarshal(raw, &block) != nil || block.Type != blockText {
+		return "", false
+	}
+	return block.Text, true
+}
+
+func noteBlocks(blocks []json.RawMessage) ([]json.RawMessage, error) {
+	note, err := json.Marshal(textBlock{Type: blockText, Text: prunedCallNote})
+	if err != nil {
+		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
+	}
+	kept := make([]json.RawMessage, 0, len(blocks)+1)
+	placed := false
+	for _, block := range blocks {
+		if _, isText := blockOfText(block); !isText {
+			kept = append(kept, block)
+			continue
+		}
+		if !placed {
+			kept = append(kept, note)
+			placed = true
+		}
+	}
+	if !placed {
+		kept = append(kept, note)
+	}
+	return kept, nil
+}
+
+func truncatedBlocks(blocks []json.RawMessage, keep int) ([]json.RawMessage, error) {
+	total := 0
+	for _, block := range blocks {
+		if text, isText := blockOfText(block); isText {
+			total += utf8.RuneCountInString(text)
+		}
+	}
+	if total <= keep {
+		return blocks, nil
+	}
+	kept := make([]json.RawMessage, 0, len(blocks))
+	budget, cut := keep, false
+	for _, block := range blocks {
+		text, isText := blockOfText(block)
+		switch {
+		case !isText:
+			kept = append(kept, block)
+		case cut:
+		case utf8.RuneCountInString(text) <= budget:
+			kept = append(kept, block)
+			budget -= utf8.RuneCountInString(text)
+		default:
+			rewritten, err := withText(block, joinText(runeHead(text, budget), fmt.Sprintf(prunedResultNote, total-keep)))
+			if err != nil {
+				return nil, err
+			}
+			kept = append(kept, rewritten)
+			cut = true
+		}
+	}
+	return kept, nil
+}
+
+func withText(block json.RawMessage, text string) (json.RawMessage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(block, &fields); err != nil {
+		return nil, fmt.Errorf("decode claude text block: %w", err)
+	}
+	encodedText, err := json.Marshal(text)
+	if err != nil {
+		return nil, fmt.Errorf("encode claude text block: %w", err)
+	}
+	fields["text"] = encodedText
+	encoded, err := json.Marshal(fields)
+	if err != nil {
+		return nil, fmt.Errorf("encode claude text block: %w", err)
+	}
+	return encoded, nil
 }
 
 func pruneOutcome(history contracts.History, edits map[string]pruneEdit) contracts.PruneOutcome {
@@ -374,36 +503,41 @@ func pruneOutcome(history contracts.History, edits map[string]pruneEdit) contrac
 			if !ok {
 				continue
 			}
-			result, changed := edit.newResult()
 			input := call.Input
 			if edit.Action == contracts.PruneCall {
 				input = prunedInput(call.Input)
 			}
-			if changed || input != call.Input {
+			if edit.content != nil || input != call.Input {
 				edited++
 			}
-			call.Result, call.Input = result, input
+			if edit.content != nil {
+				call.Result = resultText(edit.content)
+			}
+			call.Input = input
 		}
 		pruned.Messages[index] = message
 	}
 	return contracts.PruneOutcome{Edited: edited, CharsBefore: historyRunes(history), CharsAfter: historyRunes(pruned)}
 }
 
-func planEdits(history contracts.History, edits []contracts.HistoryEdit) (map[string]pruneEdit, error) {
+func planEdits(read *historyBuilder, edits []contracts.HistoryEdit) (map[string]pruneEdit, error) {
 	if err := contracts.ValidateHistoryEdits(edits); err != nil {
 		return nil, err
 	}
-	results := make(map[string]string)
-	for _, call := range history.Calls() {
-		results[call.ID] = call.Result
+	known := make(map[string]bool)
+	for _, call := range read.history.Calls() {
+		known[call.ID] = true
 	}
 	plan := make(map[string]pruneEdit, len(edits))
 	for _, edit := range edits {
-		result, ok := results[edit.CallID]
-		if !ok {
+		if !known[edit.CallID] {
 			return nil, fmt.Errorf("%w: %s", contracts.ErrUnknownHistoryCall, edit.CallID)
 		}
-		plan[edit.CallID] = pruneEdit{HistoryEdit: edit, result: result}
+		content, err := prunedContent(edit, read.resultContent[edit.CallID])
+		if err != nil {
+			return nil, err
+		}
+		plan[edit.CallID] = pruneEdit{HistoryEdit: edit, content: content}
 	}
 	return plan, nil
 }
@@ -552,15 +686,10 @@ func pruneToolResult(block map[string]json.RawMessage, plan map[string]pruneEdit
 		return false
 	}
 	edit, ok := plan[callID]
-	if !ok {
+	if !ok || edit.content == nil {
 		return false
 	}
-	result, changed := edit.newResult()
-	if !changed {
-		return false
-	}
-	encoded, err := json.Marshal(result)
-	return err == nil && replaceRaw(block, "content", encoded)
+	return replaceRaw(block, "content", edit.content)
 }
 
 func replaceRaw(block map[string]json.RawMessage, key string, value json.RawMessage) bool {

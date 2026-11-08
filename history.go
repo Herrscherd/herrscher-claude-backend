@@ -25,7 +25,7 @@ func (r *streamResponder) PruneHistory(ctx context.Context, edits []contracts.Hi
 	if err != nil {
 		return contracts.PruneOutcome{}, err
 	}
-	plan, err := planEdits(builder.history, edits)
+	plan, err := planEdits(builder, edits)
 	if err != nil {
 		return contracts.PruneOutcome{}, err
 	}

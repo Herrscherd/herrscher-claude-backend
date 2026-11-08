@@ -3,6 +3,7 @@ package claude
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -43,13 +44,18 @@ type transcriptCase struct {
 
 func newTranscriptCase(t *testing.T) transcriptCase {
 	t.Helper()
+	return newTranscriptCaseWith(t, transcriptFixture())
+}
+
+func newTranscriptCaseWith(t *testing.T, transcript string) transcriptCase {
+	t.Helper()
 	root := t.TempDir()
 	dir := filepath.Join(root, "projects", "-work-repo")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	path := filepath.Join(dir, transcriptSessionID+".jsonl")
-	if err := os.WriteFile(path, []byte(transcriptFixture()), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(transcript), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return transcriptCase{
@@ -243,5 +249,73 @@ func TestPrunedResultCountsRunesNotBytes(t *testing.T) {
 		if got != tc.want {
 			t.Fatalf("prunedResult(%q, %d) = %q, want %q", tc.result, tc.keep, got, tc.want)
 		}
+	}
+}
+
+const (
+	imageBlock     = `{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}`
+	referenceBlock = `{"type":"tool_reference","tool_name":"Grep"}`
+)
+
+func mixedResultFixture() string {
+	return strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"look at the screen"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","message":{"id":"m0","role":"assistant","content":[{"type":"tool_use","id":"shot","name":"Screenshot","input":{}}]},"uuid":"a0","parentUuid":"u0"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"shot","content":[{"type":"text","text":"first part"},` + imageBlock + `,` + referenceBlock + `,{"type":"text","text":"second part"}]}]},"uuid":"u1","parentUuid":"a0"}`,
+	}, "\n") + "\n"
+}
+
+func prunedResultBlocks(t *testing.T, path string) []json.RawMessage {
+	t.Helper()
+	transcript, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(transcript)), "\n")
+	var entry struct {
+		Message struct {
+			Content []struct {
+				Content []json.RawMessage `json:"content"`
+			} `json:"content"`
+		} `json:"message"`
+	}
+	if err = json.Unmarshal([]byte(lines[len(lines)-1]), &entry); err != nil || len(entry.Message.Content) != 1 {
+		t.Fatalf("pruned result line does not decode: %v", err)
+	}
+	return entry.Message.Content[0].Content
+}
+
+func TestPruneHistoryRewritesOnlyTheTextBlocksOfAResult(t *testing.T) {
+	cases := map[string]struct {
+		edit contracts.HistoryEdit
+		want string
+	}{
+		"prune_result": {
+			edit: contracts.HistoryEdit{CallID: "shot", Action: contracts.PruneResult, KeepChars: 5},
+			want: "first\n" + fmt.Sprintf(prunedResultNote, 16),
+		},
+		"prune_call": {
+			edit: contracts.HistoryEdit{CallID: "shot", Action: contracts.PruneCall},
+			want: prunedCallNote,
+		},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			fixture := newTranscriptCaseWith(t, mixedResultFixture())
+			if _, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{tc.edit}); err != nil {
+				t.Fatalf("PruneHistory: %v", err)
+			}
+			blocks := prunedResultBlocks(t, fixture.path)
+			if len(blocks) != 3 || string(blocks[1]) != imageBlock || string(blocks[2]) != referenceBlock {
+				t.Fatalf("pruned blocks = %s, want one text block then the image and the reference untouched", blocks)
+			}
+			if text, isText := blockOfText(blocks[0]); !isText || text != tc.want {
+				t.Fatalf("pruned text block = %s, want %q", blocks[0], tc.want)
+			}
+			history, err := fixture.r.ReadHistory(t.Context())
+			if err != nil || history.Calls()[0].Result != tc.want {
+				t.Fatalf("ReadHistory after prune = %+v, %v, want result %q", history, err, tc.want)
+			}
+		})
 	}
 }
