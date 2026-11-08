@@ -319,3 +319,22 @@ func TestPruneHistoryRewritesOnlyTheTextBlocksOfAResult(t *testing.T) {
 		})
 	}
 }
+
+func TestReadHistoryKeepsOneMessageAcrossAResultBetweenItsBlocks(t *testing.T) {
+	r := newTranscriptCaseWith(t, strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"read both"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}]},"uuid":"a0","parentUuid":"u0"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"one"}]},"uuid":"u1","parentUuid":"a0"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}]},"uuid":"a1","parentUuid":"u1"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"two"}]},"uuid":"u2","parentUuid":"a1"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"text","text":"now the third"}]},"uuid":"u3","parentUuid":"u2"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"ok"}]},"uuid":"a2","parentUuid":"u3"}`,
+	}, "\n")+"\n").r
+	history, err := r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(history.Messages) != 4 || len(history.Messages[1].Calls) != 2 || history.Messages[1].Calls[1].Result != "two" || history.Messages[3].Text != "ok" {
+		t.Fatalf("ReadHistory = %+v, want the two calls of m1 in one message and the user text ending it", history.Messages)
+	}
+}

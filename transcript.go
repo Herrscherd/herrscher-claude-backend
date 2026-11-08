@@ -197,14 +197,15 @@ func (b *historyBuilder) addAssistant(message transcriptMessage) {
 }
 
 func (b *historyBuilder) addUser(message transcriptMessage) {
-	b.lastMsgID = ""
 	var text string
 	if json.Unmarshal(message.Content, &text) == nil {
+		b.lastMsgID = ""
 		b.history.Messages = append(b.history.Messages, contracts.HistoryMessage{Role: contracts.RoleUser, Text: text})
 		return
 	}
 	var blocks []transcriptBlock
 	if json.Unmarshal(message.Content, &blocks) != nil {
+		b.lastMsgID = ""
 		return
 	}
 	for index := range blocks {
@@ -217,6 +218,7 @@ func (b *historyBuilder) addUser(message transcriptMessage) {
 		}
 	}
 	if text != "" {
+		b.lastMsgID = ""
 		b.history.Messages = append(b.history.Messages, contracts.HistoryMessage{Role: contracts.RoleUser, Text: text})
 	}
 }
