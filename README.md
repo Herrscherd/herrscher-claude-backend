@@ -142,7 +142,8 @@ other line is copied byte for byte. A cancelled context stops the read or the
 rewrite between two lines and leaves the transcript as it was.
 
 A prune never grows the history and running it twice changes nothing. A result
-that already ends with a herrscher note is left alone by `prune_result`, and a
+that already ends with a herrscher note, after no more than the runes the edit
+keeps, is left alone by `prune_result`, and a
 result or an input is rewritten only when the new one is shorter, so a short
 result keeps its text rather than gain a longer note. Every call counted in
 `Edited` is shorter after the prune; when no call changes, the transcript is not
@@ -156,7 +157,14 @@ synced. Two backups at most stay next to a transcript:
 `<session>.jsonl.herrscher-bak` holds the transcript before the first prune and
 is never overwritten, and `<session>.jsonl.herrscher-bak.prev` holds it before
 the latest prune, replaced by a rename at each later one. The size they keep is
-logged at the info level. Removing both is safe once the pruned conversation is
+logged at the info level. Backups are hard links, so the transcript must live on
+a file system that has them: on exFAT, vfat or some FUSE and SMB mounts the
+prune stops with `ErrTranscriptBackup` and leaves the transcript as it was.
+Staged files carry a random suffix, so two prunes of one session never write
+the same file; one left behind by a crash is removed by the first prune that
+finds it more than an hour old. A failed sync of the directory after the rename
+is logged as a warning: the prune is done, only a crash right after it could
+bring the old transcript back. Removing both is safe once the pruned conversation is
 trusted. The next turn respawns claude with `--resume`, which reads the pruned
 history; a prune that fails after closing claude keeps the session id, so that
 turn still resumes the same session.

@@ -4,15 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -35,11 +39,19 @@ var ErrBadSessionID = errors.New("claude session id is malformed")
 // more than its .herrscher-bak and its .herrscher-bak.prev next to it.
 var ErrTranscriptChanged = errors.New("claude session transcript changed while being pruned")
 
+// ErrTranscriptBackup reports a prune that could not keep the transcript it
+// replaces, most often on a file system without hard links such as exFAT, vfat
+// or some FUSE and SMB mounts: PruneHistory leaves the transcript untouched, and
+// every later prune of that session fails the same way until it moves to a file
+// system with hard links.
+var ErrTranscriptBackup = errors.New("claude session transcript could not be backed up")
+
 const (
 	configDirVar          = "CLAUDE_CONFIG_DIR"
 	transcriptBackupExt   = ".herrscher-bak"
 	transcriptPreviousExt = ".herrscher-bak.prev"
 	transcriptStagedExt   = ".herrscher-tmp"
+	staleStagedAge        = time.Hour
 	prunedResultNote      = "[herrscher pruned the rest of this result: %d characters]"
 	prunedCallNote        = "[herrscher pruned the result of this call]"
 	prunedInputRunes      = 200
@@ -404,8 +416,12 @@ func prunedResult(result string, keep int) (string, bool) {
 	return joinText(head, fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(result[len(head):]))), true
 }
 
-func alreadyPruned(result string) bool {
-	return strings.HasSuffix(result, prunedCallNote) || prunedResultTail.MatchString(result)
+func alreadyPruned(result string, keep int) bool {
+	if result == prunedCallNote {
+		return true
+	}
+	note := prunedResultTail.FindStringIndex(result)
+	return len(note) == 2 && utf8.RuneCountInString(strings.TrimSuffix(result[:note[0]], "\n")) <= keep
 }
 
 func encodeJSON(value any) ([]byte, error) {
@@ -482,7 +498,7 @@ func contentBlocks(content json.RawMessage) ([]json.RawMessage, bool) {
 
 func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
 	before := resultText(content)
-	if edit.Action != contracts.PruneCall && alreadyPruned(before) {
+	if edit.Action != contracts.PruneCall && alreadyPruned(before, edit.KeepChars) {
 		return nil, nil
 	}
 	rewritten, err := rewrittenContent(edit, content)
@@ -748,8 +764,8 @@ func pruneTranscript(ctx context.Context, read *historyBuilder, plan map[string]
 	if changedErr := checkUnchanged(root, read.file.name, read.read); changedErr != nil {
 		return changedErr
 	}
-	stagedName := read.file.name + transcriptStagedExt
-	removeStaged(root, stagedName)
+	removeStaleStaged(root, read.file.name)
+	stagedName := stagingName(read.file.name)
 	staged, err := root.OpenFile(stagedName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, read.read.Mode().Perm())
 	if err != nil {
 		return fmt.Errorf("stage claude transcript: %w", err)
@@ -790,14 +806,14 @@ func swapTranscript(root *os.Root, name, stagedName string, read os.FileInfo) er
 	if backup.replaces != "" {
 		if err = root.Rename(backup.link, backup.replaces); err != nil {
 			removeStaged(root, backup.link)
-			return fmt.Errorf("back up claude transcript: %w", err)
+			return fmt.Errorf("%w: %w", ErrTranscriptBackup, err)
 		}
 	}
 	if err = root.Rename(stagedName, name); err != nil {
 		return fmt.Errorf("replace claude transcript: %w", err)
 	}
 	if syncErr := syncDirectory(root); syncErr != nil {
-		return syncErr
+		slog.Warn("claude transcript pruned, but its directory was not synced: a crash may bring the old transcript back", "transcript", name, "error", syncErr)
 	}
 	logKeptBackups(root, name)
 	return nil
@@ -815,13 +831,12 @@ func backUpTranscript(root *os.Root, name string) (transcriptBackup, error) {
 		return transcriptBackup{link: original}, nil
 	}
 	if !errors.Is(err, os.ErrExist) {
-		return transcriptBackup{}, fmt.Errorf("back up claude transcript: %w", err)
+		return transcriptBackup{}, fmt.Errorf("%w: %w", ErrTranscriptBackup, err)
 	}
 	previous := name + transcriptPreviousExt
-	pending := previous + transcriptStagedExt
-	removeStaged(root, pending)
+	pending := stagingName(previous)
 	if err = root.Link(name, pending); err != nil {
-		return transcriptBackup{}, fmt.Errorf("back up claude transcript: %w", err)
+		return transcriptBackup{}, fmt.Errorf("%w: %w", ErrTranscriptBackup, err)
 	}
 	return transcriptBackup{link: pending, replaces: previous}, nil
 }
@@ -853,6 +868,27 @@ func syncDirectory(root *os.Root) error {
 func closeAndLog(closer io.Closer) {
 	if err := closer.Close(); err != nil {
 		slog.Warn("closing a claude transcript", "error", err)
+	}
+}
+
+func stagingName(name string) string {
+	return name + transcriptStagedExt + "." + rand.Text()
+}
+
+func removeStaleStaged(root *os.Root, name string) {
+	entries, err := fs.ReadDir(root.FS(), ".")
+	if err != nil {
+		slog.Warn("listing staged claude transcripts", "error", err)
+		return
+	}
+	prefixes := []string{name + transcriptStagedExt, name + transcriptPreviousExt + transcriptStagedExt}
+	for _, entry := range entries {
+		if !slices.ContainsFunc(prefixes, func(prefix string) bool { return strings.HasPrefix(entry.Name(), prefix) }) {
+			continue
+		}
+		if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > staleStagedAge {
+			removeStaged(root, entry.Name())
+		}
 	}
 }
 

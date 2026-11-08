@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -267,11 +268,17 @@ func TestPruneHistoryFailingAfterTheSessionDropKeepsTheIDForResume(t *testing.T)
 	r := newStreamResponder(t.Context(), nil, "", "", "", map[string]string{configDirVar: root})
 	r.sess = startShellSession(t, "sleep 60")
 	r.sess.sessID = transcriptSessionID
-	if err := os.MkdirAll(filepath.Join(path+transcriptStagedExt, "blocker"), 0o700); err != nil {
+	if err := os.WriteFile(path+transcriptBackupExt, []byte("original\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err == nil {
-		t.Fatal("PruneHistory succeeded with its staging path taken")
+	if err := os.MkdirAll(filepath.Join(path+transcriptPreviousExt, "blocker"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); !errors.Is(err, ErrTranscriptBackup) {
+		t.Fatalf("PruneHistory error = %v, want ErrTranscriptBackup with its previous backup path taken", err)
+	}
+	if entries, err := os.ReadDir(filepath.Dir(path)); err != nil || len(entries) != 3 {
+		t.Fatalf("after a refused backup the directory holds %d entries, %v, want no staged file left", len(entries), err)
 	}
 	if r.sess != nil || r.currentSessionID() != transcriptSessionID {
 		t.Fatalf("after a failed prune the session is %v with id %q, want none and the id kept for --resume", r.sess, r.currentSessionID())
@@ -604,5 +611,71 @@ func TestLaterPrunesKeepTheOriginalAndReplaceOnePreviousBackup(t *testing.T) {
 	}
 	if entries, err := os.ReadDir(filepath.Dir(path)); err != nil || len(entries) != 3 {
 		t.Fatalf("transcript directory holds %v, %v, want the transcript and its two backups", entries, err)
+	}
+}
+
+type closingAppend struct {
+	io.WriteCloser
+
+	path string
+	t    *testing.T
+}
+
+func (c *closingAppend) Close() error {
+	appendToTranscript(c.t, c.path)
+	return c.WriteCloser.Close()
+}
+
+func TestPruneHistoryKeepsWhatClaudeWritesWhileItCloses(t *testing.T) {
+	fixture := newTranscriptCase(t)
+	r := fixture.r
+	r.sess = startShellSession(t, "sleep 60")
+	r.sess.sessID = transcriptSessionID
+	r.sess.stdin = &closingAppend{WriteCloser: r.sess.stdin, path: fixture.path, t: t}
+	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
+	if err != nil || outcome.Edited != 1 {
+		t.Fatalf("PruneHistory = %+v, %v, want the call pruned after claude closed", outcome, err)
+	}
+	pruned, err := os.ReadFile(fixture.path)
+	if err != nil || !strings.HasSuffix(string(pruned), appendedLine) {
+		t.Fatalf("transcript = %q, %v, want the line claude wrote while closing kept", pruned, err)
+	}
+}
+
+func TestPruneResultCutsAResultThatOnlyLooksPruned(t *testing.T) {
+	looksPruned := strings.Repeat("y", 300) + "\n" + fmt.Sprintf(prunedResultNote, 3)
+	transcript := strings.Replace(transcriptFixture(), longResult(), strings.ReplaceAll(looksPruned, "\n", `\n`), 1)
+	fixture := newTranscriptCaseWith(t, transcript)
+	edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 10}}
+	first, err := fixture.r.PruneHistory(t.Context(), edits)
+	if err != nil || first.Edited != 1 || first.CharsAfter >= first.CharsBefore {
+		t.Fatalf("PruneHistory = %+v, %v, want the 300 runes before the fake note cut", first, err)
+	}
+	second, err := fixture.r.PruneHistory(t.Context(), edits)
+	if err != nil || second.Edited != 0 {
+		t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
+	}
+}
+
+func TestPruneHistoryRemovesOnlyStaleStagedFiles(t *testing.T) {
+	fixture := newTranscriptCase(t)
+	stale, fresh := fixture.path+transcriptStagedExt+".STALE", fixture.path+transcriptPreviousExt+transcriptStagedExt+".FRESH"
+	for _, name := range []string{stale, fresh} {
+		if err := os.WriteFile(name, []byte("left behind\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	old := time.Now().Add(-2 * staleStagedAge)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
+		t.Fatalf("PruneHistory: %v", err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("stale staged file: %v, want it removed", err)
+	}
+	if _, err := os.Stat(fresh); err != nil {
+		t.Fatalf("fresh staged file: %v, want it kept for the prune that may own it", err)
 	}
 }
