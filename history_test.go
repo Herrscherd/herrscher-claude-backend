@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -168,12 +169,35 @@ func TestPruneHistoryRefusesMalformedEdits(t *testing.T) {
 	}
 }
 
-func TestPruneHistoryDropsTheLiveSessionSoTheNextTurnResumes(t *testing.T) {
-	r := newTranscriptCase(t).r
-	r.sess = newStreamSession(&sentLines{}, strings.NewReader(""))
+type transcriptProbe struct {
+	io.WriteCloser
+
+	path             string
+	untouchedAtClose bool
+}
+
+func (p *transcriptProbe) Close() error {
+	transcript, err := os.ReadFile(p.path)
+	p.untouchedAtClose = err == nil && string(transcript) == transcriptFixture()
+	return p.WriteCloser.Close()
+}
+
+func TestPruneHistoryKillsTheLiveSessionBeforeWritingSoTheNextTurnResumes(t *testing.T) {
+	fixture := newTranscriptCase(t)
+	r := fixture.r
+	r.sess = startTestSession(t, "sh", "-c", "sleep 60")
 	r.sess.sessID = transcriptSessionID
+	probe := &transcriptProbe{WriteCloser: r.sess.stdin, path: fixture.path}
+	r.sess.stdin = probe
+	claude := r.sess.cmd
 	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
 		t.Fatalf("PruneHistory: %v", err)
+	}
+	if !probe.untouchedAtClose {
+		t.Fatal("the transcript was rewritten before the live claude was closed")
+	}
+	if claude.ProcessState == nil || claude.ProcessState.Success() {
+		t.Fatalf("the live claude ended as %v, want it killed and reaped", claude.ProcessState)
 	}
 	if r.sess != nil || r.currentSessionID() != transcriptSessionID {
 		t.Fatalf("after a prune the session is %v with id %q, want none and the id kept for --resume", r.sess, r.currentSessionID())
