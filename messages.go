@@ -29,6 +29,7 @@ const (
 	keyUsageExpired          = "usage.token_expired"
 	keyUsageRefused          = "usage.refused"
 	keyUsageUnknown          = "usage.unknown"
+	keyUsageLoginFile        = "usage.login_file_malformed"
 )
 
 type messages struct {

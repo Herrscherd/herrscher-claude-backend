@@ -42,6 +42,26 @@ func writeCredentials(t *testing.T, expiresAt time.Time) string {
 	return dir
 }
 
+func writeRawCredentials(t *testing.T, dir, body string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, credentialsFileName), []byte(body), 0o600); err != nil {
+		t.Fatalf("write credentials: %v", err)
+	}
+}
+
+func TestUnreadableCredentialsAreUnavailable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads a file of mode 000")
+	}
+	dir := t.TempDir()
+	writeRawCredentials(t, dir, `{}`)
+	if err := os.Chmod(filepath.Join(dir, credentialsFileName), 0); err != nil {
+		t.Fatalf("chmod credentials: %v", err)
+	}
+	_, err := readOAuthToken(configEnv(dir), testNow())
+	assertUsageFailure(t, err, nil)
+}
+
 func configEnv(dir string) func(string) string {
 	return func(name string) string {
 		if name == contracts.EnvClaudeConfigDir {
@@ -130,6 +150,7 @@ func TestLimitsFromFailures(t *testing.T) {
 	tests := []struct {
 		name        string
 		missingFile bool
+		credentials string
 		expiresAt   time.Time
 		status      int
 		body        string
@@ -192,6 +213,19 @@ func TestLimitsFromFailures(t *testing.T) {
 			wantCause: errUsageUnknown,
 		},
 		{
+			name:        "truncated credentials",
+			credentials: `{"claudeAiOauth":`,
+			status:      http.StatusOK,
+			body:        `{}`,
+			wantCause:   errCredentialsMalformed,
+		},
+		{
+			name:      "response not json",
+			expiresAt: testNow().Add(time.Hour),
+			status:    http.StatusOK,
+			body:      `not json`,
+		},
+		{
 			name:      "array instead of object",
 			expiresAt: testNow().Add(time.Hour),
 			status:    http.StatusOK,
@@ -215,7 +249,10 @@ func TestLimitsFromFailures(t *testing.T) {
 			var gotAuth, gotBeta string
 			server := usageServer(t, tt.status, tt.body, &gotAuth, &gotBeta)
 			dir := t.TempDir()
-			if !tt.missingFile {
+			switch {
+			case tt.credentials != "":
+				writeRawCredentials(t, dir, tt.credentials)
+			case !tt.missingFile:
 				dir = writeCredentials(t, tt.expiresAt)
 			}
 			_, err := limitsFrom(context.Background(), contracts.ProbeAccess{Getenv: configEnv(dir)}, newUsageClient(), server.URL, testNow())

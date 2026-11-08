@@ -78,5 +78,10 @@
     "id": "usage.unknown",
     "description": "Le service OAuth d'usage a répondu sans aucune fenêtre connue du plugin",
     "other": "le service d'usage n'a renvoyé aucune fenêtre de limite connue"
+  },
+  {
+    "id": "usage.login_file_malformed",
+    "description": "Le fichier d'identifiants de Claude n'est pas un JSON lisible",
+    "other": "le fichier d'identifiants de Claude est illisible"
   }
 ]

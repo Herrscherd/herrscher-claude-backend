@@ -78,5 +78,10 @@
     "id": "usage.unknown",
     "description": "The OAuth usage endpoint answered without any window this plugin knows",
     "other": "usage endpoint returned no known limit window"
+  },
+  {
+    "id": "usage.login_file_malformed",
+    "description": "The Claude credentials file is not readable JSON",
+    "other": "claude credentials file is malformed"
   }
 ]

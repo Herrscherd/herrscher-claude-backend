@@ -21,8 +21,9 @@ const (
 )
 
 var (
-	errNoOAuthLogin = newCatalogError(keyUsageNoLogin)
-	errOAuthExpired = newCatalogError(keyUsageExpired)
+	errNoOAuthLogin         = newCatalogError(keyUsageNoLogin)
+	errOAuthExpired         = newCatalogError(keyUsageExpired)
+	errCredentialsMalformed = newCatalogError(keyUsageLoginFile)
 )
 
 type credentialsFile struct {
@@ -86,8 +87,8 @@ func readCredentials(path string) (credentialsFile, error) {
 	}
 	defer closeAndLog(file)
 	var credentials credentialsFile
-	if err := json.NewDecoder(io.LimitReader(file, credentialsMaxBodyBytes)).Decode(&credentials); err != nil {
-		return credentialsFile{}, fmt.Errorf("decode claude credentials: %w", err)
+	if json.NewDecoder(io.LimitReader(file, credentialsMaxBodyBytes)).Decode(&credentials) != nil {
+		return credentialsFile{}, errCredentialsMalformed
 	}
 	return credentials, nil
 }

@@ -23,7 +23,7 @@ func allMessageKeys() []string {
 		keyGatewayPairIncomplete,
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
 		keyTurnFailed,
-		keyUsageNoLogin, keyUsageExpired, keyUsageRefused, keyUsageUnknown,
+		keyUsageNoLogin, keyUsageExpired, keyUsageRefused, keyUsageUnknown, keyUsageLoginFile,
 	}
 }
 

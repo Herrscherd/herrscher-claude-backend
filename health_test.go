@@ -20,7 +20,7 @@ func fakeClaude(t *testing.T, authJSON, turnJSON string) string {
 		"  echo '" + authJSON + "'\n" +
 		"  exit 0\n" +
 		"fi\n" +
-		"echo \"$@\" > '" + fakeArgsFile(binary) + "'\n" +
+		"printf '%s\\n' \"$@\" > '" + fakeArgsFile(binary) + "'\n" +
 		"echo '" + turnJSON + "'\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake claude: %v", err)
@@ -120,11 +120,11 @@ func TestProbeDeepRunsCheapestNativeModelWithoutTools(t *testing.T) {
 		t.Fatalf("read args: %v", err)
 	}
 	args := string(raw)
-	if want := "--model claude-haiku-5-5"; !strings.Contains(args, want) {
+	if want := "\n--model\nclaude-haiku-5-5\n"; !strings.Contains("\n"+args, want) {
 		t.Fatalf("args %q lack %q", args, want)
 	}
-	if !strings.Contains(args, "--tools") {
-		t.Fatalf("args %q disable no tool", args)
+	if want := "\n--tools\n\n"; !strings.Contains("\n"+args, want) {
+		t.Fatalf("args %q do not pass an empty --tools", args)
 	}
 }
 
@@ -162,6 +162,7 @@ func fakeSleepingClaude(t *testing.T, authJSON string) string {
 		"  echo '" + authJSON + "'\n" +
 		"  exit 0\n" +
 		"fi\n" +
+		"touch '" + fakeTurnMarker(binary) + "'\n" +
 		"exec sleep 30\n"
 	if err := os.WriteFile(binary, []byte(script), 0o700); err != nil {
 		t.Fatalf("write fake claude: %v", err)
@@ -169,14 +170,21 @@ func fakeSleepingClaude(t *testing.T, authJSON string) string {
 	return binary
 }
 
+func fakeTurnMarker(binary string) string {
+	return filepath.Join(filepath.Dir(binary), "turn-started")
+}
+
 func TestProbeDeepTurnPastDeadlineIsDegradedTimeout(t *testing.T) {
 	binary := fakeSleepingClaude(t, `{"loggedIn": true}`)
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	started := time.Now()
 	report := probe(ctx, probeAccess(binary, "", true))
 	if elapsed := time.Since(started); elapsed > 5*time.Second {
 		t.Fatalf("probe took %v, want it to return once the deadline passes", elapsed)
+	}
+	if _, err := os.Stat(fakeTurnMarker(binary)); err != nil {
+		t.Fatalf("the deadline passed before the turn started: %v", err)
 	}
 	if report.State != contracts.HealthDegraded {
 		t.Fatalf("state = %v, want degraded", report.State)
