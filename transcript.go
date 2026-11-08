@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -674,19 +675,43 @@ func checkUnchanged(root *os.Root, name string, read os.FileInfo) error {
 }
 
 func swapTranscript(root *os.Root, name, stagedName string, read os.FileInfo) error {
-	backup := name + transcriptBackupExt
-	if err := root.Remove(backup); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("drop old claude transcript backup: %w", err)
+	backup, err := backUpTranscript(root, name)
+	if err != nil {
+		return err
 	}
-	if err := root.Link(name, backup); err != nil {
-		return fmt.Errorf("back up claude transcript: %w", err)
-	}
-	if err := checkUnchanged(root, name, read); err != nil {
+	if err = checkUnchanged(root, name, read); err != nil {
 		removeStaged(root, backup)
 		return err
 	}
-	if err := root.Rename(stagedName, name); err != nil {
+	if err = root.Rename(stagedName, name); err != nil {
 		return fmt.Errorf("replace claude transcript: %w", err)
+	}
+	return syncDirectory(root)
+}
+
+func backUpTranscript(root *os.Root, name string) (string, error) {
+	backup := name + transcriptBackupExt
+	err := root.Link(name, backup)
+	if errors.Is(err, os.ErrExist) {
+		backup = fmt.Sprintf("%s.%d", backup, time.Now().UnixNano())
+		err = root.Link(name, backup)
+	}
+	if err != nil {
+		return "", fmt.Errorf("back up claude transcript: %w", err)
+	}
+	return backup, nil
+}
+
+func syncDirectory(root *os.Root) error {
+	dir, err := root.Open(".")
+	if err != nil {
+		return fmt.Errorf("sync claude transcript directory: %w", err)
+	}
+	if err = dir.Sync(); err != nil {
+		return errors.Join(fmt.Errorf("sync claude transcript directory: %w", err), dir.Close())
+	}
+	if err = dir.Close(); err != nil {
+		return fmt.Errorf("sync claude transcript directory: %w", err)
 	}
 	return nil
 }

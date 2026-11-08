@@ -462,3 +462,28 @@ func TestTranscriptLoopsStopOnACancelledContext(t *testing.T) {
 	}
 	assertOnlyTheTranscript(t, path, transcriptFixture())
 }
+
+func TestASecondPruneKeepsTheFirstBackupAndAddsAStampedOne(t *testing.T) {
+	fixture := newTranscriptCase(t)
+	r, path := fixture.r, fixture.path
+	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
+		t.Fatalf("first PruneHistory: %v", err)
+	}
+	afterFirst, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t2", Action: contracts.PruneCall}}); err != nil {
+		t.Fatalf("second PruneHistory: %v", err)
+	}
+	if first, readErr := os.ReadFile(path + transcriptBackupExt); readErr != nil || string(first) != transcriptFixture() {
+		t.Fatalf("first backup = %q, %v, want the transcript before any prune", first, readErr)
+	}
+	stamped, err := filepath.Glob(path + transcriptBackupExt + ".*")
+	if err != nil || len(stamped) != 1 {
+		t.Fatalf("stamped backups = %v, %v, want exactly one", stamped, err)
+	}
+	if second, readErr := os.ReadFile(stamped[0]); readErr != nil || !bytes.Equal(second, afterFirst) {
+		t.Fatalf("stamped backup = %q, %v, want the transcript before the second prune", second, readErr)
+	}
+}
