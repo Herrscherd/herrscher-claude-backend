@@ -34,9 +34,9 @@ func (s *spyWriteCloser) Close() error {
 	return s.closeErr
 }
 
-func startTestSession(t *testing.T, name string, args ...string) *streamSession {
+func startShellSession(t *testing.T, script string) *streamSession {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), name, args...)
+	cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)
@@ -46,7 +46,7 @@ func startTestSession(t *testing.T, name string, args ...string) *streamSession 
 		t.Fatalf("stdout pipe: %v", err)
 	}
 	if err := cmd.Start(); err != nil {
-		t.Fatalf("start %s: %v", name, err)
+		t.Fatalf("start sh -c %q: %v", script, err)
 	}
 	s := newStreamSession(stdin, stdout)
 	s.cmd = cmd
@@ -55,7 +55,7 @@ func startTestSession(t *testing.T, name string, args ...string) *streamSession 
 
 func TestStreamSessionCloseTwiceReturnsNil(t *testing.T) {
 	t.Parallel()
-	s := startTestSession(t, "sh", "-c", "sleep 60")
+	s := startShellSession(t, "sleep 60")
 	if err := s.Close(); err != nil {
 		t.Fatalf("first Close returned %v, want nil after a kill", err)
 	}
@@ -66,7 +66,7 @@ func TestStreamSessionCloseTwiceReturnsNil(t *testing.T) {
 
 func TestStreamSessionCloseAfterNormalExitReturnsNil(t *testing.T) {
 	t.Parallel()
-	s := startTestSession(t, "sh", "-c", "exit 0")
+	s := startShellSession(t, "exit 0")
 	for range s.lines {
 	}
 	if err := s.Close(); err != nil {

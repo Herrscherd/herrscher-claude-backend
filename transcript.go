@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -31,19 +30,24 @@ var ErrBadSessionID = errors.New("claude session id is malformed")
 // `claude --resume` run in a terminal on the same session, changed after it was
 // read: PruneHistory leaves it untouched rather than drop what was appended. The
 // file is checked when the prune starts and again right before the rename, so
-// only a write landing between that last check and the rename escapes it.
+// only a write landing between that last check and the rename escapes it. A
+// refused prune also removes the backup link it made, so a transcript never has
+// more than its .herrscher-bak and its .herrscher-bak.prev next to it.
 var ErrTranscriptChanged = errors.New("claude session transcript changed while being pruned")
 
 const (
-	configDirVar        = "CLAUDE_CONFIG_DIR"
-	transcriptBackupExt = ".herrscher-bak"
-	transcriptStagedExt = ".herrscher-tmp"
-	prunedResultNote    = "[herrscher pruned the rest of this result: %d characters]"
-	prunedCallNote      = "[herrscher pruned the result of this call]"
-	prunedInputRunes    = 200
+	configDirVar          = "CLAUDE_CONFIG_DIR"
+	transcriptBackupExt   = ".herrscher-bak"
+	transcriptPreviousExt = ".herrscher-bak.prev"
+	transcriptStagedExt   = ".herrscher-tmp"
+	prunedResultNote      = "[herrscher pruned the rest of this result: %d characters]"
+	prunedCallNote        = "[herrscher pruned the result of this call]"
+	prunedInputRunes      = 200
 )
 
 var sessionIDPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{0,127}$`)
+
+var prunedResultTail = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(prunedResultNote), "%d", `\d+`, 1) + `\z`)
 
 func configDir(env map[string]string) (string, error) {
 	if dir := env[configDirVar]; dir != "" {
@@ -193,17 +197,19 @@ type historyBuilder struct {
 	history       contracts.History
 	lastMsgID     string
 	callAt        map[string][2]int
+	keepResults   map[string]bool
 	resultContent map[string]json.RawMessage
 	chain         map[string]bool
 	onChain       map[int]bool
 	boundaryAt    int
 }
 
-func newHistoryBuilder(transcript transcriptFile, read os.FileInfo, index *chainIndex) *historyBuilder {
+func newHistoryBuilder(transcript transcriptFile, read os.FileInfo, index *chainIndex, keepResults map[string]bool) *historyBuilder {
 	return &historyBuilder{
 		file:          transcript,
 		read:          read,
 		callAt:        make(map[string][2]int),
+		keepResults:   keepResults,
 		resultContent: make(map[string]json.RawMessage),
 		chain:         index.mainChain(),
 		onChain:       make(map[int]bool),
@@ -308,7 +314,9 @@ func (b *historyBuilder) attachResult(block *transcriptBlock) {
 	call := &b.history.Messages[position[0]].Calls[position[1]]
 	call.Result = resultText(block.Content)
 	call.ResultIsError = block.IsError
-	b.resultContent[block.ToolUseID] = block.Content
+	if b.keepResults[block.ToolUseID] {
+		b.resultContent[block.ToolUseID] = block.Content
+	}
 }
 
 func joinText(have, more string) string {
@@ -339,7 +347,7 @@ func resultText(content json.RawMessage) string {
 	return joined
 }
 
-func readTranscript(ctx context.Context, transcript transcriptFile) (*historyBuilder, error) {
+func readTranscript(ctx context.Context, transcript transcriptFile, keepResults map[string]bool) (*historyBuilder, error) {
 	root, err := os.OpenRoot(transcript.dir)
 	if err != nil {
 		return nil, fmt.Errorf("open claude transcript directory: %w", err)
@@ -361,7 +369,7 @@ func readTranscript(ctx context.Context, transcript transcriptFile) (*historyBui
 	}); indexErr != nil {
 		return nil, indexErr
 	}
-	builder := newHistoryBuilder(transcript, info, index)
+	builder := newHistoryBuilder(transcript, info, index, keepResults)
 	err = eachTranscriptLine(ctx, io.NewSectionReader(file, 0, info.Size()), func(lineIndex int, line []byte) error {
 		builder.add(lineIndex, line)
 		return nil
@@ -396,6 +404,20 @@ func prunedResult(result string, keep int) (string, bool) {
 	return joinText(head, fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(result[len(head):]))), true
 }
 
+func alreadyPruned(result string) bool {
+	return strings.HasSuffix(result, prunedCallNote) || prunedResultTail.MatchString(result)
+}
+
+func encodeJSON(value any) ([]byte, error) {
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(value); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
+}
+
 func prunedInput(input string) string {
 	decoder := json.NewDecoder(strings.NewReader(input))
 	decoder.UseNumber()
@@ -407,7 +429,7 @@ func prunedInput(input string) string {
 	if !shortened {
 		return input
 	}
-	encoded, err := json.Marshal(value)
+	encoded, err := encodeJSON(value)
 	if err != nil {
 		return input
 	}
@@ -444,6 +466,7 @@ func shortenStrings(value any) (any, bool) {
 type pruneEdit struct {
 	contracts.HistoryEdit
 
+	input   string
 	content json.RawMessage
 }
 
@@ -458,6 +481,21 @@ func contentBlocks(content json.RawMessage) ([]json.RawMessage, bool) {
 }
 
 func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
+	before := resultText(content)
+	if edit.Action != contracts.PruneCall && alreadyPruned(before) {
+		return nil, nil
+	}
+	rewritten, err := rewrittenContent(edit, content)
+	if err != nil || rewritten == nil {
+		return nil, err
+	}
+	if utf8.RuneCountInString(resultText(rewritten)) >= utf8.RuneCountInString(before) {
+		return nil, nil
+	}
+	return rewritten, nil
+}
+
+func rewrittenContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
 	var text string
 	if json.Unmarshal(content, &text) == nil {
 		return prunedTextContent(edit, text)
@@ -476,14 +514,18 @@ func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.Ra
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := json.Marshal(pruned)
-	if err != nil {
-		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
+	return jsonArray(pruned), nil
+}
+
+func jsonArray(items []json.RawMessage) json.RawMessage {
+	array := []byte{'['}
+	for index, item := range items {
+		if index > 0 {
+			array = append(array, ',')
+		}
+		array = append(array, item...)
 	}
-	if resultText(encoded) == resultText(content) {
-		return nil, nil
-	}
-	return encoded, nil
+	return append(array, ']')
 }
 
 func prunedTextContent(edit contracts.HistoryEdit, text string) (json.RawMessage, error) {
@@ -494,7 +536,7 @@ func prunedTextContent(edit contracts.HistoryEdit, text string) (json.RawMessage
 	if !changed {
 		return nil, nil
 	}
-	encoded, err := json.Marshal(result)
+	encoded, err := encodeJSON(result)
 	if err != nil {
 		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
 	}
@@ -510,7 +552,7 @@ func blockOfText(raw json.RawMessage) (string, bool) {
 }
 
 func noteBlocks(blocks []json.RawMessage) ([]json.RawMessage, error) {
-	note, err := json.Marshal(textBlock{Type: blockText, Text: prunedCallNote})
+	note, err := encodeJSON(textBlock{Type: blockText, Text: prunedCallNote})
 	if err != nil {
 		return nil, fmt.Errorf("encode pruned claude tool result: %w", err)
 	}
@@ -566,25 +608,72 @@ func truncatedBlocks(blocks []json.RawMessage, keep int) ([]json.RawMessage, err
 }
 
 func withText(block json.RawMessage, text string) (json.RawMessage, error) {
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(block, &fields); err != nil {
-		return nil, fmt.Errorf("decode claude text block: %w", err)
-	}
-	encodedText, err := json.Marshal(text)
+	encodedText, err := encodeJSON(text)
 	if err != nil {
 		return nil, fmt.Errorf("encode claude text block: %w", err)
 	}
-	fields["text"] = encodedText
-	encoded, err := json.Marshal(fields)
+	rewritten, err := replaceField(block, "text", encodedText)
 	if err != nil {
-		return nil, fmt.Errorf("encode claude text block: %w", err)
+		return nil, err
 	}
-	return encoded, nil
+	return rewritten.bytes, nil
+}
+
+type byteSpan struct {
+	start int
+	end   int
+	found bool
+}
+
+type rewrite struct {
+	bytes   []byte
+	changed bool
+}
+
+func fieldSpan(object []byte, key string) (byteSpan, error) {
+	decoder := json.NewDecoder(bytes.NewReader(object))
+	opening, err := decoder.Token()
+	if err != nil {
+		return byteSpan{}, fmt.Errorf("decode claude transcript object: %w", err)
+	}
+	if opening != json.Delim('{') {
+		return byteSpan{}, nil
+	}
+	for decoder.More() {
+		token, tokenErr := decoder.Token()
+		if tokenErr != nil {
+			return byteSpan{}, fmt.Errorf("decode claude transcript object: %w", tokenErr)
+		}
+		var value json.RawMessage
+		if decodeErr := decoder.Decode(&value); decodeErr != nil {
+			return byteSpan{}, fmt.Errorf("decode claude transcript object: %w", decodeErr)
+		}
+		if name, isKey := token.(string); isKey && name == key {
+			end := int(decoder.InputOffset())
+			return byteSpan{start: end - len(value), end: end, found: true}, nil
+		}
+	}
+	return byteSpan{}, nil
+}
+
+func splice(object []byte, span byteSpan, value []byte) []byte {
+	spliced := make([]byte, 0, len(object)-(span.end-span.start)+len(value))
+	spliced = append(spliced, object[:span.start]...)
+	spliced = append(spliced, value...)
+	return append(spliced, object[span.end:]...)
+}
+
+func replaceField(object []byte, key string, value []byte) (rewrite, error) {
+	span, err := fieldSpan(object, key)
+	if err != nil || !span.found || bytes.Equal(object[span.start:span.end], value) {
+		return rewrite{bytes: object}, err
+	}
+	return rewrite{bytes: splice(object, span, value), changed: true}, nil
 }
 
 func prunedCall(call contracts.HistoryCall, edit pruneEdit) contracts.HistoryCall {
-	if edit.Action == contracts.PruneCall {
-		call.Input = prunedInput(call.Input)
+	if edit.input != "" {
+		call.Input = edit.input
 	}
 	if edit.content != nil {
 		call.Result = resultText(edit.content)
@@ -612,24 +701,35 @@ func pruneOutcome(history contracts.History, edits map[string]pruneEdit) contrac
 	return contracts.PruneOutcome{Edited: edited, CharsBefore: historyRunes(history), CharsAfter: historyRunes(pruned)}
 }
 
+func plannedInput(edit contracts.HistoryEdit, input string) string {
+	if edit.Action != contracts.PruneCall {
+		return ""
+	}
+	if pruned := prunedInput(input); utf8.RuneCountInString(pruned) < utf8.RuneCountInString(input) {
+		return pruned
+	}
+	return ""
+}
+
 func planEdits(read *historyBuilder, edits []contracts.HistoryEdit) (map[string]pruneEdit, error) {
 	if err := contracts.ValidateHistoryEdits(edits); err != nil {
 		return nil, err
 	}
-	known := make(map[string]bool)
+	inputs := make(map[string]string)
 	for _, call := range read.history.Calls() {
-		known[call.ID] = true
+		inputs[call.ID] = call.Input
 	}
 	plan := make(map[string]pruneEdit, len(edits))
 	for _, edit := range edits {
-		if !known[edit.CallID] {
+		input, known := inputs[edit.CallID]
+		if !known {
 			return nil, fmt.Errorf("%w: %s", contracts.ErrUnknownHistoryCall, edit.CallID)
 		}
 		content, err := prunedContent(edit, read.resultContent[edit.CallID])
 		if err != nil {
 			return nil, err
 		}
-		plan[edit.CallID] = pruneEdit{HistoryEdit: edit, content: content}
+		plan[edit.CallID] = pruneEdit{HistoryEdit: edit, input: plannedInput(edit, input), content: content}
 	}
 	return plan, nil
 }
@@ -684,26 +784,56 @@ func swapTranscript(root *os.Root, name, stagedName string, read os.FileInfo) er
 		return err
 	}
 	if err = checkUnchanged(root, name, read); err != nil {
-		removeStaged(root, backup)
+		removeStaged(root, backup.link)
 		return err
+	}
+	if backup.replaces != "" {
+		if err = root.Rename(backup.link, backup.replaces); err != nil {
+			removeStaged(root, backup.link)
+			return fmt.Errorf("back up claude transcript: %w", err)
+		}
 	}
 	if err = root.Rename(stagedName, name); err != nil {
 		return fmt.Errorf("replace claude transcript: %w", err)
 	}
-	return syncDirectory(root)
+	if syncErr := syncDirectory(root); syncErr != nil {
+		return syncErr
+	}
+	logKeptBackups(root, name)
+	return nil
 }
 
-func backUpTranscript(root *os.Root, name string) (string, error) {
-	backup := name + transcriptBackupExt
-	err := root.Link(name, backup)
-	if errors.Is(err, os.ErrExist) {
-		backup = fmt.Sprintf("%s.%d", backup, time.Now().UnixNano())
-		err = root.Link(name, backup)
+type transcriptBackup struct {
+	link     string
+	replaces string
+}
+
+func backUpTranscript(root *os.Root, name string) (transcriptBackup, error) {
+	original := name + transcriptBackupExt
+	err := root.Link(name, original)
+	if err == nil {
+		return transcriptBackup{link: original}, nil
 	}
-	if err != nil {
-		return "", fmt.Errorf("back up claude transcript: %w", err)
+	if !errors.Is(err, os.ErrExist) {
+		return transcriptBackup{}, fmt.Errorf("back up claude transcript: %w", err)
 	}
-	return backup, nil
+	previous := name + transcriptPreviousExt
+	pending := previous + transcriptStagedExt
+	removeStaged(root, pending)
+	if err = root.Link(name, pending); err != nil {
+		return transcriptBackup{}, fmt.Errorf("back up claude transcript: %w", err)
+	}
+	return transcriptBackup{link: pending, replaces: previous}, nil
+}
+
+func logKeptBackups(root *os.Root, name string) {
+	var kept int64
+	for _, backup := range []string{name + transcriptBackupExt, name + transcriptPreviousExt} {
+		if info, err := root.Stat(backup); err == nil {
+			kept += info.Size()
+		}
+	}
+	slog.Info("claude transcript pruned, backups kept", "transcript", name, "backup_bytes", kept)
 }
 
 func syncDirectory(root *os.Root) error {
@@ -736,7 +866,11 @@ func writePrunedTranscript(ctx context.Context, source io.Reader, target io.Writ
 	writer := bufio.NewWriter(target)
 	err := eachTranscriptLine(ctx, source, func(lineIndex int, line []byte) error {
 		if onChain[lineIndex] {
-			line = prunedLine(line, plan)
+			pruned, pruneErr := prunedLine(line, plan)
+			if pruneErr != nil {
+				return fmt.Errorf("claude transcript at line %d: %w", lineIndex, pruneErr)
+			}
+			line = pruned
 		}
 		if _, writeErr := writer.Write(line); writeErr != nil {
 			return fmt.Errorf("write claude transcript: %w", writeErr)
@@ -752,78 +886,68 @@ func writePrunedTranscript(ctx context.Context, source io.Reader, target io.Writ
 	return nil
 }
 
-func prunedLine(line []byte, plan map[string]pruneEdit) []byte {
-	var entry transcriptEntry
-	if json.Unmarshal(line, &entry) != nil || !entry.inView() {
-		return line
+func prunedLine(line []byte, plan map[string]pruneEdit) ([]byte, error) {
+	entry := bytes.TrimRight(line, "\r\n")
+	messageSpan, err := fieldSpan(entry, "message")
+	if err != nil || !messageSpan.found {
+		return line, err
 	}
-	var fields map[string]json.RawMessage
-	if json.Unmarshal(line, &fields) != nil {
-		return line
+	message := entry[messageSpan.start:messageSpan.end]
+	contentSpan, err := fieldSpan(message, "content")
+	if err != nil || !contentSpan.found {
+		return line, err
 	}
-	var message map[string]json.RawMessage
-	if json.Unmarshal(fields["message"], &message) != nil {
-		return line
+	content, err := prunedBlocks(message[contentSpan.start:contentSpan.end], plan)
+	if err != nil || !content.changed {
+		return line, err
 	}
-	var blocks []map[string]json.RawMessage
-	if json.Unmarshal(message["content"], &blocks) != nil {
-		return line
-	}
-	if !pruneBlocks(blocks, plan) {
-		return line
-	}
-	content, contentErr := json.Marshal(blocks)
-	message["content"] = content
-	encodedMessage, messageErr := json.Marshal(message)
-	fields["message"] = encodedMessage
-	encoded, lineErr := json.Marshal(fields)
-	if err := errors.Join(contentErr, messageErr, lineErr); err != nil {
-		return line
-	}
-	return append(encoded, line[len(bytes.TrimRight(line, "\r\n")):]...)
+	pruned := splice(entry, messageSpan, splice(message, contentSpan, content.bytes))
+	return append(pruned, line[len(entry):]...), nil
 }
 
-func pruneBlocks(blocks []map[string]json.RawMessage, plan map[string]pruneEdit) bool {
+func prunedBlocks(content json.RawMessage, plan map[string]pruneEdit) (rewrite, error) {
+	if !bytes.HasPrefix(content, []byte("[")) {
+		return rewrite{bytes: content}, nil
+	}
+	var blocks []json.RawMessage
+	if err := json.Unmarshal(content, &blocks); err != nil {
+		return rewrite{}, fmt.Errorf("decode claude message content: %w", err)
+	}
 	changed := false
-	for _, block := range blocks {
-		var kind string
-		if json.Unmarshal(block["type"], &kind) != nil {
-			continue
+	for index, block := range blocks {
+		rewritten, err := prunedBlock(block, plan)
+		if err != nil {
+			return rewrite{}, err
 		}
-		switch kind {
-		case blockToolUse:
-			changed = pruneToolUse(block, plan) || changed
-		case blockToolResult:
-			changed = pruneToolResult(block, plan) || changed
+		blocks[index] = rewritten.bytes
+		changed = changed || rewritten.changed
+	}
+	if !changed {
+		return rewrite{bytes: content}, nil
+	}
+	return rewrite{bytes: jsonArray(blocks), changed: true}, nil
+}
+
+type blockHeader struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	ToolUseID string `json:"tool_use_id"`
+}
+
+func prunedBlock(block json.RawMessage, plan map[string]pruneEdit) (rewrite, error) {
+	var header blockHeader
+	if err := json.Unmarshal(block, &header); err != nil {
+		return rewrite{}, fmt.Errorf("decode claude message block: %w", err)
+	}
+	switch header.Type {
+	case blockToolUse:
+		if input := plan[header.ID].input; input != "" {
+			return replaceField(block, "input", []byte(input))
+		}
+	case blockToolResult:
+		if content := plan[header.ToolUseID].content; content != nil {
+			return replaceField(block, "content", content)
 		}
 	}
-	return changed
-}
-
-func pruneToolUse(block map[string]json.RawMessage, plan map[string]pruneEdit) bool {
-	var callID string
-	if json.Unmarshal(block["id"], &callID) != nil || plan[callID].Action != contracts.PruneCall {
-		return false
-	}
-	return replaceRaw(block, "input", json.RawMessage(prunedInput(string(block["input"]))))
-}
-
-func pruneToolResult(block map[string]json.RawMessage, plan map[string]pruneEdit) bool {
-	var callID string
-	if json.Unmarshal(block["tool_use_id"], &callID) != nil {
-		return false
-	}
-	edit, ok := plan[callID]
-	if !ok || edit.content == nil {
-		return false
-	}
-	return replaceRaw(block, "content", edit.content)
-}
-
-func replaceRaw(block map[string]json.RawMessage, key string, value json.RawMessage) bool {
-	if bytes.Equal(block[key], value) {
-		return false
-	}
-	block[key] = value
-	return true
+	return rewrite{bytes: block}, nil
 }
