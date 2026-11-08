@@ -193,6 +193,10 @@ linters:
         linters: [gosec]
         text: "^G204:"
         source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
+      - path: ^health\.go$
+        linters: [gosec]
+        text: "^G204:"
+        source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
 
 formatters:
   enable:

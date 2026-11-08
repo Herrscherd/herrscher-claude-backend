@@ -181,6 +181,33 @@ and leaves the transcript alone. A write landing between that last check and
 the rename is the one case it cannot see: it lands in the backup, not in the
 live file.
 
+## Health and limits
+
+`Probe` checks one account without a live instance. It runs `claude auth status`
+with the account environment, the profile env merged over the host env. Logged
+out is `off`, with the remedy `herrscher account add claude <name>` for a profile
+or `claude auth login` for the native account. Logged in is `ok` with the
+latency of the check. With `Deep` it also runs one turn of one token on the
+cheapest native model, with no tool: a rate limit is `degraded`, refused
+credentials are `down`, a server error is `degraded`, and a missing CLI is
+`down`.
+
+`Limits` reads `GET https://api.anthropic.com/api/oauth/usage` with the OAuth
+access token stored under `claudeAiOauth` in `<config>/.credentials.json`, where
+`<config>` is the same directory as in the history section. It maps `five_hour`,
+`seven_day` and the weekly windows of each model family, whether they come as
+`seven_day_<family>` or in the `limits` array, to `contracts.Limit`. The
+`seven_day_<family>` keys are kept only for the families of the model catalogue
+(`Models`); other keys such as `seven_day_oauth_apps` are ignored. A response
+with no known window, an unreadable body, an absent, expired or refused token,
+a 429 or a 5xx all return an error matching `ErrLimitsUnavailable`. The token is
+never logged and never put in an error. The HTTP client has no timeout of its
+own: its deadline is the context of the caller.
+
+The endpoint is not a documented API: its shape is the one the claude CLI reads,
+and the CLI itself marks it experimental. `Models` on a result event comes from
+the `modelUsage` of the result message, one entry per model of the turn.
+
 ## Build and test
 
 ```bash

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 
@@ -182,7 +184,16 @@ type streamEvent struct {
 		Content []contentBlock `json:"content"`
 		Usage   *usage         `json:"usage"`
 	} `json:"message"`
-	Usage *usage `json:"usage"`
+	Usage      *usage                `json:"usage"`
+	ModelUsage map[string]modelUsage `json:"modelUsage"`
+}
+
+type modelUsage struct {
+	InputTokens              int     `json:"inputTokens"`
+	OutputTokens             int     `json:"outputTokens"`
+	CacheReadInputTokens     int     `json:"cacheReadInputTokens"`
+	CacheCreationInputTokens int     `json:"cacheCreationInputTokens"`
+	CostUSD                  float64 `json:"costUSD"`
 }
 
 type usage struct {
@@ -359,7 +370,7 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	}
 	tokens := resultUsage(event)
 	if onEvent != nil {
-		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: control.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens})
+		onEvent(contracts.BackendEvent{Kind: "result", Cost: event.TotalCostUSD, IsError: control.IsError, InTokens: tokens.InputTokens, OutTokens: tokens.OutputTokens, CacheRead: tokens.CacheReadInputTokens, CacheCreate: tokens.CacheCreationInputTokens, Models: turnModels(event.ModelUsage)})
 	}
 	turn := turnResult{
 		Text:        control.Result,
@@ -375,6 +386,25 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 		turn.ErrMsg = control.Result
 	}
 	return turn, true, nil
+}
+
+func turnModels(byModel map[string]modelUsage) []contracts.ModelUsage {
+	if len(byModel) == 0 {
+		return nil
+	}
+	models := make([]contracts.ModelUsage, 0, len(byModel))
+	for _, model := range slices.Sorted(maps.Keys(byModel)) {
+		spent := byModel[model]
+		models = append(models, contracts.ModelUsage{
+			Model:       model,
+			In:          spent.InputTokens,
+			Out:         spent.OutputTokens,
+			CacheRead:   spent.CacheReadInputTokens,
+			CacheCreate: spent.CacheCreationInputTokens,
+			Cost:        spent.CostUSD,
+		})
+	}
+	return models
 }
 
 func resultUsage(event streamEvent) usage {

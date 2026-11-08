@@ -58,5 +58,30 @@
     "id": "turn.failed",
     "description": "Un tour que la CLI claude a signalé en échec sans en donner la raison",
     "other": "claude a signalé une erreur"
+  },
+  {
+    "id": "usage.no_oauth_login",
+    "description": "Le compte n'a aucune connexion claude.ai dont lire les limites d'usage",
+    "other": "aucune connexion claude.ai dont lire les limites d'usage"
+  },
+  {
+    "id": "usage.token_expired",
+    "description": "Le jeton d'accès claude.ai enregistré a expiré, la CLI claude le renouvelle à son prochain tour",
+    "other": "le jeton d'accès claude.ai a expiré, la CLI claude le renouvelle à son prochain tour"
+  },
+  {
+    "id": "usage.refused",
+    "description": "Le service OAuth d'usage a répondu par un statut d'erreur",
+    "other": "le service d'usage a refusé la requête"
+  },
+  {
+    "id": "usage.unknown",
+    "description": "Le service OAuth d'usage a répondu sans aucune fenêtre connue du plugin",
+    "other": "le service d'usage n'a renvoyé aucune fenêtre de limite connue"
+  },
+  {
+    "id": "usage.login_file_malformed",
+    "description": "Le fichier d'identifiants de Claude n'est pas un JSON lisible",
+    "other": "le fichier d'identifiants de Claude est illisible"
   }
 ]
