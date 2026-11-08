@@ -107,6 +107,80 @@ manifest flag covers the whole plugin, so for a `oneshot` instance the instance
 does not implement `Compactor`. The contract asks the host to refuse a compaction
 of a backend that lacks the port.
 
+## History editing
+
+The stream backend also implements `contracts.HistoryEditor`, declared by
+`Capabilities.HistoryEditor`, so a compaction stage such as Jev can prune tool
+calls without a summary. The claude CLI keeps each session in
+`<config>/projects/<project>/<session>.jsonl`, where `<config>` is
+`CLAUDE_CONFIG_DIR` from the injected env, then from the environment, then
+`~/.claude`. The session id must look like one the CLI writes, so it never
+widens the lookup.
+
+`ReadHistory` reads the file as a stream, up to the size it had when it was
+opened, and keeps the conversation after the last `compact_boundary`. It walks
+`parentUuid` back from the last entry that is not a sidechain, so a branch left
+behind by a rewind stays out; the result entries of parallel calls, which hang
+off their own `tool_use` entry rather than off the chain, are taken in with it.
+The per block assistant entries of one API message are joined back into one
+message with its calls and their results, even when the CLI writes a result
+between two of them; a user entry with real text ends the message.
+
+`PruneHistory` checks every edit first, against the contract and against the
+calls of that history, and changes nothing when one fails. It edits only
+`message.content`, and only on the lines of that chain: `prune_result` keeps the
+first `KeepChars` runes of a result and a note of what was pruned,
+`prune_call` replaces the result by a note and cuts the long strings of the call
+input to 200 runes. A result made of blocks keeps its images, tool references
+and every other non text block in place and in order: only the text blocks are
+rewritten, the rune budget runs across them in order, and the note closes the
+last text block kept. No entry is added or removed and no `uuid` or
+`parentUuid` moves, so the chain stays intact. The new `message.content` is
+spliced into the raw line, so the other fields keep their bytes and their key
+order; only a shortened call input is encoded again, with its keys sorted. Every
+other line is copied byte for byte. A cancelled context stops the read or the
+rewrite between two lines and leaves the transcript as it was.
+
+A prune never grows the history and running it twice changes nothing. A result
+that already ends with a herrscher note, after no more than the runes the edit
+keeps, is left alone by `prune_result`, and a result or an input is rewritten
+only when the new one is shorter, so a short result keeps its text rather than
+gain a longer note. Every call counted in `Edited` is shorter after the prune;
+when no call changes, the transcript is not written and the live claude keeps
+running.
+
+When something changes, the live claude process is closed first and the
+transcript is read again, so nothing claude writes while it exits is lost. The
+new file is staged next to the old one and synced, the old one is kept as a hard
+link that costs no copy, the new one is renamed over it and the directory is
+synced. Two backups at most stay next to a transcript:
+`<session>.jsonl.herrscher-bak` holds the transcript before the first prune and
+is never overwritten, and `<session>.jsonl.herrscher-bak.prev` holds it before
+the latest prune, replaced by a rename at each later one. The size they keep is
+logged at the info level. Removing both backups is safe once the pruned
+conversation is trusted.
+
+Backups are hard links, so the transcript must live on a file system that has
+them: on exFAT, vfat or some FUSE and SMB mounts the prune stops with
+`ErrTranscriptBackup` and leaves the transcript as it was. Staged files carry
+their creation time and a random suffix, so two prunes of one session never
+write the same file; one left behind by a crash is removed by the first prune
+that finds it more than an hour old. A failed sync of the directory after the
+rename is logged as a warning: the prune is done, only a crash right after it
+could bring the old transcript back.
+
+The next turn respawns claude with `--resume`, which reads the pruned history;
+a prune that fails after closing claude keeps the session id, so that turn
+still resumes the same session.
+
+Another writer may still hold the session, such as a `claude --resume` run in a
+terminal, which appends to the same file. The size, modification time and inode
+read are compared again when the prune starts and right before the rename; on
+any change the prune stops with `ErrTranscriptChanged`, removes its staged file
+and leaves the transcript alone. A write landing between that last check and
+the rename is the one case it cannot see: it lands in the backup, not in the
+live file.
+
 ## Build and test
 
 ```bash
