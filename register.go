@@ -24,7 +24,7 @@ func init() {
 				{Key: "env", Env: "", Help: texts.english(keySettingEnv)},
 			},
 			Models:       Models(),
-			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true},
+			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true, HistoryEditor: true},
 		},
 		Discover: discover,
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {

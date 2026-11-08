@@ -18,8 +18,12 @@ import (
 )
 
 const (
-	wireUser    = "user"
-	stateActive = "active"
+	wireUser        = "user"
+	wireAssistant   = "assistant"
+	blockText       = "text"
+	blockToolUse    = "tool_use"
+	blockToolResult = "tool_result"
+	stateActive     = "active"
 )
 
 func streamBase(fields []string) []string {
@@ -260,7 +264,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		return turnResult{}, false, nil
 	}
 	switch head.Type {
-	case "assistant":
+	case wireAssistant:
 		p.parseAssistant(line, onEvent)
 	case wireUser:
 		p.parseToolResults(line, onEvent)
@@ -292,11 +296,11 @@ func (p *turnParser) emitBlock(block contentBlock, onEvent func(contracts.Backen
 		if t := strings.TrimSpace(block.Thinking); t != "" {
 			onEvent(contracts.BackendEvent{Kind: "thinking", Detail: t})
 		}
-	case "text":
+	case blockText:
 		if t := strings.TrimSpace(block.Text); t != "" {
 			onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
 		}
-	case "tool_use":
+	case blockToolUse:
 		p.emitToolUse(block, onEvent)
 	}
 }
@@ -325,7 +329,7 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 		return
 	}
 	for _, block := range event.Message.Content {
-		if block.Type != "tool_result" || !p.agents[block.ToolUseID] {
+		if block.Type != blockToolResult || !p.agents[block.ToolUseID] {
 			continue
 		}
 		delete(p.agents, block.ToolUseID)

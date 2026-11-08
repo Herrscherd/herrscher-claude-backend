@@ -107,6 +107,32 @@ manifest flag covers the whole plugin, so for a `oneshot` instance the instance
 does not implement `Compactor`. The contract asks the host to refuse a compaction
 of a backend that lacks the port.
 
+## History editing
+
+The stream backend also implements `contracts.HistoryEditor`, declared by
+`Capabilities.HistoryEditor`, so a compaction stage such as Jev can prune tool
+calls without a summary. The claude CLI keeps each session in
+`<config>/projects/<project>/<session>.jsonl`, where `<config>` is
+`CLAUDE_CONFIG_DIR` from the injected env, then from the environment, then
+`~/.claude`. The session id must look like one the CLI writes, so it never
+widens the lookup.
+
+`ReadHistory` reads the file as a stream, keeps the main chain after the last
+`compact_boundary`, skips sidechains, and joins the per block assistant entries
+of one API message back into one message with its calls and their results.
+
+`PruneHistory` checks every edit first, against the contract and against the
+calls of that history, and changes nothing when one fails. It edits only
+`message.content`: `prune_result` keeps the first `KeepChars` runes of a result
+and a note of what was pruned, `prune_call` replaces the result by a note and
+cuts the long strings of the call input to 200 runes. No entry is added or
+removed and no `uuid` or `parentUuid` moves, so the chain stays intact; every
+other line is copied byte for byte. When something changes, the live claude
+process is closed first, the new file is staged next to the old one, synced and
+renamed over it, and the old one stays as `<session>.jsonl.herrscher-bak`, a
+hard link that costs no copy. The next turn respawns claude with `--resume`, which
+reads the pruned history.
+
 ## Build and test
 
 ```bash
