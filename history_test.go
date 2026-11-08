@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -657,25 +658,40 @@ func TestPruneResultCutsAResultThatOnlyLooksPruned(t *testing.T) {
 	}
 }
 
-func TestPruneHistoryRemovesOnlyStaleStagedFiles(t *testing.T) {
-	fixture := newTranscriptCase(t)
-	stale, fresh := fixture.path+transcriptStagedExt+".STALE", fixture.path+transcriptPreviousExt+transcriptStagedExt+".FRESH"
-	for _, name := range []string{stale, fresh} {
-		if err := os.WriteFile(name, []byte("left behind\n"), 0o600); err != nil {
+func TestRemoveStaleStagedKeepsBackupsAndFreshLinksOfAnOldTranscript(t *testing.T) {
+	path := newTranscriptCase(t).path
+	dir, name := filepath.Dir(path), filepath.Base(path)
+	old := time.Now().Add(-2 * staleStagedAge)
+	staleName := name + transcriptStagedExt + "." + strconv.FormatInt(old.Unix(), stagedTimeBase) + ".STALE"
+	legacy := name + transcriptStagedExt
+	for _, file := range []string{name + transcriptBackupExt, name + transcriptPreviousExt, staleName, legacy} {
+		if err := os.WriteFile(filepath.Join(dir, file), []byte("kept or not\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	old := time.Now().Add(-2 * staleStagedAge)
-	if err := os.Chtimes(stale, old, old); err != nil {
+	for _, file := range []string{name, name + transcriptBackupExt, name + transcriptPreviousExt, staleName, legacy} {
+		if err := os.Chtimes(filepath.Join(dir, file), old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	freshLink := stagingName(name + transcriptPreviousExt)
+	if err := os.Link(path, filepath.Join(dir, freshLink)); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
-		t.Fatalf("PruneHistory: %v", err)
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := os.Stat(stale); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("stale staged file: %v, want it removed", err)
+	defer mustClose(t, root)
+	removeStaleStaged(root, name)
+	for _, gone := range []string{staleName, legacy} {
+		if _, statErr := os.Stat(filepath.Join(dir, gone)); !errors.Is(statErr, os.ErrNotExist) {
+			t.Fatalf("%s: %v, want it removed", gone, statErr)
+		}
 	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Fatalf("fresh staged file: %v, want it kept for the prune that may own it", err)
+	for _, kept := range []string{name, name + transcriptBackupExt, name + transcriptPreviousExt, freshLink} {
+		if _, statErr := os.Stat(filepath.Join(dir, kept)); statErr != nil {
+			t.Fatalf("%s: %v, want it kept", kept, statErr)
+		}
 	}
 }

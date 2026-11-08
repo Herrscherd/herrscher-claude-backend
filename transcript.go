@@ -14,7 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -52,6 +52,7 @@ const (
 	transcriptPreviousExt = ".herrscher-bak.prev"
 	transcriptStagedExt   = ".herrscher-tmp"
 	staleStagedAge        = time.Hour
+	stagedTimeBase        = 36
 	prunedResultNote      = "[herrscher pruned the rest of this result: %d characters]"
 	prunedCallNote        = "[herrscher pruned the result of this call]"
 	prunedInputRunes      = 200
@@ -872,7 +873,7 @@ func closeAndLog(closer io.Closer) {
 }
 
 func stagingName(name string) string {
-	return name + transcriptStagedExt + "." + rand.Text()
+	return name + transcriptStagedExt + "." + strconv.FormatInt(time.Now().Unix(), stagedTimeBase) + "." + rand.Text()
 }
 
 func removeStaleStaged(root *os.Root, name string) {
@@ -881,15 +882,29 @@ func removeStaleStaged(root *os.Root, name string) {
 		slog.Warn("listing staged claude transcripts", "error", err)
 		return
 	}
-	prefixes := []string{name + transcriptStagedExt, name + transcriptPreviousExt + transcriptStagedExt}
 	for _, entry := range entries {
-		if !slices.ContainsFunc(prefixes, func(prefix string) bool { return strings.HasPrefix(entry.Name(), prefix) }) {
-			continue
-		}
-		if info, infoErr := entry.Info(); infoErr == nil && time.Since(info.ModTime()) > staleStagedAge {
-			removeStaged(root, entry.Name())
+		for _, prefix := range []string{name + transcriptStagedExt, name + transcriptPreviousExt + transcriptStagedExt} {
+			if !strings.HasPrefix(entry.Name(), prefix) {
+				continue
+			}
+			if staged, known := stagedTime(entry, prefix); known && time.Since(staged) > staleStagedAge {
+				removeStaged(root, entry.Name())
+			}
+			break
 		}
 	}
+}
+
+func stagedTime(entry fs.DirEntry, prefix string) (time.Time, bool) {
+	stamp, _, named := strings.Cut(strings.TrimPrefix(entry.Name(), prefix+"."), ".")
+	if seconds, err := strconv.ParseInt(stamp, stagedTimeBase, 64); named && err == nil {
+		return time.Unix(seconds, 0), true
+	}
+	info, err := entry.Info()
+	if err != nil {
+		return time.Time{}, false
+	}
+	return info.ModTime(), true
 }
 
 func removeStaged(root *os.Root, name string) {
