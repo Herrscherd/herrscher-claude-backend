@@ -286,13 +286,23 @@ func historyRunes(history contracts.History) int {
 	return total
 }
 
+func runeHead(text string, keep int) string {
+	kept := 0
+	for offset := range text {
+		if kept == keep {
+			return text[:offset]
+		}
+		kept++
+	}
+	return text
+}
+
 func prunedResult(result string, keep int) (string, bool) {
-	runes := utf8.RuneCountInString(result)
-	if runes <= keep {
+	head := runeHead(result, keep)
+	if len(head) == len(result) {
 		return result, false
 	}
-	head := string([]rune(result)[:keep])
-	return joinText(head, fmt.Sprintf(prunedResultNote, runes-keep)), true
+	return joinText(head, fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(result[len(head):]))), true
 }
 
 func prunedInput(input string) string {
@@ -316,8 +326,8 @@ func prunedInput(input string) string {
 func shortenStrings(value any) (any, bool) {
 	switch typed := value.(type) {
 	case string:
-		if utf8.RuneCountInString(typed) > prunedInputRunes {
-			return string([]rune(typed)[:prunedInputRunes]) + "…", true
+		if head := runeHead(typed, prunedInputRunes); len(head) < len(typed) {
+			return head + "…", true
 		}
 		return typed, false
 	case map[string]any:

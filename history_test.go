@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -224,5 +225,23 @@ func TestReadHistoryFindsATranscriptUnderAConfigDirWithGlobCharacters(t *testing
 	history, err := r.ReadHistory(t.Context())
 	if err != nil || len(history.Messages) == 0 {
 		t.Fatalf("ReadHistory = %+v, %v, want the transcript found despite the brackets", history, err)
+	}
+}
+
+func TestPrunedResultCountsRunesNotBytes(t *testing.T) {
+	cases := []struct {
+		result string
+		keep   int
+		want   string
+	}{
+		{result: "héllo wörld", keep: 5, want: "héllo\n" + fmt.Sprintf(prunedResultNote, 6)},
+		{result: "日本語", keep: 3, want: "日本語"},
+		{result: "日本語", keep: 0, want: fmt.Sprintf(prunedResultNote, 3)},
+	}
+	for _, tc := range cases {
+		got, _ := prunedResult(tc.result, tc.keep)
+		if got != tc.want {
+			t.Fatalf("prunedResult(%q, %d) = %q, want %q", tc.result, tc.keep, got, tc.want)
+		}
 	}
 }
