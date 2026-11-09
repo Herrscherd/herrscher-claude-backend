@@ -395,7 +395,7 @@ func TestPrunedResultKeepsItsHeadAndItsTailAroundANote(t *testing.T) {
 
 func TestPruneAgainANoteKeepsNoFragmentOfIt(t *testing.T) {
 	old, _ := prunedResult(strings.Repeat("abcdefghij", 30), 200, 0)
-	want := strings.Repeat("abcdefghij", 10) + "\n" + fmt.Sprintf(prunedResultNote, 100)
+	want := strings.Repeat("abcdefghij", 10) + "\n" + fmt.Sprintf(prunedResultNote, 200)
 	got, pruned := prunedResult(old, 100, 50)
 	if got != want || !pruned {
 		t.Fatalf("prunedResult(old, 100, 50) = %q, %v, want %q, true", got, pruned, want)
@@ -405,6 +405,18 @@ func TestPruneAgainANoteKeepsNoFragmentOfIt(t *testing.T) {
 		t.Fatalf("truncatedBlocks: %v", err)
 	}
 	assertTextBlocks(t, blocks, want)
+}
+
+func TestPruneAgainStopsTheHeadBeforeAnEarlyNote(t *testing.T) {
+	old := strings.Repeat("a", 10) + "\n" + fmt.Sprintf(prunedResultNote, 40) + "\n" + "bbbbb"
+	want := strings.Repeat("a", 10) + "\n" + fmt.Sprintf(prunedResultNote, 43) + "\n" + "bb"
+	got, pruned := prunedResult(old, 50, 2)
+	if got != want || !pruned {
+		t.Fatalf("prunedResult(old, 50, 2) = %q, %v, want %q, true", got, pruned, want)
+	}
+	if strings.Count(got, "[herrscher") != 1 {
+		t.Fatalf("prunedResult(old, 50, 2) = %q, want a single note", got)
+	}
 }
 
 func TestAlreadyPrunedNeedsTheSameHeadAndTail(t *testing.T) {

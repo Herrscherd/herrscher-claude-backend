@@ -60,7 +60,7 @@ const (
 
 var sessionIDPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{0,127}$`)
 
-var prunedResultPattern = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(prunedResultNote), "%d", `\d+`, 1))
+var prunedResultPattern = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(prunedResultNote), "%d", `(\d+)`, 1))
 
 var prunedResultSpan = regexp.MustCompile(`\n?` + prunedResultPattern.String() + `\n?`)
 
@@ -437,16 +437,17 @@ func textRunes(blocks []json.RawMessage) int {
 }
 
 type notePlacement struct {
-	first, last, runes int
+	first, last, runes, carried int
 }
 
 func placeNotes(texts []string, total int) notePlacement {
 	placement := notePlacement{first: total}
 	offset := 0
 	for _, text := range texts {
-		for _, span := range prunedResultSpan.FindAllStringIndex(text, -1) {
+		for _, span := range prunedResultSpan.FindAllStringSubmatchIndex(text, -1) {
 			start := offset + utf8.RuneCountInString(text[:span[0]])
 			end := offset + utf8.RuneCountInString(text[:span[1]])
+			placement.carried += noteCount(text[span[2]:span[3]])
 			placement.first = min(placement.first, start)
 			placement.last = max(placement.last, end)
 			placement.runes += end - start
@@ -457,14 +458,23 @@ func placeNotes(texts []string, total int) notePlacement {
 }
 
 type prunedCut struct {
-	head, tailStart, removed int
+	head, tailStart, removed, missing int
 }
 
 func planPrunedCut(texts []string, total, keep, keepTail int) prunedCut {
 	placement := placeNotes(texts, total)
 	head := min(keep, placement.first)
 	tailStart := max(total-keepTail, placement.last, 0)
-	return prunedCut{head: head, tailStart: tailStart, removed: tailStart - head - placement.runes}
+	removed := tailStart - head - placement.runes
+	return prunedCut{head: head, tailStart: tailStart, removed: removed, missing: removed + placement.carried}
+}
+
+func noteCount(digits string) int {
+	count, err := strconv.Atoi(digits)
+	if err != nil {
+		return 0
+	}
+	return count
 }
 
 func prunedResult(result string, keep, keepTail int) (string, bool) {
@@ -473,7 +483,7 @@ func prunedResult(result string, keep, keepTail int) (string, bool) {
 	if cut.removed <= 0 {
 		return result, false
 	}
-	note := fmt.Sprintf(prunedResultNote, cut.removed)
+	note := fmt.Sprintf(prunedResultNote, cut.missing)
 	return joinText(joinText(runeHead(result, cut.head), note), runeTail(result, total-cut.tailStart)), true
 }
 
@@ -669,7 +679,7 @@ func truncatedBlocks(blocks []json.RawMessage, keep, keepTail int) ([]json.RawMe
 	if cut.removed <= 0 {
 		return blocks, nil
 	}
-	note := fmt.Sprintf(prunedResultNote, cut.removed)
+	note := fmt.Sprintf(prunedResultNote, cut.missing)
 	kept := make([]json.RawMessage, 0, len(blocks))
 	offset := 0
 	for _, block := range blocks {

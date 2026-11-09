@@ -151,7 +151,9 @@ runes the edit keeps, is left alone by `prune_result`, and a result or an input
 is rewritten only when the new one is shorter, so a short result keeps its text
 rather than gain a longer note. A result that holds a note is pruned again
 without any fragment of that note: the head stops before the first note, the
-tail starts after the last one, and the count leaves out the note text. Every
+tail starts after the last one, and the count adds the runes cut now to the
+counts of the notes it replaces, so it still gives what is missing from the
+original result. A head that meets a note early stays shorter than asked. Every
 call counted in `Edited` is shorter after the prune; when no call changes, the
 transcript is not written and the live claude keeps running.
 
