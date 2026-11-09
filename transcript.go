@@ -60,7 +60,7 @@ const (
 
 var sessionIDPattern = regexp.MustCompile(`^[0-9A-Za-z][0-9A-Za-z_-]{0,127}$`)
 
-var prunedResultTail = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(prunedResultNote), "%d", `\d+`, 1) + `\z`)
+var prunedResultPattern = regexp.MustCompile(strings.Replace(regexp.QuoteMeta(prunedResultNote), "%d", `\d+`, 1))
 
 func configDir(env map[string]string) (string, error) {
 	if dir := env[configDirVar]; dir != "" {
@@ -409,20 +409,51 @@ func runeHead(text string, keep int) string {
 	return text
 }
 
-func prunedResult(result string, keep int) (string, bool) {
-	head := runeHead(result, keep)
-	if len(head) == len(result) {
-		return result, false
+func runeTail(text string, keep int) string {
+	if keep <= 0 {
+		return ""
 	}
-	return joinText(head, fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(result[len(head):]))), true
+	skip := max(0, utf8.RuneCountInString(text)-keep)
+	seen := 0
+	for offset := range text {
+		if seen == skip {
+			return text[offset:]
+		}
+		seen++
+	}
+	return ""
 }
 
-func alreadyPruned(result string, keep int) bool {
+func textRunes(blocks []json.RawMessage) int {
+	total := 0
+	for _, block := range blocks {
+		if text, isText := blockOfText(block); isText {
+			total += utf8.RuneCountInString(text)
+		}
+	}
+	return total
+}
+
+func prunedResult(result string, keep, keepTail int) (string, bool) {
+	total := utf8.RuneCountInString(result)
+	if keep+keepTail >= total {
+		return result, false
+	}
+	note := fmt.Sprintf(prunedResultNote, total-keep-keepTail)
+	return joinText(joinText(runeHead(result, keep), note), runeTail(result, keepTail)), true
+}
+
+func alreadyPruned(result string, keep, keepTail int) bool {
 	if result == prunedCallNote {
 		return true
 	}
-	note := prunedResultTail.FindStringIndex(result)
-	return len(note) == 2 && utf8.RuneCountInString(strings.TrimSuffix(result[:note[0]], "\n")) <= keep
+	note := prunedResultPattern.FindStringIndex(result)
+	if note == nil {
+		return false
+	}
+	head := strings.TrimSuffix(result[:note[0]], "\n")
+	tail := strings.TrimPrefix(result[note[1]:], "\n")
+	return utf8.RuneCountInString(head) <= keep && utf8.RuneCountInString(tail) <= keepTail
 }
 
 func encodeJSON(value any) ([]byte, error) {
@@ -499,7 +530,7 @@ func contentBlocks(content json.RawMessage) ([]json.RawMessage, bool) {
 
 func prunedContent(edit contracts.HistoryEdit, content json.RawMessage) (json.RawMessage, error) {
 	before := resultText(content)
-	if edit.Action != contracts.PruneCall && alreadyPruned(before, edit.KeepChars) {
+	if edit.Action != contracts.PruneCall && alreadyPruned(before, edit.KeepChars, edit.KeepTail) {
 		return nil, nil
 	}
 	rewritten, err := rewrittenContent(edit, content)
@@ -526,7 +557,7 @@ func rewrittenContent(edit contracts.HistoryEdit, content json.RawMessage) (json
 	if edit.Action == contracts.PruneCall {
 		pruned, err = noteBlocks(blocks)
 	} else {
-		pruned, err = truncatedBlocks(blocks, edit.KeepChars)
+		pruned, err = truncatedBlocks(blocks, edit.KeepChars, edit.KeepTail)
 	}
 	if err != nil {
 		return nil, err
@@ -548,7 +579,7 @@ func jsonArray(items []json.RawMessage) json.RawMessage {
 func prunedTextContent(edit contracts.HistoryEdit, text string) (json.RawMessage, error) {
 	result, changed := prunedCallNote, text != prunedCallNote
 	if edit.Action != contracts.PruneCall {
-		result, changed = prunedResult(text, edit.KeepChars)
+		result, changed = prunedResult(text, edit.KeepChars, edit.KeepTail)
 	}
 	if !changed {
 		return nil, nil
@@ -591,35 +622,37 @@ func noteBlocks(blocks []json.RawMessage) ([]json.RawMessage, error) {
 	return kept, nil
 }
 
-func truncatedBlocks(blocks []json.RawMessage, keep int) ([]json.RawMessage, error) {
-	total := 0
-	for _, block := range blocks {
-		if text, isText := blockOfText(block); isText {
-			total += utf8.RuneCountInString(text)
-		}
-	}
-	if total <= keep {
+func truncatedBlocks(blocks []json.RawMessage, keep, keepTail int) ([]json.RawMessage, error) {
+	total := textRunes(blocks)
+	if keep+keepTail >= total {
 		return blocks, nil
 	}
+	tailStart := total - keepTail
+	note := fmt.Sprintf(prunedResultNote, total-keep-keepTail)
 	kept := make([]json.RawMessage, 0, len(blocks))
-	budget, cut := keep, false
+	offset := 0
 	for _, block := range blocks {
 		text, isText := blockOfText(block)
-		switch {
-		case !isText:
+		if !isText {
 			kept = append(kept, block)
-		case cut:
-		case utf8.RuneCountInString(text) <= budget:
-			kept = append(kept, block)
-			budget -= utf8.RuneCountInString(text)
-		default:
-			rewritten, err := withText(block, joinText(runeHead(text, budget), fmt.Sprintf(prunedResultNote, total-keep)))
-			if err != nil {
-				return nil, err
-			}
-			kept = append(kept, rewritten)
-			cut = true
+			continue
 		}
+		start := offset
+		offset += utf8.RuneCountInString(text)
+		if offset <= keep || start >= tailStart {
+			kept = append(kept, block)
+			continue
+		}
+		cutText := joinText(joinText(runeHead(text, max(0, keep-start)), note), runeTail(text, offset-max(start, tailStart)))
+		note = ""
+		if cutText == "" {
+			continue
+		}
+		rewritten, err := withText(block, cutText)
+		if err != nil {
+			return nil, err
+		}
+		kept = append(kept, rewritten)
 	}
 	return kept, nil
 }

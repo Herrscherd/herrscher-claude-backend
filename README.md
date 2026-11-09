@@ -129,12 +129,16 @@ between two of them; a user entry with real text ends the message.
 `PruneHistory` checks every edit first, against the contract and against the
 calls of that history, and changes nothing when one fails. It edits only
 `message.content`, and only on the lines of that chain: `prune_result` keeps the
-first `KeepChars` runes of a result and a note of what was pruned,
-`prune_call` replaces the result by a note and cuts the long strings of the call
-input to 200 runes. A result made of blocks keeps its images, tool references
-and every other non text block in place and in order: only the text blocks are
-rewritten, the rune budget runs across them in order, and the note closes the
-last text block kept. No entry is added or removed and no `uuid` or
+first `KeepChars` runes of a result, the last `KeepTail` runes, and a note of
+how many runes were pruned between them, while `prune_call` replaces the result
+by a note, cuts the long strings of the call input to 200 runes, and refuses a
+`KeepTail`. A result that the head and the tail cover whole is left as it is.
+Runes are counted, never bytes, and a rune is never split. A result made of
+blocks keeps its images, tool references and every other non text block in
+place and in order: only the text blocks are rewritten, the head budget runs
+across the text blocks in order, the tail budget runs back from the last one,
+the note sits in the first text block cut, and text blocks wholly inside the
+pruned span are dropped. No entry is added or removed and no `uuid` or
 `parentUuid` moves, so the chain stays intact. The new `message.content` is
 spliced into the raw line, so the other fields keep their bytes and their key
 order; only a shortened call input is encoded again, with its keys sorted. Every
@@ -142,8 +146,8 @@ other line is copied byte for byte. A cancelled context stops the read or the
 rewrite between two lines and leaves the transcript as it was.
 
 A prune never grows the history and running it twice changes nothing. A result
-that already ends with a herrscher note, after no more than the runes the edit
-keeps, is left alone by `prune_result`, and a result or an input is rewritten
+that already holds a herrscher note, with a head and a tail no longer than the
+runes the edit keeps, is left alone by `prune_result`, and a result or an input is rewritten
 only when the new one is shorter, so a short result keeps its text rather than
 gain a longer note. Every call counted in `Edited` is shorter after the prune;
 when no call changes, the transcript is not written and the live claude keeps

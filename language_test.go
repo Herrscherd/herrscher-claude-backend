@@ -36,9 +36,9 @@ func sentContents(t *testing.T, sent *sentLines) []string {
 
 func respondAll(t *testing.T, r *streamResponder, prompts ...contracts.Prompt) {
 	t.Helper()
-	for _, prompt := range prompts {
-		if _, err := r.Respond(context.Background(), prompt, nil); err != nil {
-			t.Fatalf("Respond(%+v): %v", prompt, err)
+	for index := range prompts {
+		if _, err := r.Respond(context.Background(), prompts[index], nil); err != nil {
+			t.Fatalf("Respond(%+v): %v", prompts[index], err)
 		}
 	}
 }
