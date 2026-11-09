@@ -380,6 +380,8 @@ func TestPrunedResultKeepsItsHeadAndItsTailAroundANote(t *testing.T) {
 		{name: "head and tail cover the whole", result: "abcdefghij", keep: 5, keepTail: 5, want: "abcdefghij"},
 		{name: "head and tail overlap", result: "abcdefghij", keep: 6, keepTail: 6, want: "abcdefghij"},
 		{name: "runes not bytes", result: "日本語テキスト", keep: 2, keepTail: 2, want: "日本\n" + fmt.Sprintf(prunedResultNote, 3) + "\nスト", pruned: true},
+		{name: "empty result", result: "", keep: 0, keepTail: 0, want: ""},
+		{name: "tail longer than the result", result: "abc", keep: 0, keepTail: 5, want: "abc"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -389,6 +391,20 @@ func TestPrunedResultKeepsItsHeadAndItsTailAroundANote(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPruneAgainANoteKeepsNoFragmentOfIt(t *testing.T) {
+	old, _ := prunedResult(strings.Repeat("abcdefghij", 30), 200, 0)
+	want := strings.Repeat("abcdefghij", 10) + "\n" + fmt.Sprintf(prunedResultNote, 100)
+	got, pruned := prunedResult(old, 100, 50)
+	if got != want || !pruned {
+		t.Fatalf("prunedResult(old, 100, 50) = %q, %v, want %q, true", got, pruned, want)
+	}
+	blocks, err := truncatedBlocks([]json.RawMessage{textBlockJSON(t, old)}, 100, 50)
+	if err != nil {
+		t.Fatalf("truncatedBlocks: %v", err)
+	}
+	assertTextBlocks(t, blocks, want)
 }
 
 func TestAlreadyPrunedNeedsTheSameHeadAndTail(t *testing.T) {
@@ -461,6 +477,28 @@ func TestTruncatedBlocksKeepsEverythingWhenTheHeadAndTheTailCoverIt(t *testing.T
 		t.Fatalf("truncatedBlocks: %v", err)
 	}
 	assertTextBlocks(t, pruned, "aaaa", "bbbb", "cccc")
+}
+
+func TestTruncatedBlocksKeepsABlockInsideTheTailAsItIs(t *testing.T) {
+	tailBlock := json.RawMessage(`{"type": "text", "text": "\u0063cccc"}`)
+	blocks := []json.RawMessage{textBlockJSON(t, "aaaa"), textBlockJSON(t, "bbbb"), tailBlock}
+	pruned, err := truncatedBlocks(blocks, 2, 5)
+	if err != nil {
+		t.Fatalf("truncatedBlocks: %v", err)
+	}
+	if len(pruned) != 2 || string(pruned[1]) != string(tailBlock) {
+		t.Fatalf("pruned blocks = %s, want the tail block %s kept byte for byte", pruned, tailBlock)
+	}
+	assertTextBlocks(t, pruned[:1], "aa\n"+fmt.Sprintf(prunedResultNote, 6))
+}
+
+func TestTruncatedBlocksDropsAnEmptyTextBlockInTheCut(t *testing.T) {
+	blocks := []json.RawMessage{textBlockJSON(t, "aaaa"), textBlockJSON(t, ""), textBlockJSON(t, "cccc")}
+	pruned, err := truncatedBlocks(blocks, 2, 2)
+	if err != nil {
+		t.Fatalf("truncatedBlocks: %v", err)
+	}
+	assertTextBlocks(t, pruned, "aa\n"+fmt.Sprintf(prunedResultNote, 4), "cc")
 }
 
 func runesInHistory(history contracts.History) int {
@@ -834,18 +872,31 @@ func TestPruneHistoryKeepsWhatClaudeWritesWhileItCloses(t *testing.T) {
 	}
 }
 
-func TestPruneResultCutsAResultThatOnlyLooksPruned(t *testing.T) {
-	looksPruned := strings.Repeat("y", 300) + "\n" + fmt.Sprintf(prunedResultNote, 3)
-	transcript := strings.Replace(transcriptFixture(), longResult(), strings.ReplaceAll(looksPruned, "\n", `\n`), 1)
-	fixture := newTranscriptCaseWith(t, transcript)
-	edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 10}}
-	first, err := fixture.r.PruneHistory(t.Context(), edits)
-	if err != nil || first.Edited != 1 || first.CharsAfter >= first.CharsBefore {
-		t.Fatalf("PruneHistory = %+v, %v, want the 300 runes before the fake note cut", first, err)
+func TestPruneResultRecognisesOnlyAPrunedShape(t *testing.T) {
+	note := fmt.Sprintf(prunedResultNote, 3)
+	cases := []struct {
+		name           string
+		text           string
+		keep, keepTail int
+		wantEdited     int
+	}{
+		{name: "looks pruned but is cut", text: strings.Repeat("y", 300) + "\n" + note, keep: 10, wantEdited: 1},
+		{name: "cited note in a short text is taken as pruned", text: "ab\n" + note + "\ncd", keep: 2, keepTail: 2, wantEdited: 0},
 	}
-	second, err := fixture.r.PruneHistory(t.Context(), edits)
-	if err != nil || second.Edited != 0 {
-		t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transcript := strings.Replace(transcriptFixture(), longResult(), strings.ReplaceAll(tc.text, "\n", `\n`), 1)
+			fixture := newTranscriptCaseWith(t, transcript)
+			edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: tc.keep, KeepTail: tc.keepTail}}
+			first, err := fixture.r.PruneHistory(t.Context(), edits)
+			if err != nil || first.Edited != tc.wantEdited {
+				t.Fatalf("PruneHistory = %+v, %v, want %d edited", first, err, tc.wantEdited)
+			}
+			second, err := fixture.r.PruneHistory(t.Context(), edits)
+			if err != nil || second.Edited != 0 {
+				t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
+			}
+		})
 	}
 }
 

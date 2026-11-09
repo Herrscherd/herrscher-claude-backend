@@ -147,11 +147,13 @@ rewrite between two lines and leaves the transcript as it was.
 
 A prune never grows the history and running it twice changes nothing. A result
 that already holds a herrscher note, with a head and a tail no longer than the
-runes the edit keeps, is left alone by `prune_result`, and a result or an input is rewritten
-only when the new one is shorter, so a short result keeps its text rather than
-gain a longer note. Every call counted in `Edited` is shorter after the prune;
-when no call changes, the transcript is not written and the live claude keeps
-running.
+runes the edit keeps, is left alone by `prune_result`, and a result or an input
+is rewritten only when the new one is shorter, so a short result keeps its text
+rather than gain a longer note. A result that holds a note is pruned again
+without any fragment of that note: the head stops before the first note, the
+tail starts after the last one, and the count leaves out the note text. Every
+call counted in `Edited` is shorter after the prune; when no call changes, the
+transcript is not written and the live claude keeps running.
 
 When something changes, the live claude process is closed first and the
 transcript is read again, so nothing claude writes while it exits is lost. The
