@@ -75,10 +75,27 @@ func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.Ba
 	return turnResult{}, false, nil
 }
 
-func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
-	var head struct {
-		Type string `json:"type"`
+type lineHead struct {
+	Type      string          `json:"type"`
+	Subtype   json.RawMessage `json:"subtype"`
+	SessionID json.RawMessage `json:"session_id"`
+}
+
+func (h lineHead) takesTurn() bool {
+	subtype := rawString(h.Subtype)
+	return subtype == subtypeInit || subtype == subtypeAPIRetry
+}
+
+func rawString(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return ""
 	}
+	return s
+}
+
+func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+	var head lineHead
 	if err := json.Unmarshal(line, &head); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
@@ -86,10 +103,10 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		}
 		return turnResult{}, false, nil
 	}
-	p.noteSessionID(line)
+	p.noteSessionID(head.SessionID)
 	switch head.Type {
 	case wireSystem:
-		if isTakenTurnSystem(line) {
+		if head.takesTurn() {
 			p.acted = true
 		}
 	case wireAssistant:
@@ -109,20 +126,10 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	return turnResult{}, false, nil
 }
 
-func (p *turnParser) noteSessionID(line []byte) {
-	var carrier struct {
-		SessionID string `json:"session_id"`
+func (p *turnParser) noteSessionID(raw json.RawMessage) {
+	if id := rawString(raw); id != "" {
+		p.sessionID = id
 	}
-	if decodeOrSkip(line, &carrier) && carrier.SessionID != "" {
-		p.sessionID = carrier.SessionID
-	}
-}
-
-func isTakenTurnSystem(line []byte) bool {
-	var system struct {
-		Subtype string `json:"subtype"`
-	}
-	return decodeOrSkip(line, &system) && (system.Subtype == subtypeInit || system.Subtype == subtypeAPIRetry)
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
