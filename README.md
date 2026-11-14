@@ -35,12 +35,17 @@ It is never read from the daemon's own environment.
 
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
-accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
-restarts with `--resume <session id>`, and retries once. The retry resends the
-prompt, so a turn that the CLI had already acted on before the process died can
-run twice. If the restarted process also ends the stream mid-turn, the error
-wraps `io.EOF` and its text, in the prompt's language, says that the stream
-ended before the turn finished. `Close` interrupts the turn in flight: it kills
+accumulate across turns. A turn counts as taken by the CLI once the stream has
+carried any assistant or user line for it (text, thinking, tool use, tool result
+or usage). If the process dies before that, the prompt was never read: the
+responder emits `{Kind:"reset"}`, restarts with `--resume <session id>`, and
+resends the prompt once. If it dies after that, the prompt is never resent: the
+turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
+language, says that the stream ended before the turn finished, and the text
+already rendered stays rendered. The dead process is dropped, and the next turn
+restarts it with `--resume <session id>`, using the last session id the backend
+knows. If the one resend also ends the stream before any event, the error is
+the same. `Close` interrupts the turn in flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
 line the reader has already received is rendered whole, with no error, even when

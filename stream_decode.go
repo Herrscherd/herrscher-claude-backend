@@ -22,12 +22,14 @@ type turnResult struct {
 	OutTokens   int
 	CacheRead   int
 	CacheCreate int
+	acted       bool
 }
 
 type turnParser struct {
 	agents      map[string]bool
 	apiError    string
 	textEmitted bool
+	acted       bool
 }
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
@@ -42,8 +44,11 @@ func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, 
 			return turnResult{}, io.ErrClosedPipe
 		case ln, ok := <-lines:
 			turn, finished, err := parser.consume(ln, ok, onEvent)
-			if err != nil || finished {
-				return turn, err
+			if err != nil {
+				return turnResult{acted: parser.acted}, err
+			}
+			if finished {
+				return turn, nil
 			}
 		}
 	}
@@ -78,8 +83,10 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	}
 	switch head.Type {
 	case wireAssistant:
+		p.acted = true
 		p.parseAssistant(line, onEvent)
 	case wireUser:
+		p.acted = true
 		p.parseToolResults(line, onEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
