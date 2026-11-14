@@ -41,6 +41,12 @@ restarts with `--resume <session id>`, and retries once.
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
 
+## Text events
+
+A `text` event that follows another `text` event in the same turn starts with
+`"\n\n"`, and the first text of a turn has no prefix. Consumers concatenate the
+details as they arrive and add nothing between them.
+
 ## Resume and memory
 
 The current claude session id is exposed through `ResumeToken()`. The host
