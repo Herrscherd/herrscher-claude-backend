@@ -15,6 +15,8 @@ const (
 	blockText       = "text"
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"
+
+	stateActive = "active"
 )
 
 type contentBlock struct {

@@ -8,11 +8,7 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-const (
-	stateActive = "active"
-
-	textBlockSeparator = "\n\n"
-)
+const textBlockSeparator = "\n\n"
 
 func streamBase(fields []string) []string {
 	out := make([]string, 0, len(fields))
