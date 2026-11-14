@@ -53,22 +53,23 @@ spawn as described next, so a second concurrent `Close` waits for the same
 teardown too. A spawn in flight when `Close` runs is reaped as soon as it
 returns; if it has not returned after 5 seconds, `Close` gives up and returns a
 teardown timeout error, and the spawn is still reaped when it does return. That
-error is meant for logs only: the herrscher host never shows it to a user, and
-logs it at a level that depends on which backend was closed. A session that
-`install` replaces is killed, never left running. A stream line over 16 MiB
-(`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`)
-ends the turn with an error and is never retried: the CLI may already have acted
-on the turn, and resending the prompt would duplicate it. Once a line is
-complete, the reader holds at most 16 MiB of it; while the next line is being
-read, it grows up to 16 MiB too, and the 4 KiB read buffer is held in addition.
-An over-bound line is reported at most 4 KiB past the bound: at the first line
-end after the bound, when the 4 KiB read buffer fills with no line end, or at
-the end of the stream. If the context of the turn is cancelled before that, the
-turn ends with the context error and no over-bound finding is made. The `claude`
-process is killed and reaped in every case. The worst case is 40 MiB of line
-buffers per session: while a line grows to its bound, the reader keeps its
-previous 8 MiB buffer alive beside the new 16 MiB one, on top of the consumer's
-full line.
+error is meant for logs only: the herrscher host never shows it to a user. It is
+logged at WARN for a session backend, at ERROR for a plugin-hosted backend, and
+at DEBUG for an approval check, which the default Info level does not write. A
+session that `install` replaces is killed, never left running. A stream line
+over 16 MiB (`ErrStreamLineTooLong`) or an event that no longer decodes
+(`ErrStreamDrift`) ends the turn with an error and is never retried: the CLI may
+already have acted on the turn, and resending the prompt would duplicate it.
+Once a line is complete, the reader holds at most 16 MiB of it; while the next
+line is being read, it grows up to 16 MiB too, and the 4 KiB read buffer is held
+in addition. An over-bound line is reported at most 4 KiB past the bound: at the
+first line end after the bound, when the 4 KiB read buffer fills with no line
+end, or at the end of the stream. If the context of the turn is cancelled before
+that, the turn ends with the context error and no over-bound finding is made.
+The `claude` process is killed and reaped in every case. The worst case is 40
+MiB of line buffers per session: while a line grows to its bound, the reader
+keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
+consumer's full line.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
