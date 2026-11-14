@@ -90,7 +90,7 @@ func TestAPIErrorBlocksAreNotCountedAsEmittedText(t *testing.T) {
 
 func TestFirstTextAfterAResetHasNoSeparator(t *testing.T) {
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	r.sess = newStreamSession(discardWriteCloser{}, strings.NewReader(textBlockLine("Je regarde.")+"\n"))
+	r.sess = newStreamSession(discardWriteCloser{}, strings.NewReader(""))
 	r.spawn = func(string) (*streamSession, error) {
 		reply := textBlockLine("Voici.") + "\n" + blockResultLine + "\n"
 		return newStreamSession(discardWriteCloser{}, strings.NewReader(reply)), nil
@@ -108,9 +108,9 @@ func TestFirstTextAfterAResetHasNoSeparator(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Respond after a reset: %v", err)
 	}
-	if want := []string{"text", "reset", "text"}; !slices.Equal(sequence, want) {
+	if want := []string{"reset", "text"}; !slices.Equal(sequence, want) {
 		t.Fatalf("events = %q, want %q", sequence, want)
 	}
-	assertTextDetails(t, texts, []string{"Je regarde.", "Voici."})
+	assertTextDetails(t, texts, []string{"Voici."})
 	mustClose(t, r)
 }

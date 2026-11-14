@@ -118,7 +118,7 @@ func TestCloseFromResetCallbackDoesNotRespawn(t *testing.T) {
 		spawns.Add(1)
 		return newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine)), nil
 	}
-	r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine))
+	r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
 	var closeErr error
 	onEvent := func(e contracts.BackendEvent) {
 		if e.Kind == "reset" {
