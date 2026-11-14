@@ -332,7 +332,7 @@ func TestAssistantTextBlocksOfATurnAreSeparatedByAParagraphBreak(t *testing.T) {
 func TestAssistantTextBlocksAreTrimmedLikeTheStream(t *testing.T) {
 	transcript := strings.Join([]string{
 		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Je regarde.\n"}]},"uuid":"a1","parentUuid":"u0"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"\n  Je regarde.\n"}]},"uuid":"a1","parentUuid":"u0"}`,
 		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a"}}]},"uuid":"a2","parentUuid":"a1"}`,
 		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a3","parentUuid":"a2"}`,
 	}, "\n") + "\n"
