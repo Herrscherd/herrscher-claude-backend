@@ -36,19 +36,21 @@ It is never read from the daemon's own environment.
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
 accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
-restarts with `--resume <session id>`, and retries once. A stream line over 16 MiB
-(`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`) ends
-the turn with an error and is never retried: the CLI may already have acted on the
-turn, and resending the prompt would duplicate it. Once a line is complete, the reader
-holds at most 16 MiB of it; while the next line is being read, it grows up to 16 MiB
-too, and the 4 KiB read buffer is held in addition. An over-bound line is reported at
-most 4 KiB past the bound: at the first line end after the bound, when the 4 KiB read
-buffer fills with no line end, or at the end of the stream. If the context of the turn
-is cancelled before that, the turn ends with the context error and no over-bound
-finding is made. The `claude` process is killed and reaped in every case. The worst
-case is 40 MiB of line buffers per session: while a line grows to its bound, the
-reader keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
-consumer's full line.
+restarts with `--resume <session id>`, and retries once. The retry resends the
+prompt, so a turn that the CLI had already acted on before the process died can
+run twice. A stream line over 16 MiB (`ErrStreamLineTooLong`) or an event that
+no longer decodes (`ErrStreamDrift`) ends the turn with an error and is never
+retried: the CLI may already have acted on the turn, and resending the prompt
+would duplicate it. Once a line is complete, the reader holds at most 16 MiB of
+it; while the next line is being read, it grows up to 16 MiB too, and the 4 KiB
+read buffer is held in addition. An over-bound line is reported at most 4 KiB
+past the bound: at the first line end after the bound, when the 4 KiB read
+buffer fills with no line end, or at the end of the stream. If the context of
+the turn is cancelled before that, the turn ends with the context error and no
+over-bound finding is made. The `claude` process is killed and reaped in every
+case. The worst case is 40 MiB of line buffers per session: while a line grows
+to its bound, the reader keeps its previous 8 MiB buffer alive beside the new 16
+MiB one, on top of the consumer's full line.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
