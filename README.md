@@ -39,11 +39,14 @@ accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
 restarts with `--resume <session id>`, and retries once. A stream line over 16 MiB
 (`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`) ends
 the turn with an error and is never retried: the CLI may already have acted on the
-turn, and resending the prompt would duplicate it. The reader holds at most 16 MiB
-plus 4 KiB of a line, and it reports an over-bound line once the CLI has written 4 KiB
-past the bound, at the end of the stream, or when the context of the turn is cancelled
-(the turn then ends with the context error). The `claude` process is killed and reaped
-in each case.
+turn, and resending the prompt would duplicate it. Once a line is complete, the reader
+holds at most 16 MiB of it; while the line is still being read, its 4 KiB read buffer
+is held in addition. An over-bound line is reported once the CLI has written 4 KiB past
+the bound, or at the end of the stream. If the context of the turn is cancelled before
+that, the turn ends with the context error and no over-bound finding is made. The
+`claude` process is killed and reaped in every case. The worst case is 40 MiB of line
+buffers per session: while a line grows to its bound, the reader keeps its previous
+8 MiB buffer alive beside the new 16 MiB one, on top of the consumer's full line.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
