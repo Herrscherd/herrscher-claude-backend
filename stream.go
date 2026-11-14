@@ -429,7 +429,7 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	}
 	if control.IsError {
 		turn.ErrMsg = control.Result
-		if turn.ErrMsg == "" {
+		if strings.TrimSpace(turn.ErrMsg) == "" {
 			turn.ErrMsg = errorsDetail(control.Errors)
 		}
 	}
@@ -672,12 +672,15 @@ var errTurnReported = newCatalogError(keyTurnFailed)
 // The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
+func errorDetail(text string) string {
+	return strings.TrimSpace(text)
+}
+
 func errFromTurn(turn turnResult, sessID, reported string) error {
-	switch {
-	case turn.ErrMsg != "":
-		return &turnError{msg: turn.ErrMsg, sessID: sessID}
-	case turn.APIErrMsg != "":
-		return &turnError{msg: turn.APIErrMsg, sessID: sessID}
+	for _, candidate := range []string{turn.ErrMsg, turn.APIErrMsg} {
+		if msg := errorDetail(candidate); msg != "" {
+			return &turnError{msg: msg, sessID: sessID}
+		}
 	}
 	return &turnError{msg: reported, sessID: sessID}
 }

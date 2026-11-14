@@ -73,3 +73,43 @@ func TestRespondFallsBackToAPIErrorTextWhenErrorsAreEmpty(t *testing.T) {
 		t.Fatalf("error = %v, want the API error detail %q", err, syntheticAPIErrorText)
 	}
 }
+
+func TestRespondTrimsEveryErrorSource(t *testing.T) {
+	cases := []struct {
+		name   string
+		stream string
+		want   string
+	}{
+		{
+			name:   "padded result text is trimmed",
+			stream: errorResultLine("  Quota exhausted  ", `[]`),
+			want:   "Quota exhausted",
+		},
+		{
+			name:   "blank result falls to the errors",
+			stream: errorResultLine("   ", `["API quota exhausted"]`),
+			want:   "API quota exhausted",
+		},
+		{
+			name:   "blank result and blank errors fall to the marked text",
+			stream: apiErrorMessageLine(syntheticAPIErrorText) + "\n" + errorResultLine(" \t ", `[" "]`),
+			want:   syntheticAPIErrorText,
+		},
+		{
+			name:   "blank result without errors falls to the marked text",
+			stream: apiErrorStream(syntheticAPIErrorText, "   "),
+			want:   syntheticAPIErrorText,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := respondWithStream(t, tc.stream, nil)
+			if !errors.Is(err, ErrTurnFailed) {
+				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
+			}
+			if err.Error() != tc.want {
+				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
