@@ -253,7 +253,7 @@ func appendWithinBound(line, chunk []byte) []byte {
 }
 
 func startLineReader(source io.Reader, done <-chan struct{}) chan readLine {
-	lines := make(chan readLine, 1)
+	lines := make(chan readLine)
 	go func() {
 		defer close(lines)
 		reader := bufio.NewReader(source)
