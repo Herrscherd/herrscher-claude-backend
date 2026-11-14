@@ -152,6 +152,33 @@ func assertKeyOrderKept(t *testing.T, path string) {
 	}
 }
 
+func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testing.T) {
+	const errorLine = `{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`
+	transcript := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+		errorLine,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a2","parentUuid":"a1"}`,
+		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"` + longResult() + `"}]},"uuid":"u3","parentUuid":"a2"}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a4","parentUuid":"u3"}`,
+	}, "\n") + "\n"
+	fixture := newTranscriptCaseWith(t, transcript)
+	r, path := fixture.r, fixture.path
+	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
+	if err != nil || outcome.Edited != 1 {
+		t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
+	}
+	pruned, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(pruned, []byte(errorLine+"\n")) {
+		t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
+	}
+	if strings.Contains(string(pruned), longResult()) {
+		t.Fatalf("pruned transcript still holds the long result of t1:\n%s", pruned)
+	}
+}
+
 func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
 	fixture := newTranscriptCase(t)
 	r, path := fixture.r, fixture.path
