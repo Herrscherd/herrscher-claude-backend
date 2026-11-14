@@ -12,6 +12,8 @@ import (
 const (
 	wireUser        = "user"
 	wireAssistant   = "assistant"
+	wireSystem      = "system"
+	subtypeAPIRetry = "api_retry"
 	blockText       = "text"
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"

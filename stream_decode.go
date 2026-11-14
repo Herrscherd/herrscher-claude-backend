@@ -30,6 +30,7 @@ type turnParser struct {
 	apiError    string
 	textEmitted bool
 	acted       bool
+	sessionID   string
 }
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
@@ -39,19 +40,23 @@ func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, 
 	for {
 		select {
 		case <-ctx.Done():
-			return turnResult{}, ctx.Err()
+			return parser.progress(), ctx.Err()
 		case <-done:
-			return turnResult{}, io.ErrClosedPipe
+			return parser.progress(), io.ErrClosedPipe
 		case ln, ok := <-lines:
 			turn, finished, err := parser.consume(ln, ok, onEvent)
 			if err != nil {
-				return turnResult{acted: parser.acted}, err
+				return parser.progress(), err
 			}
 			if finished {
 				return turn, nil
 			}
 		}
 	}
+}
+
+func (p *turnParser) progress() turnResult {
+	return turnResult{acted: p.acted, SessionID: p.sessionID}
 }
 
 func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
@@ -81,7 +86,12 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		}
 		return turnResult{}, false, nil
 	}
+	p.noteSessionID(line)
 	switch head.Type {
+	case wireSystem:
+		if isAPIRetry(line) {
+			p.acted = true
+		}
 	case wireAssistant:
 		p.acted = true
 		p.parseAssistant(line, onEvent)
@@ -94,6 +104,22 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		return turn, done, err
 	}
 	return turnResult{}, false, nil
+}
+
+func (p *turnParser) noteSessionID(line []byte) {
+	var carrier struct {
+		SessionID string `json:"session_id"`
+	}
+	if decodeOrSkip(line, &carrier) && carrier.SessionID != "" {
+		p.sessionID = carrier.SessionID
+	}
+}
+
+func isAPIRetry(line []byte) bool {
+	var system struct {
+		Subtype string `json:"subtype"`
+	}
+	return decodeOrSkip(line, &system) && system.Subtype == subtypeAPIRetry
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {

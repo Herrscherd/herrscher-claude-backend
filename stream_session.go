@@ -77,13 +77,10 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 		return turnResult{}, err
 	}
 	turn, err := readTurn(ctx, s.lines, s.done, onEvent)
-	if err != nil {
-		return turn, err
-	}
 	if turn.SessionID != "" {
 		s.sessID = turn.SessionID
 	}
-	return turn, nil
+	return turn, err
 }
 
 func (s *streamSession) writeStdin(line []byte) (int, error) {
