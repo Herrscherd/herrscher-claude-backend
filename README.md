@@ -46,8 +46,8 @@ most 4 KiB past the bound: at the first line end after the bound, when the 4 KiB
 buffer fills with no line end, or at the end of the stream. If the context of the turn
 is cancelled before that, the turn ends with the context error and no over-bound
 finding is made. The `claude` process is killed and reaped in every case. The worst
-case is 40 MiB of line buffers per session: while a line grows to its bound, the reader
-keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
+case is 40 MiB of line buffers per session: while a line grows to its bound, the
+reader keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
 consumer's full line.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
