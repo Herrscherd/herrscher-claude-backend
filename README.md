@@ -45,7 +45,9 @@ the final argument and piped on stdin. It requires a non-empty command.
 
 A `text` event that follows another `text` event in the same turn starts with
 `"\n\n"`, and the first text of a turn has no prefix. Consumers concatenate the
-details as they arrive and add nothing between them.
+details as they arrive and add nothing between them. A `reset` closes the turn:
+the text that follows it, from the retried attempt, starts a new sequence and
+has no prefix.
 
 ## Resume and memory
 
