@@ -103,17 +103,16 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		}
 		return turnResult{}, false, nil
 	}
-	p.noteSessionID(head.SessionID)
 	switch head.Type {
 	case wireSystem:
 		if head.takesTurn() {
-			p.acted = true
+			p.takeTurn(head.SessionID)
 		}
 	case wireAssistant:
-		p.acted = true
+		p.takeTurn(head.SessionID)
 		p.parseAssistant(line, onEvent)
 	case wireUser:
-		p.acted = true
+		p.takeTurn(head.SessionID)
 		p.parseToolResults(line, onEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
@@ -124,6 +123,11 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		return turn, done, err
 	}
 	return turnResult{}, false, nil
+}
+
+func (p *turnParser) takeTurn(sessionID json.RawMessage) {
+	p.acted = true
+	p.noteSessionID(sessionID)
 }
 
 func (p *turnParser) noteSessionID(raw json.RawMessage) {
