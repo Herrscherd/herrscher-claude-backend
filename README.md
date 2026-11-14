@@ -55,14 +55,15 @@ the final argument and piped on stdin. It requires a non-empty command.
 
 ## Text events
 
-A `text` event that follows another `text` event in the same turn starts with
-`"\n\n"`, and the first text of a turn has no prefix. Consumers concatenate the
+A `text` event that follows another `text` event in the same attempt starts with
+`"\n\n"`, and the first text of an attempt has no prefix. Consumers concatenate the
 details as they arrive and add nothing between them. A `reset` ends the
 abandoned attempt, not the turn: the text emitted before it belongs to the
 abandoned attempt, and the text that follows it, from the retried attempt,
 starts a new sequence and has no prefix. A consumer that accumulates text must
 start a fresh accumulator on `reset`, or the abandoned attempt's text stays in
-front of the retry.
+front of the retry. After an over-bound line, the text already emitted stays with
+the consumer, with no `reset`, and the error follows it.
 
 ## Resume and memory
 
