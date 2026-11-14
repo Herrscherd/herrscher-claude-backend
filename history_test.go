@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -174,9 +175,33 @@ func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testi
 	if !bytes.Contains(pruned, []byte(errorLine+"\n")) {
 		t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
 	}
-	if strings.Contains(string(pruned), longResult()) {
-		t.Fatalf("pruned transcript still holds the long result of t1:\n%s", pruned)
+	if got, want := resultOfToolUse(t, pruned, "t1"), "package\n"+fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(longResult())-7); got != want {
+		t.Fatalf("pruned result of t1 = %q, want %q", got, want)
 	}
+}
+
+func resultOfToolUse(t *testing.T, transcript []byte, toolUseID string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(strings.TrimSpace(string(transcript)), "\n") {
+		var entry struct {
+			Message struct {
+				Content []struct {
+					ToolUseID string          `json:"tool_use_id"`
+					Content   json.RawMessage `json:"content"`
+				} `json:"content"`
+			} `json:"message"`
+		}
+		if json.Unmarshal([]byte(line), &entry) != nil {
+			continue
+		}
+		for _, block := range entry.Message.Content {
+			if block.ToolUseID == toolUseID {
+				return resultText(block.Content)
+			}
+		}
+	}
+	t.Fatalf("transcript holds no tool_result for %s", toolUseID)
+	return ""
 }
 
 func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
