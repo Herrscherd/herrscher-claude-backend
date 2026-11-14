@@ -286,7 +286,7 @@ func (b *historyBuilder) addAssistant(message transcriptMessage) {
 		block := &blocks[index]
 		switch block.Type {
 		case blockText:
-			current.Text = joinText(current.Text, block.Text)
+			current.Text = joinParagraphs(current.Text, block.Text)
 		case blockToolUse:
 			b.callAt[block.ID] = [2]int{len(b.history.Messages) - 1, len(current.Calls)}
 			current.Calls = append(current.Calls, contracts.HistoryCall{ID: block.ID, Tool: block.Name, Input: string(block.Input)})
@@ -335,13 +335,25 @@ func (b *historyBuilder) attachResult(block *transcriptBlock) {
 }
 
 func joinText(have, more string) string {
+	return joinWith("\n", have, more)
+}
+
+func joinParagraphs(have, more string) string {
+	trimmed := strings.TrimSpace(more)
+	if trimmed == "" {
+		return have
+	}
+	return joinWith(textBlockSeparator, have, trimmed)
+}
+
+func joinWith(separator, have, more string) string {
 	if have == "" {
 		return more
 	}
 	if more == "" {
 		return have
 	}
-	return have + "\n" + more
+	return have + separator + more
 }
 
 func resultText(content json.RawMessage) string {
