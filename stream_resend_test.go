@@ -56,6 +56,7 @@ func TestRespondDoesNotResendAPromptTheCLIAlreadyTook(t *testing.T) {
 		{"tool result", resendToolResultLine},
 		{"usage", resendUsageLine},
 		{"api retry", resendAPIRetryLine},
+		{"init", sessionInitLine},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
