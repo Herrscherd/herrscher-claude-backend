@@ -3,6 +3,7 @@ package claude
 import (
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -109,6 +110,31 @@ func TestRespondTrimsEveryErrorSource(t *testing.T) {
 			}
 			if err.Error() != tc.want {
 				t.Fatalf("error = %q, want %q", err.Error(), tc.want)
+			}
+		})
+	}
+}
+
+func TestRespondBoundsTheErrorDetail(t *testing.T) {
+	const bound = 2000
+	long := strings.Repeat("é", bound+500)
+	want := strings.Repeat("é", bound-1) + "…"
+	cases := []struct {
+		name   string
+		stream string
+	}{
+		{name: "result text", stream: errorResultLine(long, `[]`)},
+		{name: "errors", stream: errorResultLine("", fmt.Sprintf("[%q]", long))},
+		{name: "marked text", stream: apiErrorStream(long, "")},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := respondWithStream(t, tc.stream, nil)
+			if !errors.Is(err, ErrTurnFailed) {
+				t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
+			}
+			if err.Error() != want {
+				t.Fatalf("error has %d runes, want the detail cut to %d runes ending in an ellipsis", len([]rune(err.Error())), bound)
 			}
 		})
 	}

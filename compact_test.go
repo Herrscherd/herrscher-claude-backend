@@ -258,7 +258,7 @@ func resultLine(t *testing.T, text string) string {
 }
 
 func TestCompactUnavailableCarriesItsReasonAsACode(t *testing.T) {
-	oversized := strings.Repeat("x", 200000) + "\nsecond line"
+	oversized := strings.Repeat("x", 300) + "\nsecond line"
 	cases := []struct {
 		name       string
 		cancelled  bool

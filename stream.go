@@ -672,8 +672,10 @@ var errTurnReported = newCatalogError(keyTurnFailed)
 // The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
+const maxErrorDetailRunes = 2000
+
 func errorDetail(text string) string {
-	return strings.TrimSpace(text)
+	return truncateRunes(strings.TrimSpace(text), maxErrorDetailRunes)
 }
 
 func errFromTurn(turn turnResult, sessID, reported string) error {
