@@ -100,6 +100,7 @@ type turnResult struct {
 	SessionID   string
 	IsError     bool
 	ErrMsg      string
+	APIErrMsg   string
 	InTokens    int
 	OutTokens   int
 	CacheRead   int
@@ -116,7 +117,10 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 }
 
-type turnParser struct{ agents map[string]bool }
+type turnParser struct {
+	agents   map[string]bool
+	apiError string
+}
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
 
@@ -281,17 +285,23 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	case wireUser:
 		p.parseToolResults(line, onEvent)
 	case "result":
-		return parseResult(line, onEvent)
+		turn, done, err := parseResult(line, onEvent)
+		turn.APIErrMsg = p.apiError
+		return turn, done, err
 	}
 	return turnResult{}, false, nil
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
-	if onEvent == nil {
+	var event streamEvent
+	if !decodeOrSkip(line, &event) {
 		return
 	}
-	var event streamEvent
-	if !decodeOrSkip(line, &event) || event.IsAPIError {
+	if event.IsAPIError {
+		p.recordAPIError(event.Message.Content)
+		return
+	}
+	if onEvent == nil {
 		return
 	}
 	for _, b := range event.Message.Content {
@@ -299,6 +309,18 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	}
 	if u := event.Message.Usage; u != nil {
 		onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
+	}
+}
+
+func (p *turnParser) recordAPIError(content []contentBlock) {
+	var texts []string
+	for _, b := range content {
+		if t := strings.TrimSpace(b.Text); b.Type == blockText && t != "" {
+			texts = append(texts, t)
+		}
+	}
+	if len(texts) > 0 {
+		p.apiError = strings.Join(texts, "\n")
 	}
 }
 
@@ -626,8 +648,11 @@ var errTurnReported = newCatalogError(keyTurnFailed)
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
 func errFromTurn(turn turnResult, sessID, reported string) error {
-	if turn.ErrMsg != "" {
+	switch {
+	case turn.ErrMsg != "":
 		return &turnError{msg: turn.ErrMsg, sessID: sessID}
+	case turn.APIErrMsg != "":
+		return &turnError{msg: turn.APIErrMsg, sessID: sessID}
 	}
 	return &turnError{msg: reported, sessID: sessID}
 }
