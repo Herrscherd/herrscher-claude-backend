@@ -222,6 +222,8 @@ type readLine struct {
 
 const maxStreamLineBytes = 16 << 20
 
+const lineReadBufferBytes = 4 << 10
+
 // ErrStreamLineTooLong matches a stream line that does not end within the size limit.
 // The turn is not retried: the CLI may already have acted on the lines before it.
 var ErrStreamLineTooLong = errors.New("claude stream line exceeds the size limit")
@@ -256,7 +258,7 @@ func startLineReader(source io.Reader, done <-chan struct{}) chan readLine {
 	lines := make(chan readLine)
 	go func() {
 		defer close(lines)
-		reader := bufio.NewReader(source)
+		reader := bufio.NewReaderSize(source, lineReadBufferBytes)
 		for {
 			data, err := readBoundedLine(reader)
 			select {

@@ -9,8 +9,6 @@ import (
 	"testing"
 )
 
-const lineReadSlack = 4096
-
 type repeatBytes struct {
 	b    byte
 	left int
@@ -36,7 +34,7 @@ func lineSource(content int) (io.Reader, *repeatBytes) {
 }
 
 func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
-	source, body := lineSource(maxStreamLineBytes + lineReadSlack)
+	source, body := lineSource(2 * maxStreamLineBytes)
 	done := make(chan struct{})
 	defer close(done)
 	lines := startLineReader(source, done)
@@ -44,8 +42,8 @@ func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
 	if !errors.Is(ln.err, ErrStreamLineTooLong) {
 		t.Fatalf("err = %v, want ErrStreamLineTooLong", ln.err)
 	}
-	if body.read > maxStreamLineBytes+lineReadSlack {
-		t.Fatalf("read %d bytes of an over-bound line, want at most %d", body.read, maxStreamLineBytes+lineReadSlack)
+	if body.read > maxStreamLineBytes+lineReadBufferBytes {
+		t.Fatalf("read %d bytes of an over-bound line, want at most %d", body.read, maxStreamLineBytes+lineReadBufferBytes)
 	}
 	if _, open := <-lines; open {
 		t.Fatal("the line reader kept going after the over-bound line")
@@ -77,7 +75,7 @@ func TestStartLineReaderAcceptsLineAtBound(t *testing.T) {
 
 func TestReadBoundedLineKeepsCapacityWithinBound(t *testing.T) {
 	source, _ := lineSource(maxStreamLineBytes - 1)
-	data, err := readBoundedLine(bufio.NewReader(source))
+	data, err := readBoundedLine(bufio.NewReaderSize(source, lineReadBufferBytes))
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
 	}

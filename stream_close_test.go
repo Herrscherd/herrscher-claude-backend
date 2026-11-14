@@ -210,7 +210,7 @@ func requireSessionDropped(t *testing.T, r *streamResponder, writer *spyWriteClo
 
 func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
 	t.Parallel()
-	script := fmt.Sprintf("head -c %d /dev/zero; exec sleep 60", maxStreamLineBytes+lineReadSlack)
+	script := fmt.Sprintf("head -c %d /dev/zero; exec sleep 60", maxStreamLineBytes+lineReadBufferBytes)
 	s := startShellSession(t, script)
 	process := s.cmd
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
@@ -220,10 +220,19 @@ func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
 		return nil, errors.New("unexpected spawn")
 	}
 
-	start := time.Now()
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
-	if elapsed := time.Since(start); elapsed > 10*time.Second {
-		t.Fatalf("Respond took %v after an over-bound line, want it to return at once", elapsed)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	returned := make(chan error, 1)
+	go func() {
+		_, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
+		returned <- err
+	}()
+	var err error
+	select {
+	case err = <-returned:
+	case <-time.After(10 * time.Second):
+		cancel()
+		t.Fatal("Respond did not return within 10s of an over-bound line")
 	}
 	if !errors.Is(err, ErrStreamLineTooLong) {
 		t.Fatalf("err = %v, want ErrStreamLineTooLong", err)
