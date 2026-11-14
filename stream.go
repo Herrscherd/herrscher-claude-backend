@@ -557,7 +557,7 @@ type streamResponder struct {
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
-	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env, stopped: make(chan struct{})}
+	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env}
 	responder.spawn = func(id string) (*streamSession, error) {
 		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.env)
 	}
@@ -644,6 +644,10 @@ func (r *streamResponder) liveSession() (*streamSession, error) {
 		r.stateMu.Unlock()
 		return session, nil
 	}
+	if r.spawn == nil {
+		r.stateMu.Unlock()
+		return nil, errResponderNotBuilt
+	}
 	r.pending++
 	r.stateMu.Unlock()
 	spawned, err := r.spawn(r.currentSessionID())
@@ -723,8 +727,16 @@ func (r *streamResponder) endPending() {
 
 func (r *streamResponder) settleLocked() {
 	if r.closed && r.pending == 0 {
-		r.stopOnce.Do(func() { close(r.stopped) })
+		stopped := r.stoppedLocked()
+		r.stopOnce.Do(func() { close(stopped) })
 	}
+}
+
+func (r *streamResponder) stoppedLocked() chan struct{} {
+	if r.stopped == nil {
+		r.stopped = make(chan struct{})
+	}
+	return r.stopped
 }
 
 func (r *streamResponder) restartAndSend(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
@@ -763,10 +775,13 @@ func (r *streamResponder) Close() error {
 }
 
 func (r *streamResponder) awaitStopped() error {
+	r.stateMu.Lock()
+	stopped := r.stoppedLocked()
+	r.stateMu.Unlock()
 	timer := time.NewTimer(teardownBound)
 	defer timer.Stop()
 	select {
-	case <-r.stopped:
+	case <-stopped:
 		return nil
 	case <-timer.C:
 		return errTeardownTimedOut
@@ -776,6 +791,8 @@ func (r *streamResponder) awaitStopped() error {
 const teardownBound = 5 * time.Second
 
 var errTeardownTimedOut = errors.New("claude responder gave up waiting for a spawn in flight to be reaped")
+
+var errResponderNotBuilt = errors.New("claude responder was not built by newStreamResponder")
 
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
