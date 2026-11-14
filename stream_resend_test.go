@@ -187,37 +187,42 @@ func TestHookLineSessionIDIsNeverResumed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			log := filepath.Join(t.TempDir(), "prompts.log")
-			r := newStreamResponder(context.Background(), nil, "", tc.priorID, "", nil)
-			r.sess = startShellSession(t, loggedPromptCLI(log, resendHookWithIDLine))
-			var resumed []string
-			r.spawn = func(id string) (*streamSession, error) {
-				resumed = append(resumed, id)
-				return startShellSession(t, loggedPromptCLI(log, resendResultLine)), nil
-			}
-
-			var kinds []string
-			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
-				kinds = append(kinds, e.Kind)
-			})
-			if err != nil {
-				t.Fatalf("Respond: %v", err)
-			}
-			if reply != "done" {
-				t.Fatalf("reply = %q, want %q", reply, "done")
-			}
-			if n := promptsReceived(t, log); n != 2 {
-				t.Fatalf("the prompt reached the CLI %d times, want 2: one resend", n)
-			}
-			if !slices.Contains(kinds, "reset") {
-				t.Fatalf("events = %q, want a reset before the resend", kinds)
-			}
-			if !slices.Equal(resumed, tc.wantResume) {
-				t.Fatalf("restarted with resume ids %q, want %q: the hook's id is not a session the CLI has persisted", resumed, tc.wantResume)
-			}
-			mustClose(t, r)
+			assertHookLineIsNotResumed(t, tc.priorID, tc.wantResume)
 		})
 	}
+}
+
+func assertHookLineIsNotResumed(t *testing.T, priorID string, wantResume []string) {
+	t.Helper()
+	log := filepath.Join(t.TempDir(), "prompts.log")
+	r := newStreamResponder(context.Background(), nil, "", priorID, "", nil)
+	r.sess = startShellSession(t, loggedPromptCLI(log, resendHookWithIDLine))
+	var resumed []string
+	r.spawn = func(id string) (*streamSession, error) {
+		resumed = append(resumed, id)
+		return startShellSession(t, loggedPromptCLI(log, resendResultLine)), nil
+	}
+
+	var kinds []string
+	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+		kinds = append(kinds, e.Kind)
+	})
+	if err != nil {
+		t.Fatalf("Respond: %v", err)
+	}
+	if reply != "done" {
+		t.Fatalf("reply = %q, want %q", reply, "done")
+	}
+	if n := promptsReceived(t, log); n != 2 {
+		t.Fatalf("the prompt reached the CLI %d times, want 2: one resend", n)
+	}
+	if !slices.Contains(kinds, "reset") {
+		t.Fatalf("events = %q, want a reset before the resend", kinds)
+	}
+	if !slices.Equal(resumed, wantResume) {
+		t.Fatalf("restarted with resume ids %q, want %q: the hook's id is not a session the CLI has persisted", resumed, wantResume)
+	}
+	mustClose(t, r)
 }
 
 func TestTurnAfterADeathMidTurnResumesTheSession(t *testing.T) {
