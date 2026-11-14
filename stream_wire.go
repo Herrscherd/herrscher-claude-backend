@@ -13,6 +13,7 @@ const (
 	wireUser        = "user"
 	wireAssistant   = "assistant"
 	wireSystem      = "system"
+	subtypeInit     = "init"
 	subtypeAPIRetry = "api_retry"
 	blockText       = "text"
 	blockToolUse    = "tool_use"

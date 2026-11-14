@@ -89,7 +89,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	p.noteSessionID(line)
 	switch head.Type {
 	case wireSystem:
-		if isAPIRetry(line) {
+		if isTakenTurnSystem(line) {
 			p.acted = true
 		}
 	case wireAssistant:
@@ -101,6 +101,9 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
 		turn.APIErrMsg = p.apiError
+		if turn.SessionID == "" {
+			turn.SessionID = p.sessionID
+		}
 		return turn, done, err
 	}
 	return turnResult{}, false, nil
@@ -115,11 +118,11 @@ func (p *turnParser) noteSessionID(line []byte) {
 	}
 }
 
-func isAPIRetry(line []byte) bool {
+func isTakenTurnSystem(line []byte) bool {
 	var system struct {
 		Subtype string `json:"subtype"`
 	}
-	return decodeOrSkip(line, &system) && system.Subtype == subtypeAPIRetry
+	return decodeOrSkip(line, &system) && (system.Subtype == subtypeInit || system.Subtype == subtypeAPIRetry)
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
