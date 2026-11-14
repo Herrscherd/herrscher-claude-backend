@@ -220,13 +220,22 @@ type readLine struct {
 	err  error
 }
 
+const maxStreamLineBytes = 16 << 20
+
+// ErrStreamLineTooLong matches a stream line that does not end within the size limit.
+var ErrStreamLineTooLong = errors.New("claude stream line exceeds the size limit")
+
+func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
+	return reader.ReadBytes('\n')
+}
+
 func startLineReader(source io.Reader, done <-chan struct{}) chan readLine {
 	lines := make(chan readLine, 1)
 	go func() {
 		defer close(lines)
 		reader := bufio.NewReader(source)
 		for {
-			data, err := reader.ReadBytes('\n')
+			data, err := readBoundedLine(reader)
 			select {
 			case lines <- readLine{data, err}:
 			case <-done:
