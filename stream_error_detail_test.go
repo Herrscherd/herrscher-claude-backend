@@ -139,3 +139,36 @@ func TestRespondBoundsTheErrorDetail(t *testing.T) {
 		})
 	}
 }
+
+func TestRespondKeepsTheDetailAtItsEdges(t *testing.T) {
+	const bound = 2000
+	cases := []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{name: "exactly the bound is kept", detail: strings.Repeat("é", bound), want: strings.Repeat("é", bound)},
+		{name: "blanks around the bound are trimmed before the cut", detail: "  " + strings.Repeat("é", bound) + "  ", want: strings.Repeat("é", bound)},
+	}
+	sources := []struct {
+		name   string
+		stream func(detail string) string
+	}{
+		{name: "result text", stream: func(detail string) string { return errorResultLine(detail, `[]`) }},
+		{name: "errors", stream: func(detail string) string { return errorResultLine("", fmt.Sprintf("[%q]", detail)) }},
+		{name: "marked text", stream: func(detail string) string { return apiErrorStream(detail, "") }},
+	}
+	for _, source := range sources {
+		for _, tc := range cases {
+			t.Run(source.name+" "+tc.name, func(t *testing.T) {
+				_, err := respondWithStream(t, source.stream(tc.detail), nil)
+				if !errors.Is(err, ErrTurnFailed) {
+					t.Fatalf("errors.Is(ErrTurnFailed) = false for %v", err)
+				}
+				if err.Error() != tc.want {
+					t.Fatalf("error has %d runes, want %d intact runes", len([]rune(err.Error())), len([]rune(tc.want)))
+				}
+			})
+		}
+	}
+}
