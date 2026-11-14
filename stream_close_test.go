@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"os/exec"
 	"slices"
@@ -159,8 +160,8 @@ func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 }
 
 func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
-	overBoundLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n" +
-		strings.Repeat("a", maxStreamLineBytes) + "\n"
+	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
+	overBoundLine := strings.Repeat("a", maxStreamLineBytes) + "\n"
 	for _, tc := range []struct {
 		name   string
 		stream string
@@ -168,7 +169,8 @@ func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
 	}{
 		{"drifted result", `{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
 		{"drifted intermediate line", `{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
-		{"line over the size limit", overBoundLine, ErrStreamLineTooLong},
+		{"line over the size limit", assistantLine + overBoundLine, ErrStreamLineTooLong},
+		{"line over the size limit before any event", overBoundLine, ErrStreamLineTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &spyWriteCloser{}
@@ -191,9 +193,45 @@ func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
 			if slices.Contains(kinds, "reset") {
 				t.Fatalf("a drifted stream emitted a reset: %v", kinds)
 			}
-			if r.sess != nil {
-				t.Fatal("a drifted session must not stay installed")
-			}
+			requireSessionDropped(t, r, writer)
 		})
+	}
+}
+
+func requireSessionDropped(t *testing.T, r *streamResponder, writer *spyWriteCloser) {
+	t.Helper()
+	if r.sess != nil {
+		t.Fatal("a drifted session must not stay installed")
+	}
+	if !writer.closed {
+		t.Fatal("the session was left open: its stdin was never closed")
+	}
+}
+
+func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
+	t.Parallel()
+	script := fmt.Sprintf("head -c %d /dev/zero; exec sleep 60", maxStreamLineBytes+lineReadSlack)
+	s := startShellSession(t, script)
+	process := s.cmd
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = s
+	r.spawn = func(string) (*streamSession, error) {
+		t.Error("an over-bound line must not restart the session")
+		return nil, errors.New("unexpected spawn")
+	}
+
+	start := time.Now()
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	if elapsed := time.Since(start); elapsed > 10*time.Second {
+		t.Fatalf("Respond took %v after an over-bound line, want it to return at once", elapsed)
+	}
+	if !errors.Is(err, ErrStreamLineTooLong) {
+		t.Fatalf("err = %v, want ErrStreamLineTooLong", err)
+	}
+	if process.ProcessState == nil {
+		t.Fatal("the claude process was not killed and reaped")
+	}
+	if r.sess != nil {
+		t.Fatal("a session that ended on an over-bound line must not stay installed")
 	}
 }
