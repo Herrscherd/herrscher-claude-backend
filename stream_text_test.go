@@ -87,3 +87,30 @@ func TestAPIErrorBlocksAreNotCountedAsEmittedText(t *testing.T) {
 	got := turnTextDetails(t, apiErrorTextLine("Request failed."), textBlockLine("Voici."))
 	assertTextDetails(t, got, []string{"Voici."})
 }
+
+func TestFirstTextAfterAResetHasNoSeparator(t *testing.T) {
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = newStreamSession(discardWriteCloser{}, strings.NewReader(textBlockLine("Je regarde.")+"\n"))
+	r.spawn = func(string) (*streamSession, error) {
+		reply := textBlockLine("Voici.") + "\n" + blockResultLine + "\n"
+		return newStreamSession(discardWriteCloser{}, strings.NewReader(reply)), nil
+	}
+	var sequence, texts []string
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+		switch e.Kind {
+		case "text":
+			sequence = append(sequence, "text")
+			texts = append(texts, e.Detail)
+		case "reset":
+			sequence = append(sequence, "reset")
+		}
+	})
+	if err != nil {
+		t.Fatalf("Respond after a reset: %v", err)
+	}
+	if want := []string{"text", "reset", "text"}; !slices.Equal(sequence, want) {
+		t.Fatalf("events = %q, want %q", sequence, want)
+	}
+	assertTextDetails(t, texts, []string{"Je regarde.", "Voici."})
+	mustClose(t, r)
+}
