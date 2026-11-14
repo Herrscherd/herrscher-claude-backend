@@ -47,7 +47,12 @@ against a result line that the reader has already received, the turn is also
 returned as `ErrResponderClosed`, never replayed. Once the responder is closed,
 every `Respond` and `Compact` returns `ErrResponderClosed` without starting a
 process. The text of that error, like the stream-ended text, is in the prompt's
-language, English when it is unknown. A stream line over 16 MiB
+language, English when it is unknown. Every `Close` returns only once the
+process it stopped is killed and reaped, so a second concurrent `Close` waits
+for the same teardown too. A spawn in flight when `Close` runs is reaped as soon
+as it returns; if it has not returned after 5 seconds, `Close` gives up and
+returns an error, and the spawn is still reaped when it does return. A session
+that `install` replaces is killed, never left running. A stream line over 16 MiB
 (`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`)
 ends the turn with an error and is never retried: the CLI may already have acted
 on the turn, and resending the prompt would duplicate it. Once a line is

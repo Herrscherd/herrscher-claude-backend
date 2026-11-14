@@ -243,7 +243,7 @@ func TestCloseFromATextEventDoesNotRetry(t *testing.T) {
 	}
 }
 
-func TestCloseDoesNotWaitForASpawnInFlight(t *testing.T) {
+func TestCloseWaitsForASpawnInFlightToBeReaped(t *testing.T) {
 	t.Parallel()
 	cli := &sleepingCLI{started: make(chan struct{}, 1), t: t}
 	spawning := make(chan struct{})
@@ -266,19 +266,121 @@ func TestCloseDoesNotWaitForASpawnInFlight(t *testing.T) {
 
 	closed := make(chan error, 1)
 	go func() { closed <- r.Close() }()
-	if err := awaitWithin(t, closed, "Close while a spawn is in flight"); err != nil {
-		t.Fatalf("Close: %v", err)
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned (%v) while the spawn in flight was not yet reaped", err)
+	case <-time.After(50 * time.Millisecond):
 	}
 	releaseOnce()
+	if err := awaitWithin(t, closed, "Close once the spawn in flight is reaped"); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if cli.cmd == nil || cli.cmd.ProcessState == nil {
+		t.Fatal("Close returned before the process spawned after it was killed and reaped")
+	}
 	if err := awaitWithin(t, responded, "Respond whose spawn lost the race to Close"); !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("err = %v, want ErrResponderClosed", err)
 	}
-	if cli.cmd.ProcessState == nil {
-		t.Fatal("the process spawned after Close was not killed and reaped")
+}
+
+func TestCloseGivesUpOnASpawnThatNeverReturns(t *testing.T) {
+	t.Parallel()
+	spawning := make(chan struct{})
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseOnce)
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.spawn = func(string) (*streamSession, error) {
+		close(spawning)
+		<-release
+		return nil, errors.New("spawn released after Close gave up")
+	}
+	responded := make(chan error, 1)
+	go func() {
+		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+		responded <- err
+	}()
+	awaitWithin(t, spawning, "the CLI spawn starting")
+
+	closed := make(chan error, 1)
+	go func() { closed <- r.Close() }()
+	select {
+	case err := <-closed:
+		if err == nil {
+			t.Fatal("Close returned nil while a spawn had not returned and so was not reaped")
+		}
+	case <-time.After(teardownBound + 5*time.Second):
+		t.Fatal("Close did not give up within its bound while a spawn never returned")
 	}
 }
 
-func TestRespondAfterCloseNamesTheClosedSessionInTheSessionLanguage(t *testing.T) {
+type blockingCloser struct {
+	io.WriteCloser
+
+	entered chan struct{}
+	release <-chan struct{}
+}
+
+func (c blockingCloser) Close() error {
+	select {
+	case c.entered <- struct{}{}:
+	default:
+	}
+	<-c.release
+	return c.WriteCloser.Close()
+}
+
+func TestConcurrentClosesReturnOnlyAfterTheProcessIsReaped(t *testing.T) {
+	t.Parallel()
+	cli := &sleepingCLI{started: make(chan struct{}, 1), t: t}
+	session, err := cli.spawn("")
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	release := make(chan struct{})
+	releaseOnce := sync.OnceFunc(func() { close(release) })
+	t.Cleanup(releaseOnce)
+	entered := make(chan struct{}, 1)
+	session.stdin = blockingCloser{WriteCloser: session.stdin, entered: entered, release: release}
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = session
+
+	first := make(chan error, 1)
+	go func() { first <- r.Close() }()
+	awaitWithin(t, entered, "the first Close reaching the CLI")
+
+	second := make(chan error, 1)
+	go func() { second <- r.Close() }()
+	select {
+	case err := <-second:
+		t.Fatalf("second Close returned (%v) before the process was reaped", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseOnce()
+	for _, closed := range []chan error{first, second} {
+		if err := awaitWithin(t, closed, "a Close once the process is reaped"); err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	}
+	if cli.cmd.ProcessState == nil {
+		t.Fatal("the CLI process was not reaped when the second Close returned")
+	}
+}
+
+func TestInstallKillsTheSessionItReplaces(t *testing.T) {
+	t.Parallel()
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	replaced := &spyWriteCloser{}
+	r.sess = newStreamSession(replaced, strings.NewReader(""))
+	if !r.install(newStreamSession(&spyWriteCloser{}, strings.NewReader(""))) {
+		t.Fatal("install refused on an open responder")
+	}
+	if !replaced.closed {
+		t.Fatal("the session that install replaced was not closed")
+	}
+}
+
+func TestClosedResponderNamesItselfInTheSessionLanguage(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		name string
@@ -295,13 +397,31 @@ func TestRespondAfterCloseNamesTheClosedSessionInTheSessionLanguage(t *testing.T
 			if err := r.Close(); err != nil {
 				t.Fatalf("Close: %v", err)
 			}
-			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi", Language: tc.lang}, nil)
-			if !errors.Is(err, ErrResponderClosed) {
-				t.Fatalf("errors.Is(err, ErrResponderClosed) = false for %v", err)
-			}
-			if want := mustRender(t, tc.want, keyTurnResponderClosed); err.Error() != want {
-				t.Fatalf("error = %q, want the catalog text %q", err.Error(), want)
-			}
+			want := mustRender(t, tc.want, keyTurnResponderClosed)
+			assertRespondNamesClosedSession(t, r, tc.lang, want)
+			assertCompactNamesClosedSession(t, r, tc.lang, want)
 		})
+	}
+}
+
+func assertRespondNamesClosedSession(t *testing.T, r *streamResponder, lang i18n.Language, want string) {
+	t.Helper()
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi", Language: lang}, nil)
+	if !errors.Is(err, ErrResponderClosed) {
+		t.Fatalf("Respond: errors.Is(err, ErrResponderClosed) = false for %v", err)
+	}
+	if err.Error() != want {
+		t.Fatalf("Respond error = %q, want the catalog text %q", err.Error(), want)
+	}
+}
+
+func assertCompactNamesClosedSession(t *testing.T, r *streamResponder, lang i18n.Language, want string) {
+	t.Helper()
+	_, err := r.Compact(context.Background(), contracts.CompactRequest{Session: contracts.SessionInfo{Language: lang}}, nil)
+	if !errors.Is(err, ErrResponderClosed) {
+		t.Fatalf("Compact: errors.Is(err, ErrResponderClosed) = false for %v", err)
+	}
+	if !strings.HasSuffix(err.Error(), want) {
+		t.Fatalf("Compact error = %q, want it to end with the catalog text %q", err.Error(), want)
 	}
 }

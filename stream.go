@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 	"github.com/Herrscherd/herrscher-contracts/i18n"
@@ -550,10 +551,13 @@ type streamResponder struct {
 	stateMu  sync.Mutex
 	sess     *streamSession
 	closed   bool
+	pending  int
+	stopped  chan struct{}
+	stopOnce sync.Once
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
-	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env}
+	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env, stopped: make(chan struct{})}
 	responder.spawn = func(id string) (*streamSession, error) {
 		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.env)
 	}
@@ -631,31 +635,46 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 
 func (r *streamResponder) liveSession() (*streamSession, error) {
 	r.stateMu.Lock()
-	closed, session := r.closed, r.sess
-	r.stateMu.Unlock()
-	if closed {
+	if r.closed {
+		r.stateMu.Unlock()
 		return nil, ErrResponderClosed
 	}
-	if session != nil {
+	if r.sess != nil {
+		session := r.sess
+		r.stateMu.Unlock()
 		return session, nil
 	}
+	r.pending++
+	r.stateMu.Unlock()
 	spawned, err := r.spawn(r.currentSessionID())
 	if err != nil {
+		r.endPending()
 		return nil, err
 	}
 	if !r.install(spawned) {
-		return nil, errors.Join(ErrResponderClosed, spawned.Close())
+		return nil, errors.Join(ErrResponderClosed, r.reap(spawned))
 	}
+	r.endPending()
 	return spawned, nil
 }
 
 func (r *streamResponder) install(session *streamSession) bool {
 	r.stateMu.Lock()
-	defer r.stateMu.Unlock()
 	if r.closed {
+		r.stateMu.Unlock()
 		return false
 	}
+	replaced := r.sess
 	r.sess = session
+	if replaced != nil {
+		r.pending++
+	}
+	r.stateMu.Unlock()
+	if replaced != nil {
+		if err := r.reap(replaced); err != nil {
+			slog.Warn("closing the claude session that install replaced", "error", err)
+		}
+	}
 	return true
 }
 
@@ -684,8 +703,28 @@ func (r *streamResponder) dropSession(session *streamSession) error {
 	if r.sess == session {
 		r.sess = nil
 	}
+	r.pending++
 	r.stateMu.Unlock()
-	return session.Close()
+	return r.reap(session)
+}
+
+func (r *streamResponder) reap(session *streamSession) error {
+	err := session.Close()
+	r.endPending()
+	return err
+}
+
+func (r *streamResponder) endPending() {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	r.pending--
+	r.settleLocked()
+}
+
+func (r *streamResponder) settleLocked() {
+	if r.closed && r.pending == 0 {
+		r.stopOnce.Do(func() { close(r.stopped) })
+	}
 }
 
 func (r *streamResponder) restartAndSend(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
@@ -711,12 +750,32 @@ func (r *streamResponder) Close() error {
 	r.closed = true
 	session := r.sess
 	r.sess = nil
-	r.stateMu.Unlock()
-	if session == nil {
-		return nil
+	if session != nil {
+		r.pending++
 	}
-	return session.Close()
+	r.settleLocked()
+	r.stateMu.Unlock()
+	var closeErr error
+	if session != nil {
+		closeErr = r.reap(session)
+	}
+	return errors.Join(closeErr, r.awaitStopped())
 }
+
+func (r *streamResponder) awaitStopped() error {
+	timer := time.NewTimer(teardownBound)
+	defer timer.Stop()
+	select {
+	case <-r.stopped:
+		return nil
+	case <-timer.C:
+		return errTeardownTimedOut
+	}
+}
+
+const teardownBound = 5 * time.Second
+
+var errTeardownTimedOut = errors.New("claude responder gave up waiting for a spawn in flight to be reaped")
 
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
