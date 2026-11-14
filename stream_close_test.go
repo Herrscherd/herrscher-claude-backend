@@ -159,27 +159,31 @@ func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 }
 
 func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
+	overBoundLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n" +
+		strings.Repeat("a", maxStreamLineBytes) + "\n"
 	for _, tc := range []struct {
 		name   string
 		stream string
+		want   error
 	}{
-		{"drifted result", `{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n"},
-		{"drifted intermediate line", `{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"},
+		{"drifted result", `{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
+		{"drifted intermediate line", `{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
+		{"line over the size limit", overBoundLine, ErrStreamLineTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &spyWriteCloser{}
 			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 			r.sess = newStreamSession(writer, strings.NewReader(tc.stream))
 			r.spawn = func(string) (*streamSession, error) {
-				t.Error("a drifted stream must not restart the session")
+				t.Error("a stream that ends the turn must not restart the session")
 				return nil, errors.New("unexpected spawn")
 			}
 			var kinds []string
 			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 				kinds = append(kinds, e.Kind)
 			})
-			if !errors.Is(err, ErrStreamDrift) {
-				t.Fatalf("err = %v, want ErrStreamDrift", err)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("err = %v, want %v", err, tc.want)
 			}
 			if writer.writes != 1 {
 				t.Fatalf("prompt written %d times, want 1", writer.writes)
