@@ -36,9 +36,9 @@ It is never read from the daemon's own environment.
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
 accumulate across turns. A turn counts as taken by the CLI once the stream has
-carried one of its `assistant` or `user` lines (text, thinking, tool use, tool
-result or usage), or a `system` line of subtype `init` or `api_retry`. That list
-is closed: every other `system` line, such as the `hook_started` lines of hooks,
+carried an `assistant` or `user` line whose header decodes, whatever its
+content, or a `system` line of subtype `init` or `api_retry`. That list is
+closed: every other `system` line, such as the `hook_started` lines of hooks,
 and every line of an unknown type or that does not decode, leaves the turn not
 taken. The `init` subtype is measured: on the CLI 2.1.322, `init` comes only
 after the prompt has been received, while the SessionStart hook lines come
@@ -51,11 +51,15 @@ taken turn, or after that resend, the prompt is never resent: the
 turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
 language, says that the stream ended before the turn finished, and the text
 already rendered stays rendered. The dead process is dropped, and the next turn
-restarts it with `--resume <session id>`, the last session id the stream showed.
-Every line of the stream that carries a `session_id`, for example `init`,
-`api_retry`, `assistant`, `user` or `result`, records it, even on a turn that
-then fails; a session that has shown none restarts with the id it was started
-with, if any. If the one resend also ends the stream before the turn is taken,
+restarts it with `--resume <session id>`, the last session id recorded from the
+stream. A session id is recorded only from a line that takes the turn, or from
+the `result` line, and it is recorded even on a turn that then fails. The id of
+any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
+`session_id` on its `hook_started` lines, measured by a run killed before any
+prompt was written, and whether that session is already persisted when the
+hook runs is deduced, not measured, so resuming it could fail. A session that
+has recorded none restarts with the id it was started with, if any. If the one
+resend also ends the stream before the turn is taken,
 the error is the same. Two windows remain in which the single resend with
 `--resume` can put the prompt twice in the resumed history: a death after the
 CLI has read the prompt but before any line of the list above, and a death after
