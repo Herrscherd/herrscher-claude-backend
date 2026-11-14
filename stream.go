@@ -227,8 +227,8 @@ func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, 
 		case <-done:
 			return turnResult{}, io.ErrClosedPipe
 		case ln, ok := <-lines:
-			turn, done, err := parser.consume(ln, ok, onEvent)
-			if err != nil || done {
+			turn, finished, err := parser.consume(ln, ok, onEvent)
+			if err != nil || finished {
 				return turn, err
 			}
 		}
@@ -580,7 +580,7 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 	defer r.turnMu.Unlock()
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
-		return "", localizeStreamEnd(prompt.Language, err)
+		return "", localizeTurnEnd(prompt.Language, err)
 	}
 	if turn.IsError {
 		return turn.Text, errFromTurn(turn, turn.SessionID, localizedTurnFailure(prompt.Language))
@@ -631,18 +631,32 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 
 func (r *streamResponder) liveSession() (*streamSession, error) {
 	r.stateMu.Lock()
-	defer r.stateMu.Unlock()
-	if r.closed {
+	closed, session := r.closed, r.sess
+	r.stateMu.Unlock()
+	if closed {
 		return nil, ErrResponderClosed
 	}
-	if r.sess == nil {
-		session, err := r.spawn(r.currentSessionID())
-		if err != nil {
-			return nil, err
-		}
-		r.sess = session
+	if session != nil {
+		return session, nil
 	}
-	return r.sess, nil
+	spawned, err := r.spawn(r.currentSessionID())
+	if err != nil {
+		return nil, err
+	}
+	if !r.install(spawned) {
+		return nil, errors.Join(ErrResponderClosed, spawned.Close())
+	}
+	return spawned, nil
+}
+
+func (r *streamResponder) install(session *streamSession) bool {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.closed {
+		return false
+	}
+	r.sess = session
+	return true
 }
 
 func (r *streamResponder) currentSession() *streamSession {
@@ -712,20 +726,23 @@ var ErrResponderClosed = errors.New("claude responder is closed")
 
 var errTurnReported = newCatalogError(keyTurnFailed)
 
-type streamEndedError struct {
+type localizedError struct {
 	text  string
 	cause error
 }
 
-func (e *streamEndedError) Error() string { return e.text }
+func (e *localizedError) Error() string { return e.text }
 
-func (e *streamEndedError) Unwrap() error { return e.cause }
+func (e *localizedError) Unwrap() error { return e.cause }
 
-func localizeStreamEnd(lang i18n.Language, err error) error {
-	if !errors.Is(err, io.EOF) {
-		return err
+func localizeTurnEnd(lang i18n.Language, err error) error {
+	switch {
+	case errors.Is(err, ErrResponderClosed):
+		return &localizedError{text: newMessages().localized(lang, keyTurnResponderClosed), cause: err}
+	case errors.Is(err, io.EOF):
+		return &localizedError{text: newMessages().localized(lang, keyTurnStreamEnded), cause: err}
 	}
-	return &streamEndedError{text: newMessages().localized(lang, keyTurnStreamEnded), cause: err}
+	return err
 }
 
 // ErrStreamDrift matches a stream event whose control fields no longer decode.

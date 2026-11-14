@@ -65,6 +65,11 @@
     "other": "claude stream ended before the turn finished"
   },
   {
+    "id": "turn.responder_closed",
+    "description": "A turn that was refused or interrupted because its claude session was closed",
+    "other": "claude session was closed before the turn finished"
+  },
+  {
     "id": "usage.no_oauth_login",
     "description": "The account has no claude.ai login whose usage limits can be read",
     "other": "no claude.ai login to read the usage limits from"

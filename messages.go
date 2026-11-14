@@ -26,6 +26,7 @@ const (
 	keyModelsRedirect        = "models.redirect"
 	keyTurnFailed            = "turn.failed"
 	keyTurnStreamEnded       = "turn.stream_ended"
+	keyTurnResponderClosed   = "turn.responder_closed"
 	keyUsageNoLogin          = "usage.no_oauth_login"
 	keyUsageExpired          = "usage.token_expired"
 	keyUsageRefused          = "usage.refused"

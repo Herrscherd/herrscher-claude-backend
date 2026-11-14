@@ -42,21 +42,25 @@ run twice. If the restarted process also ends the stream mid-turn, the error
 wraps `io.EOF` and its text, in the prompt's language, says that the stream
 ended before the turn finished. `Close` interrupts the turn in flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
-`Compact` call returns `ErrResponderClosed` with no retry. Once the responder is
-closed, every `Respond` and `Compact` returns `ErrResponderClosed` without
-starting a process. A stream line over 16 MiB (`ErrStreamLineTooLong`) or an
-event that no longer decodes (`ErrStreamDrift`) ends the turn with an error and
-is never retried: the CLI may already have acted on the turn, and resending the
-prompt would duplicate it. Once a line is complete, the reader holds at most
-16 MiB of it; while the next line is being read, it grows up to 16 MiB too, and
-the 4 KiB read buffer is held in addition. An over-bound line is reported at
-most 4 KiB past the bound: at the first line end after the bound, when the 4 KiB
-read buffer fills with no line end, or at the end of the stream. If the context
-of the turn is cancelled before that, the turn ends with the context error and
-no over-bound finding is made. The `claude` process is killed and reaped in
-every case. The worst case is 40 MiB of line buffers per session: while a line
-grows to its bound, the reader keeps its previous 8 MiB buffer alive beside the
-new 16 MiB one, on top of the consumer's full line.
+`Compact` call returns `ErrResponderClosed` with no retry. If `Close` wins
+against a result line that the reader has already received, the turn is also
+returned as `ErrResponderClosed`, never replayed. Once the responder is closed,
+every `Respond` and `Compact` returns `ErrResponderClosed` without starting a
+process. The text of that error, like the stream-ended text, is in the prompt's
+language, English when it is unknown. A stream line over 16 MiB
+(`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`)
+ends the turn with an error and is never retried: the CLI may already have acted
+on the turn, and resending the prompt would duplicate it. Once a line is
+complete, the reader holds at most 16 MiB of it; while the next line is being
+read, it grows up to 16 MiB too, and the 4 KiB read buffer is held in addition.
+An over-bound line is reported at most 4 KiB past the bound: at the first line
+end after the bound, when the 4 KiB read buffer fills with no line end, or at
+the end of the stream. If the context of the turn is cancelled before that, the
+turn ends with the context error and no over-bound finding is made. The `claude`
+process is killed and reaped in every case. The worst case is 40 MiB of line
+buffers per session: while a line grows to its bound, the reader keeps its
+previous 8 MiB buffer alive beside the new 16 MiB one, on top of the consumer's
+full line.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
@@ -134,9 +138,9 @@ today. Its `Notice` is `compaction.done`, with no argument, and a failure is a
 `compact.unavailable` notice whose `Reason` is the first non blank line of the
 cause, cut to 200 runes with `…` when longer. `Error()` keeps the full cause for
 the logs. A `Compact` interrupted by `Close`, or made after it, fails with
-`ErrResponderClosed` as its cause. The stream-ended text of a failed compaction
-is in the language of `CompactRequest.Session`, English when that language is
-unknown.
+`ErrResponderClosed` as its cause. The closed and stream-ended texts of a failed
+compaction are in the language of `CompactRequest.Session`, English when that
+language is unknown.
 
 `oneshot` has no session to compact and does not implement the port. The
 manifest flag covers the whole plugin, so for a `oneshot` instance the instance

@@ -65,6 +65,11 @@
     "other": "le flux claude s'est arrêté avant la fin du tour"
   },
   {
+    "id": "turn.responder_closed",
+    "description": "Un tour refusé ou interrompu parce que sa session claude a été fermée",
+    "other": "la session claude a été fermée avant la fin du tour"
+  },
+  {
     "id": "usage.no_oauth_login",
     "description": "Le compte n'a aucune connexion claude.ai dont lire les limites d'usage",
     "other": "aucune connexion claude.ai dont lire les limites d'usage"
