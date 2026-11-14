@@ -11,11 +11,12 @@ import (
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 var (
 	// ErrGatewayPairIncomplete reports a gateway base URL injected without its API key.
-	ErrGatewayPairIncomplete = newCatalogError(keyGatewayPairIncomplete)
+	ErrGatewayPairIncomplete = newCatalogError(i18n.English, keyGatewayPairIncomplete, nil)
 	// ErrOneshotNeedsCmd reports a oneshot backend configured without a command.
 	ErrOneshotNeedsCmd = errors.New("oneshot backend requires a non-empty Cmd")
 )

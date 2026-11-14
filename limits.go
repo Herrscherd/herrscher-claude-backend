@@ -13,6 +13,7 @@ import (
 	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 const (
@@ -29,8 +30,8 @@ const (
 )
 
 var (
-	errUsageRefused = newCatalogError(keyUsageRefused)
-	errUsageUnknown = newCatalogError(keyUsageUnknown)
+	errUsageRefused = newCatalogError(i18n.English, keyUsageRefused, nil)
+	errUsageUnknown = newCatalogError(i18n.English, keyUsageUnknown, nil)
 )
 
 type usageWindow struct {

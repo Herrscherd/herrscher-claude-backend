@@ -75,13 +75,18 @@ func (m *messages) english(key string) string {
 }
 
 type catalogError struct {
-	text string
+	text  string
+	cause error
 }
 
-func newCatalogError(key string) error {
-	return &catalogError{text: newMessages().english(key)}
+func newCatalogError(lang i18n.Language, key string, cause error) error {
+	return &catalogError{text: newMessages().localized(lang, key), cause: cause}
 }
 
 func (e *catalogError) Error() string {
 	return e.text
+}
+
+func (e *catalogError) Unwrap() error {
+	return e.cause
 }

@@ -114,10 +114,16 @@ func TestCompactAfterCloseReturnsErrResponderClosedWithoutSpawning(t *testing.T)
 	}
 }
 
+const (
+	sleepScript           = `read line; exec sleep 60`
+	resultThenSleepScript = `read line; printf '%s\n' '{"type":"result","is_error":false,"result":"done","session_id":"s"}'; exec sleep 60`
+)
+
 type sleepingCLI struct {
 	spawns   atomic.Int32
 	prompted chan struct{}
 	cmd      *exec.Cmd
+	script   string
 	t        *testing.T
 }
 
@@ -140,7 +146,7 @@ func (w promptWriteCloser) Write(p []byte) (int, error) {
 
 func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	c.spawns.Add(1)
-	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", "read line; exec sleep 60")
+	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", c.script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -172,7 +178,7 @@ func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
 
 func TestCloseInterruptsATurnBlockedOnTheCLI(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	r.spawn = cli.spawn
 
@@ -263,7 +269,7 @@ func TestCloseFromATextEventDoesNotRetry(t *testing.T) {
 
 func TestCloseWaitsForASpawnInFlightToBeReaped(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}
 	spawning := make(chan struct{})
 	release := make(chan struct{})
 	releaseOnce := sync.OnceFunc(func() { close(release) })
@@ -350,7 +356,7 @@ func (c blockingCloser) Close() error {
 
 func TestConcurrentClosesReturnOnlyAfterTheProcessIsReaped(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}
 	session, err := cli.spawn("")
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -469,7 +475,7 @@ func TestReplacedAndDroppedSessionsKeepThePendingCountBalanced(t *testing.T) {
 
 func TestDropSessionAfterCloseStillReapsItsProcess(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	if err := r.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
@@ -507,18 +513,35 @@ func TestRespondAfterCloseWithCancelledContextReturnsErrResponderClosed(t *testi
 	}
 }
 
-func TestZeroStreamResponderCloses(t *testing.T) {
+func TestCloseFromTheResultEventKeepsTheTurnAndKillsTheProcess(t *testing.T) {
 	t.Parallel()
-	var r streamResponder
-	if err := r.Close(); err != nil {
-		t.Fatalf("Close on a zero responder: %v", err)
+	cli := &sleepingCLI{t: t, script: resultThenSleepScript}
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.spawn = cli.spawn
+	var closeErr error
+	onEvent := func(e contracts.BackendEvent) {
+		if e.Kind == "result" {
+			closeErr = r.Close()
+		}
 	}
-}
-
-func TestZeroStreamResponderRespondReturnsAnError(t *testing.T) {
-	t.Parallel()
-	var r streamResponder
-	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil); err == nil {
-		t.Fatal("Respond on a zero responder returned a nil error")
+	text, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
+	if closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
+	}
+	if err != nil {
+		t.Fatalf("err = %v, want nil: a turn whose result line was read is rendered whole", err)
+	}
+	if text != "done" {
+		t.Fatalf("text = %q, want %q", text, "done")
+	}
+	if cli.cmd.ProcessState == nil {
+		t.Fatal("the CLI process was not killed and reaped by Close")
+	}
+	_, err = r.Respond(context.Background(), contracts.Prompt{Content: "again"}, nil)
+	if !errors.Is(err, ErrResponderClosed) {
+		t.Fatalf("Respond after Close err = %v, want ErrResponderClosed", err)
+	}
+	if n := cli.spawns.Load(); n != 1 {
+		t.Fatalf("spawned %d processes, want 1: Respond after Close must not spawn", n)
 	}
 }

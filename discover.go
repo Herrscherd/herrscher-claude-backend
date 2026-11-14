@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 const (
@@ -27,10 +28,10 @@ const (
 const anthropicAPIBaseURL = "https://api.anthropic.com"
 
 var (
-	errModelsStatus     = newCatalogError(keyModelsRefused)
-	errModelsPagination = newCatalogError(keyModelsPagination)
-	errModelsTooMany    = newCatalogError(keyModelsTooMany)
-	errModelsRedirect   = newCatalogError(keyModelsRedirect)
+	errModelsStatus     = newCatalogError(i18n.English, keyModelsRefused, nil)
+	errModelsPagination = newCatalogError(i18n.English, keyModelsPagination, nil)
+	errModelsTooMany    = newCatalogError(i18n.English, keyModelsTooMany, nil)
+	errModelsRedirect   = newCatalogError(i18n.English, keyModelsRedirect, nil)
 )
 
 type modelsPage struct {
