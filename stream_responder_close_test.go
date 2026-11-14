@@ -115,15 +115,32 @@ func TestCompactAfterCloseReturnsErrResponderClosedWithoutSpawning(t *testing.T)
 }
 
 type sleepingCLI struct {
-	spawns  atomic.Int32
-	started chan struct{}
-	cmd     *exec.Cmd
-	t       *testing.T
+	spawns   atomic.Int32
+	prompted chan struct{}
+	cmd      *exec.Cmd
+	t        *testing.T
+}
+
+type promptWriteCloser struct {
+	io.WriteCloser
+
+	prompted chan<- struct{}
+}
+
+func (w promptWriteCloser) Write(p []byte) (int, error) {
+	n, err := w.WriteCloser.Write(p)
+	if err == nil {
+		select {
+		case w.prompted <- struct{}{}:
+		default:
+		}
+	}
+	return n, err
 }
 
 func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	c.spawns.Add(1)
-	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", "exec sleep 60")
+	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", "read line; exec sleep 60")
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -136,12 +153,8 @@ func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 		return nil, err
 	}
 	c.cmd = cmd
-	session := newStreamSession(stdin, stdout)
+	session := newStreamSession(promptWriteCloser{WriteCloser: stdin, prompted: c.prompted}, stdout)
 	session.cmd = cmd
-	select {
-	case c.started <- struct{}{}:
-	default:
-	}
 	return session, nil
 }
 
@@ -159,7 +172,7 @@ func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
 
 func TestCloseInterruptsATurnBlockedOnTheCLI(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{started: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	r.spawn = cli.spawn
 
@@ -168,7 +181,12 @@ func TestCloseInterruptsATurnBlockedOnTheCLI(t *testing.T) {
 		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
 		responded <- err
 	}()
-	awaitWithin(t, cli.started, "the CLI starting")
+	awaitWithin(t, cli.prompted, "the prompt written to the CLI")
+	select {
+	case err := <-responded:
+		t.Fatalf("Respond returned (%v) before Close: the turn was not blocked on the CLI", err)
+	default:
+	}
 
 	closed := make(chan error, 1)
 	go func() { closed <- r.Close() }()
@@ -245,7 +263,7 @@ func TestCloseFromATextEventDoesNotRetry(t *testing.T) {
 
 func TestCloseWaitsForASpawnInFlightToBeReaped(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{started: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
 	spawning := make(chan struct{})
 	release := make(chan struct{})
 	releaseOnce := sync.OnceFunc(func() { close(release) })
@@ -332,7 +350,7 @@ func (c blockingCloser) Close() error {
 
 func TestConcurrentClosesReturnOnlyAfterTheProcessIsReaped(t *testing.T) {
 	t.Parallel()
-	cli := &sleepingCLI{started: make(chan struct{}, 1), t: t}
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
 	session, err := cli.spawn("")
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
@@ -423,5 +441,84 @@ func assertCompactNamesClosedSession(t *testing.T, r *streamResponder, lang i18n
 	}
 	if !strings.HasSuffix(err.Error(), want) {
 		t.Fatalf("Compact error = %q, want it to end with the catalog text %q", err.Error(), want)
+	}
+}
+
+func TestReplacedAndDroppedSessionsKeepThePendingCountBalanced(t *testing.T) {
+	t.Parallel()
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	first := newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
+	second := newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
+	if !r.install(first) || !r.install(second) {
+		t.Fatal("install refused on an open responder")
+	}
+	if err := r.dropSession(second); err != nil {
+		t.Fatalf("dropSession: %v", err)
+	}
+	closed := make(chan error, 1)
+	go func() { closed <- r.Close() }()
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close did not return within 2 seconds: pending no longer balances to zero")
+	}
+}
+
+func TestDropSessionAfterCloseStillReapsItsProcess(t *testing.T) {
+	t.Parallel()
+	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t}
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	session, err := cli.spawn("")
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	if err := r.dropSession(session); err != nil {
+		t.Fatalf("dropSession after Close: %v", err)
+	}
+	if cli.cmd.ProcessState == nil {
+		t.Fatal("dropSession after Close did not reap the process it was given")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("second Close after dropSession: %v, want nil", err)
+	}
+}
+
+func TestRespondAfterCloseWithCancelledContextReturnsErrResponderClosed(t *testing.T) {
+	t.Parallel()
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.spawn = func(string) (*streamSession, error) {
+		t.Error("a closed responder must not spawn a process")
+		return nil, errors.New("unexpected spawn")
+	}
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	_, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
+	if !errors.Is(err, ErrResponderClosed) {
+		t.Fatalf("err = %v, want ErrResponderClosed, not the context error", err)
+	}
+}
+
+func TestZeroStreamResponderCloses(t *testing.T) {
+	t.Parallel()
+	var r streamResponder
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close on a zero responder: %v", err)
+	}
+}
+
+func TestZeroStreamResponderRespondReturnsAnError(t *testing.T) {
+	t.Parallel()
+	var r streamResponder
+	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil); err == nil {
+		t.Fatal("Respond on a zero responder returned a nil error")
 	}
 }
