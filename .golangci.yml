@@ -189,7 +189,7 @@ linters:
         linters: [gosec]
         text: "^G204:"
         source: 'exec\.CommandContext\(ctx, fields\[0\], args\.\.\.\)'
-      - path: ^stream\.go$
+      - path: ^stream_session\.go$
         linters: [gosec]
         text: "^G204:"
         source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
