@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 var (
@@ -38,11 +39,11 @@ func (e *compactUnavailableError) Notice() contracts.Notice {
 }
 
 func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.turnMu.Lock()
+	defer r.turnMu.Unlock()
 	turn, err := r.runTurn(ctx, compactMessage(req.Instruction), onEvent)
 	if err != nil {
-		return contracts.CompactResult{}, &compactUnavailableError{cause: err}
+		return contracts.CompactResult{}, &compactUnavailableError{cause: localizeStreamEnd(i18n.English, err)}
 	}
 	if turn.IsError {
 		return contracts.CompactResult{}, &compactUnavailableError{cause: errFromTurn(turn, turn.SessionID, errTurnReported.Error())}

@@ -453,6 +453,7 @@ func resultUsage(event streamEvent) usage {
 
 type streamSession struct {
 	mu       sync.Mutex
+	stateMu  sync.Mutex
 	stdin    io.WriteCloser
 	lines    chan readLine
 	done     chan struct{}
@@ -511,10 +512,19 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if err != nil {
 		return turnResult{}, err
 	}
-	if _, err = s.stdin.Write(line); err != nil {
+	if _, err = s.writeStdin(line); err != nil {
 		return turnResult{}, err
 	}
-	turn, err := readTurn(ctx, s.lines, onEvent)
+	turnCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go func() {
+		select {
+		case <-s.done:
+			cancel()
+		case <-turnCtx.Done():
+		}
+	}()
+	turn, err := readTurn(turnCtx, s.lines, onEvent)
 	if err != nil {
 		return turn, err
 	}
@@ -543,7 +553,8 @@ type streamResponder struct {
 	dir      string
 	idMu     sync.Mutex
 	resumeID string
-	mu       sync.Mutex
+	turnMu   sync.Mutex
+	stateMu  sync.Mutex
 	sess     *streamSession
 	closed   bool
 }
@@ -572,11 +583,8 @@ func (r *streamResponder) currentSessionID() string {
 }
 
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	if r.closed {
-		return "", ErrResponderClosed
-	}
+	r.turnMu.Lock()
+	defer r.turnMu.Unlock()
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
 		return "", localizeStreamEnd(prompt.Language, err)
@@ -588,52 +596,99 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 }
 
 func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	if r.isClosed() {
+		return turnResult{}, ErrResponderClosed
+	}
 	if err := ctx.Err(); err != nil {
 		return turnResult{}, err
 	}
-	if r.sess == nil {
-		session, err := r.spawn(r.currentSessionID())
-		if err != nil {
-			return turnResult{}, err
-		}
-		r.sess = session
-	}
-	turn, err := r.sess.Send(ctx, content, onEvent)
+	session, err := r.liveSession()
 	if err != nil {
-		if errors.Is(err, ErrStreamDrift) || errors.Is(err, ErrStreamLineTooLong) || ctx.Err() != nil {
-			return turnResult{}, errors.Join(err, r.dropSession())
-		}
-		if onEvent != nil {
-			onEvent(contracts.BackendEvent{Kind: "reset"})
-		}
-		closeErr := r.dropSession()
-		if turn, err = r.restartAndSend(ctx, content, onEvent); err != nil {
-			return turnResult{}, errors.Join(err, closeErr)
-		}
-		if closeErr != nil {
-			slog.Warn("closing the dead claude session", "error", closeErr)
-		}
+		return turnResult{}, err
+	}
+	turn, err := session.Send(ctx, content, onEvent)
+	if err != nil {
+		return r.retryTurn(ctx, session, content, onEvent, err)
 	}
 	r.publishSessionID(turn.SessionID)
 	return turn, nil
 }
 
-func (r *streamResponder) dropSession() error {
-	r.publishSessionID(r.sess.sessID)
-	closeErr := r.sess.Close()
-	r.sess = nil
-	return closeErr
+func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, content string, onEvent func(contracts.BackendEvent), cause error) (turnResult, error) {
+	if r.isClosed() {
+		return turnResult{}, ErrResponderClosed
+	}
+	if errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil {
+		return turnResult{}, errors.Join(cause, r.dropSession(failed))
+	}
+	if onEvent != nil {
+		onEvent(contracts.BackendEvent{Kind: "reset"})
+	}
+	closeErr := r.dropSession(failed)
+	turn, err := r.restartAndSend(ctx, content, onEvent)
+	if err != nil {
+		return turnResult{}, r.closedOr(errors.Join(err, closeErr))
+	}
+	if closeErr != nil {
+		slog.Warn("closing the dead claude session", "error", closeErr)
+	}
+	r.publishSessionID(turn.SessionID)
+	return turn, nil
+}
+
+func (r *streamResponder) liveSession() (*streamSession, error) {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	if r.closed {
+		return nil, ErrResponderClosed
+	}
+	if r.sess == nil {
+		session, err := r.spawn(r.currentSessionID())
+		if err != nil {
+			return nil, err
+		}
+		r.sess = session
+	}
+	return r.sess, nil
+}
+
+func (r *streamResponder) currentSession() *streamSession {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	return r.sess
+}
+
+func (r *streamResponder) isClosed() bool {
+	r.stateMu.Lock()
+	defer r.stateMu.Unlock()
+	return r.closed
+}
+
+func (r *streamResponder) closedOr(err error) error {
+	if r.isClosed() {
+		return ErrResponderClosed
+	}
+	return err
+}
+
+func (r *streamResponder) dropSession(session *streamSession) error {
+	r.publishSessionID(session.sessID)
+	r.stateMu.Lock()
+	if r.sess == session {
+		r.sess = nil
+	}
+	r.stateMu.Unlock()
+	return session.Close()
 }
 
 func (r *streamResponder) restartAndSend(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
-	session, err := r.spawn(r.currentSessionID())
+	session, err := r.liveSession()
 	if err != nil {
 		return turnResult{}, err
 	}
-	r.sess = session
-	turn, err := r.sess.Send(ctx, content, onEvent)
+	turn, err := session.Send(ctx, content, onEvent)
 	if err != nil {
-		return turnResult{}, errors.Join(err, r.dropSession())
+		return turnResult{}, errors.Join(err, r.dropSession(session))
 	}
 	return turn, nil
 }
@@ -645,15 +700,15 @@ func (r *streamResponder) ResumeToken() string {
 func (r *streamResponder) NativeSkills() bool { return true }
 
 func (r *streamResponder) Close() error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.stateMu.Lock()
 	r.closed = true
-	if r.sess == nil {
+	session := r.sess
+	r.sess = nil
+	r.stateMu.Unlock()
+	if session == nil {
 		return nil
 	}
-	closeErr := r.sess.Close()
-	r.sess = nil
-	return closeErr
+	return session.Close()
 }
 
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
@@ -710,10 +765,22 @@ func (e *turnError) Unwrap() error { return ErrTurnFailed }
 
 func (e *turnError) SessionID() string { return e.sessID }
 
+func (s *streamSession) writeStdin(line []byte) (int, error) {
+	s.stateMu.Lock()
+	stdin := s.stdin
+	s.stateMu.Unlock()
+	if stdin == nil {
+		return 0, io.ErrClosedPipe
+	}
+	return stdin.Write(line)
+}
+
 func (s *streamSession) Close() error {
 	s.stopOnce.Do(func() { close(s.done) })
+	s.stateMu.Lock()
 	stdin, cmd := s.stdin, s.cmd
 	s.stdin, s.cmd = nil, nil
+	s.stateMu.Unlock()
 	var closeErrs []error
 	if stdin != nil {
 		closeErrs = append(closeErrs, stdin.Close())
