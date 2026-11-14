@@ -26,6 +26,8 @@ const (
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"
 	stateActive     = "active"
+
+	textBlockSeparator = "\n\n"
 )
 
 func streamBase(fields []string) []string {
@@ -118,8 +120,9 @@ type contentBlock struct {
 }
 
 type turnParser struct {
-	agents   map[string]bool
-	apiError string
+	agents      map[string]bool
+	apiError    string
+	textEmitted bool
 }
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
@@ -373,11 +376,19 @@ func (p *turnParser) emitBlock(block contentBlock, onEvent func(contracts.Backen
 		}
 	case blockText:
 		if t := strings.TrimSpace(block.Text); t != "" {
-			onEvent(contracts.BackendEvent{Kind: "text", Detail: t})
+			onEvent(contracts.BackendEvent{Kind: "text", Detail: p.nextTextDetail(t)})
 		}
 	case blockToolUse:
 		p.emitToolUse(block, onEvent)
 	}
+}
+
+func (p *turnParser) nextTextDetail(text string) string {
+	if !p.textEmitted {
+		p.textEmitted = true
+		return text
+	}
+	return textBlockSeparator + text
 }
 
 func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.BackendEvent)) {
