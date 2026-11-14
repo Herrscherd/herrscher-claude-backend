@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -150,6 +151,68 @@ func assertKeyOrderKept(t *testing.T, path string) {
 			t.Fatalf("pruned transcript lacks %q, want only message.content spliced into the raw line", want)
 		}
 	}
+}
+
+func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testing.T) {
+	const errorLine = `{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`
+	for _, tc := range []struct {
+		name    string
+		content string
+	}{
+		{name: "string content", content: `"` + longResult() + `"`},
+		{name: "block content", content: `[{"type":"text","text":"` + longResult() + `"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transcript := strings.Join([]string{
+				`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+				errorLine,
+				`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a2","parentUuid":"a1"}`,
+				`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":` + tc.content + `}]},"uuid":"u3","parentUuid":"a2"}`,
+				`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a4","parentUuid":"u3"}`,
+			}, "\n") + "\n"
+			fixture := newTranscriptCaseWith(t, transcript)
+			r, path := fixture.r, fixture.path
+			outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
+			if err != nil || outcome.Edited != 1 {
+				t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
+			}
+			pruned, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsLine(pruned, errorLine) {
+				t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
+			}
+			want := "package\n" + fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(longResult())-7)
+			if got := resultOfCall(t, r, "t1"); got != want {
+				t.Fatalf("pruned result of t1 = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func containsLine(content []byte, line string) bool {
+	for _, candidate := range strings.Split(string(content), "\n") {
+		if candidate == line {
+			return true
+		}
+	}
+	return false
+}
+
+func resultOfCall(t *testing.T, r *streamResponder, callID string) string {
+	t.Helper()
+	history, err := r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory after prune: %v", err)
+	}
+	for _, call := range history.Calls() {
+		if call.ID == callID {
+			return call.Result
+		}
+	}
+	t.Fatalf("history holds no call %s", callID)
+	return ""
 }
 
 func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
@@ -345,6 +408,69 @@ func TestAssistantTextBlocksAreTrimmedLikeTheStream(t *testing.T) {
 	}
 	if got, want := history.Messages[1].Text, "Je regarde.\n\nVoici."; got != want {
 		t.Fatalf("assistant text = %q, want %q", got, want)
+	}
+}
+
+func TestReadHistoryLeavesOutAnAPIErrorEntryAndKeepsTheRealReply(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`,
+		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a2","parentUuid":"a1"}`,
+	}, "\n") + "\n"
+	history, err := newTranscriptCaseWith(t, transcript).r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	want := []contracts.HistoryMessage{
+		{Role: contracts.RoleUser, Text: "go"},
+		{Role: contracts.RoleAssistant, Text: "Voici."},
+	}
+	if len(history.Messages) != len(want) {
+		t.Fatalf("ReadHistory returned %d messages, want %d: %+v", len(history.Messages), len(want), history.Messages)
+	}
+	for index := range want {
+		if got := history.Messages[index]; got.Role != want[index].Role || got.Text != want[index].Text {
+			t.Fatalf("message %d = %+v, want %+v", index, got, want[index])
+		}
+	}
+}
+
+func TestReadHistoryLeavesNoTraceOfAnAPIErrorEntry(t *testing.T) {
+	userGo := `{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`
+	apiError := `{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`
+	userAgain := `{"type":"user","message":{"role":"user","content":"again"},"uuid":"u1","parentUuid":"a1"}`
+	cases := []struct {
+		name  string
+		lines []string
+		want  []contracts.HistoryMessage
+	}{
+		{
+			name:  "between two user messages",
+			lines: []string{userGo, apiError, userAgain},
+			want:  []contracts.HistoryMessage{{Role: contracts.RoleUser, Text: "go"}, {Role: contracts.RoleUser, Text: "again"}},
+		},
+		{
+			name:  "as the leaf of the chain",
+			lines: []string{userGo, apiError},
+			want:  []contracts.HistoryMessage{{Role: contracts.RoleUser, Text: "go"}},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			transcript := strings.Join(tc.lines, "\n") + "\n"
+			history, err := newTranscriptCaseWith(t, transcript).r.ReadHistory(t.Context())
+			if err != nil {
+				t.Fatalf("ReadHistory: %v", err)
+			}
+			if len(history.Messages) != len(tc.want) {
+				t.Fatalf("ReadHistory returned %d messages, want %d: %+v", len(history.Messages), len(tc.want), history.Messages)
+			}
+			for index := range tc.want {
+				if got := history.Messages[index]; got.Role != tc.want[index].Role || got.Text != tc.want[index].Text {
+					t.Fatalf("message %d = %+v, want %+v", index, got, tc.want[index])
+				}
+			}
+		})
 	}
 }
 

@@ -116,6 +116,7 @@ type transcriptEntry struct {
 	UUID        string          `json:"uuid"`
 	ParentUUID  string          `json:"parentUuid"`
 	IsSidechain bool            `json:"isSidechain"`
+	IsAPIError  apiErrorFlag    `json:"isApiErrorMessage"`
 	Message     json.RawMessage `json:"message"`
 }
 
@@ -246,7 +247,9 @@ func (b *historyBuilder) add(lineIndex int, line []byte) {
 	}
 	b.onChain[lineIndex] = true
 	if entry.Type == wireAssistant {
-		b.addAssistant(message)
+		if !entry.IsAPIError {
+			b.addAssistant(message)
+		}
 		return
 	}
 	b.addUser(message)
