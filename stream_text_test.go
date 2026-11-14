@@ -61,6 +61,11 @@ func TestBlankTextBlockDoesNotDoubleTheSeparator(t *testing.T) {
 	assertTextDetails(t, got, []string{"Je regarde.", "\n\nVoici."})
 }
 
+func TestBlankTextBlockBeforeTheFirstTextDoesNotOpenTheSeparator(t *testing.T) {
+	got := turnTextDetails(t, textBlockLine(" \n "), textBlockLine("Voici."))
+	assertTextDetails(t, got, []string{"Voici."})
+}
+
 func TestParserStateDoesNotLeakAcrossTurns(t *testing.T) {
 	first := turnTextDetails(t, textBlockLine("Premier tour."), blockToolLine, textBlockLine("Suite."))
 	assertTextDetails(t, first, []string{"Premier tour.", "\n\nSuite."})
