@@ -14,7 +14,7 @@ type nopWriteCloser struct{ io.Writer }
 func (nopWriteCloser) Close() error { return nil }
 
 func TestStreamResponderResumeToken(t *testing.T) {
-	r := &streamResponder{resumeID: "boot-id"}
+	r := newStreamResponder(context.Background(), nil, "", "boot-id", "", nil)
 	if got := r.ResumeToken(); got != "boot-id" {
 		t.Fatalf("nil session: want boot-id, got %q", got)
 	}

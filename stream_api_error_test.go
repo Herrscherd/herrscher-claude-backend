@@ -45,7 +45,7 @@ func TestReadTurnDropsAPIErrorMessageContent(t *testing.T) {
 				fmt.Sprintf(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":%q,"session_id":"s"}`, syntheticAPIErrorText) + "\n"
 
 			var got []contracts.BackendEvent
-			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(flagged), nil), func(e contracts.BackendEvent) { got = append(got, e) })
+			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(flagged), nil), nil, func(e contracts.BackendEvent) { got = append(got, e) })
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func TestReadTurnKeepsContentOfSyntheticModelWithoutFlag(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"Checking","session_id":"s"}` + "\n"
 
 	var kinds []string
-	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), func(e contracts.BackendEvent) {
+	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), nil, func(e contracts.BackendEvent) {
 		if e.Kind != "result" {
 			kinds = append(kinds, e.Kind+"|"+e.Tool+"|"+e.Detail)
 		}
@@ -151,7 +151,7 @@ func TestReadTurnReadsModelTextWhenAPIErrorMarkerIsUnexpected(t *testing.T) {
 				`{"type":"result","subtype":"success","is_error":false,"result":"PONG","session_id":"s"}` + "\n"
 
 			var texts []string
-			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), func(e contracts.BackendEvent) {
+			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), nil, func(e contracts.BackendEvent) {
 				if e.Kind == "text" {
 					texts = append(texts, e.Detail)
 				}
@@ -174,7 +174,7 @@ func TestReadTurnKeepsModelText(t *testing.T) {
 		`{"type":"result","subtype":"success","is_error":false,"result":"PONG","session_id":"s"}` + "\n"
 
 	var texts []string
-	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), func(e contracts.BackendEvent) {
+	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), nil, func(e contracts.BackendEvent) {
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
 		}

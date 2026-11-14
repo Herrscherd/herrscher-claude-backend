@@ -25,6 +25,8 @@ const (
 	keyModelsTooMany         = "models.too_many_pages"
 	keyModelsRedirect        = "models.redirect"
 	keyTurnFailed            = "turn.failed"
+	keyTurnStreamEnded       = "turn.stream_ended"
+	keyTurnResponderClosed   = "turn.responder_closed"
 	keyUsageNoLogin          = "usage.no_oauth_login"
 	keyUsageExpired          = "usage.token_expired"
 	keyUsageRefused          = "usage.refused"
@@ -73,13 +75,18 @@ func (m *messages) english(key string) string {
 }
 
 type catalogError struct {
-	text string
+	text  string
+	cause error
 }
 
-func newCatalogError(key string) error {
-	return &catalogError{text: newMessages().english(key)}
+func newCatalogError(lang i18n.Language, key string, cause error) error {
+	return &catalogError{text: newMessages().localized(lang, key), cause: cause}
 }
 
 func (e *catalogError) Error() string {
 	return e.text
+}
+
+func (e *catalogError) Unwrap() error {
+	return e.cause
 }

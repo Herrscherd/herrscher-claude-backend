@@ -12,6 +12,7 @@ import (
 	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 const (
@@ -21,9 +22,9 @@ const (
 )
 
 var (
-	errNoOAuthLogin         = newCatalogError(keyUsageNoLogin)
-	errOAuthExpired         = newCatalogError(keyUsageExpired)
-	errCredentialsMalformed = newCatalogError(keyUsageLoginFile)
+	errNoOAuthLogin         = newCatalogError(i18n.English, keyUsageNoLogin, nil)
+	errOAuthExpired         = newCatalogError(i18n.English, keyUsageExpired, nil)
+	errCredentialsMalformed = newCatalogError(i18n.English, keyUsageLoginFile, nil)
 )
 
 type credentialsFile struct {

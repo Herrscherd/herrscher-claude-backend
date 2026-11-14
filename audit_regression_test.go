@@ -92,7 +92,7 @@ func TestReadTurnDoesNotHangOnDriftedResult(t *testing.T) {
 	canned := `{"type":"result","is_error":false,"result":"ok","total_cost_usd":"0.0123","session_id":"s"}` + "\n"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned), nil), nil)
+	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned), nil), nil, nil)
 	if err != nil {
 		t.Fatalf("drifted result line must still terminate the turn: %v", err)
 	}

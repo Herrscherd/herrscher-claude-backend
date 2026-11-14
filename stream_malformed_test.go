@@ -10,7 +10,7 @@ func TestReadTurnSkipsMalformedLines(t *testing.T) {
 	stream := "not json at all\n" +
 		`{"type":"result","is_error":false,"result":"hello","session_id":"s1"}` + "\n"
 	lines := startLineReader(strings.NewReader(stream), nil)
-	turn, err := readTurn(context.Background(), lines, nil)
+	turn, err := readTurn(context.Background(), lines, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
