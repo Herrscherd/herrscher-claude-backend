@@ -38,10 +38,12 @@ and speaks stream-json over stdin and stdout, so context, tools and cost
 accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
 restarts with `--resume <session id>`, and retries once. The retry resends the
 prompt, so a turn that the CLI had already acted on before the process died can
-run twice. A stream line over 16 MiB (`ErrStreamLineTooLong`) or an event that
-no longer decodes (`ErrStreamDrift`) ends the turn with an error and is never
-retried: the CLI may already have acted on the turn, and resending the prompt
-would duplicate it. Once a line is complete, the reader holds at most 16 MiB of
+run twice. Once the responder is closed, every `Respond` returns
+`ErrResponderClosed` without starting a process. A stream line over 16 MiB
+(`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`)
+ends the turn with an error and is never retried: the CLI may already have
+acted on the turn, and resending the prompt would duplicate it. Once a line
+is complete, the reader holds at most 16 MiB of
 it; while the next line is being read, it grows up to 16 MiB too, and the 4 KiB
 read buffer is held in addition. An over-bound line is reported at most 4 KiB
 past the bound: at the first line end after the bound, when the 4 KiB read

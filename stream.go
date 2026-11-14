@@ -544,6 +544,7 @@ type streamResponder struct {
 	resumeID string
 	mu       sync.Mutex
 	sess     *streamSession
+	closed   bool
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
@@ -572,6 +573,9 @@ func (r *streamResponder) currentSessionID() string {
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.closed {
+		return "", ErrResponderClosed
+	}
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
 		return "", err
@@ -642,14 +646,20 @@ func (r *streamResponder) NativeSkills() bool { return true }
 func (r *streamResponder) Close() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.sess != nil {
-		return r.sess.Close()
+	r.closed = true
+	if r.sess == nil {
+		return nil
 	}
-	return nil
+	closeErr := r.sess.Close()
+	r.sess = nil
+	return closeErr
 }
 
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
+
+// ErrResponderClosed matches a Respond call made after Close.
+var ErrResponderClosed = errors.New("claude responder is closed")
 
 var errTurnReported = newCatalogError(keyTurnFailed)
 
