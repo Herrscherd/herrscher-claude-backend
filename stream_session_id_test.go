@@ -20,6 +20,8 @@ const (
 	sessionResultWithoutIDLine = `{"type":"result","is_error":false,"result":"done"}`
 	sessionNumericIDTextLine   = `{"type":"assistant","session_id":42,"message":{"content":[{"type":"text","text":"partial"}]}}`
 	sessionResultOwnIDLine     = `{"type":"result","is_error":false,"result":"done","session_id":"sid-y"}`
+	sessionLaterIDTextLine     = `{"type":"assistant","session_id":"sid-z","message":{"content":[{"type":"text","text":"more"}]}}`
+	sessionNonLineTypeIDLine   = `{"type":5,"session_id":"sid-z"}`
 )
 
 func TestDeathAfterALineCarryingASessionIDResumesThatSession(t *testing.T) {
@@ -120,25 +122,64 @@ func TestTurnEndingWithoutSessionIDKeepsTheIDOfItsLines(t *testing.T) {
 	mustClose(t, r)
 }
 
-func TestResultSessionIDWinsOverTheIDOfItsEarlierLines(t *testing.T) {
+func TestSuccessfulTurnKeepsTheLatestTakingLineIDOrTheResultID(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name  string
+		lines string
+		want  string
+	}{
+		{"result without id keeps the id of the last taking line", sessionIDTextLine + "\n" + sessionLaterIDTextLine + "\n" + sessionResultWithoutIDLine, "sid-z"},
+		{"result id replaces the id of the earlier lines", sessionIDTextLine + "\n" + sessionResultOwnIDLine, "sid-y"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			log := filepath.Join(t.TempDir(), "prompts.log")
+			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+			r.sess = startShellSession(t, loggedPromptCLI(log, tc.lines))
+			r.spawn = func(id string) (*streamSession, error) {
+				t.Errorf("a successful turn must not restart the session (resume %q)", id)
+				return nil, errors.New("unexpected spawn")
+			}
+
+			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+			if err != nil {
+				t.Fatalf("Respond: %v", err)
+			}
+			if reply != "done" {
+				t.Fatalf("reply = %q, want %q", reply, "done")
+			}
+			if got := r.ResumeToken(); got != tc.want {
+				t.Fatalf("ResumeToken() = %q, want %q", got, tc.want)
+			}
+			mustClose(t, r)
+		})
+	}
+}
+
+func TestLineWithAnUndecodableTypeIsDriftAndItsIDIsNotRecorded(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "prompts.log")
-	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	r.sess = startShellSession(t, loggedPromptCLI(log, sessionIDTextLine+"\n"+sessionResultOwnIDLine))
+	r := newStreamResponder(context.Background(), nil, "", "conv-1", "", nil)
+	r.sess = startShellSession(t, loggedPromptCLI(log, sessionNonLineTypeIDLine))
+	var resumed []string
 	r.spawn = func(id string) (*streamSession, error) {
-		t.Errorf("a successful turn must not restart the session (resume %q)", id)
-		return nil, errors.New("unexpected spawn")
+		resumed = append(resumed, id)
+		return startShellSession(t, loggedPromptCLI(log, sessionResumedTurnEnd)), nil
 	}
 
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "first"}, nil); !errors.Is(err, ErrStreamDrift) {
+		t.Fatalf("first turn err = %v, want ErrStreamDrift", err)
+	}
+	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "second"}, nil)
 	if err != nil {
-		t.Fatalf("Respond: %v", err)
+		t.Fatalf("second turn: %v", err)
 	}
 	if reply != "done" {
-		t.Fatalf("reply = %q, want %q", reply, "done")
+		t.Fatalf("second turn reply = %q, want %q", reply, "done")
 	}
-	if got := r.ResumeToken(); got != "sid-y" {
-		t.Fatalf("ResumeToken() = %q, want %q: the result's id replaces the id of the lines before it", got, "sid-y")
+	if !slices.Equal(resumed, []string{"conv-1"}) {
+		t.Fatalf("restarted with resume ids %q, want [conv-1]: the id of a line that is not a taking line is not kept", resumed)
 	}
 	mustClose(t, r)
 }
