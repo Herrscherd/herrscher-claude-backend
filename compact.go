@@ -71,15 +71,15 @@ func compactReason(cause error) string {
 }
 
 func truncateRunes(text string, limit int) string {
-	cut := 0
-	runes := 0
+	keep := 0
+	count := 0
 	for offset := range text {
-		if runes == limit-1 {
-			cut = offset
+		if count == limit-1 {
+			keep = offset
 		}
-		runes++
-		if runes > limit {
-			return text[:cut] + "…"
+		count++
+		if count > limit {
+			return text[:keep] + "…"
 		}
 	}
 	return text
