@@ -161,11 +161,6 @@ func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 }
 
 func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
-	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
-	overBoundLine := func() io.Reader {
-		line, _ := lineSource(maxStreamLineBytes)
-		return line
-	}
 	for _, tc := range []struct {
 		name   string
 		stream io.Reader
@@ -173,8 +168,8 @@ func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
 	}{
 		{"drifted result", strings.NewReader(`{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n"), ErrStreamDrift},
 		{"drifted intermediate line", strings.NewReader(`{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"), ErrStreamDrift},
-		{"line over the size limit", io.MultiReader(strings.NewReader(assistantLine), overBoundLine()), ErrStreamLineTooLong},
-		{"line over the size limit before any event", overBoundLine(), ErrStreamLineTooLong},
+		{"line over the size limit", io.MultiReader(strings.NewReader(partialAssistantLine), overBoundLineSource()), ErrStreamLineTooLong},
+		{"line over the size limit before any event", overBoundLineSource(), ErrStreamLineTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &spyWriteCloser{}
@@ -252,10 +247,6 @@ func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
 const partialAssistantLine = `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
 
 func TestRetryStopsAfterOneRetry(t *testing.T) {
-	overBoundRetry := func() io.Reader {
-		line, _ := lineSource(maxStreamLineBytes)
-		return line
-	}
 	plainEndRetry := func() io.Reader { return strings.NewReader(partialAssistantLine) }
 	for _, tc := range []struct {
 		name  string
@@ -263,7 +254,7 @@ func TestRetryStopsAfterOneRetry(t *testing.T) {
 		want  error
 		kinds []string
 	}{
-		{"retry hits an over-bound line", overBoundRetry, ErrStreamLineTooLong, []string{"text", "reset"}},
+		{"retry hits an over-bound line", overBoundLineSource, ErrStreamLineTooLong, []string{"text", "reset"}},
 		{"retry ends at a plain end of stream after text", plainEndRetry, io.EOF, []string{"text", "reset", "text"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

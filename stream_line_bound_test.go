@@ -33,6 +33,11 @@ func lineSource(content int) (io.Reader, *repeatBytes) {
 	return io.MultiReader(body, strings.NewReader("\n")), body
 }
 
+func overBoundLineSource() io.Reader {
+	line, _ := lineSource(maxStreamLineBytes)
+	return line
+}
+
 func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
 	source, body := lineSource(2 * maxStreamLineBytes)
 	done := make(chan struct{})
