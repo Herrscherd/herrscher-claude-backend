@@ -87,11 +87,11 @@ func (h lineHead) takesTurn() bool {
 }
 
 func rawString(raw json.RawMessage) string {
-	var s string
-	if json.Unmarshal(raw, &s) != nil {
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
 		return ""
 	}
-	return s
+	return value
 }
 
 func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
