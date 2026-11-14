@@ -135,7 +135,8 @@ today. Its `Notice` is `compaction.done`, with no argument, and a failure is a
 cause, cut to 200 runes with `…` when longer. `Error()` keeps the full cause for
 the logs. A `Compact` interrupted by `Close`, or made after it, fails with
 `ErrResponderClosed` as its cause. The stream-ended text of a failed compaction
-is English, as its note is, because `CompactRequest` carries no language.
+is in the language of `CompactRequest.Session`, English when that language is
+unknown.
 
 `oneshot` has no session to compact and does not implement the port. The
 manifest flag covers the whole plugin, so for a `oneshot` instance the instance

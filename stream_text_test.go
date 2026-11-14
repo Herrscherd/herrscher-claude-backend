@@ -28,7 +28,7 @@ func turnTextDetails(t *testing.T, lines ...string) []string {
 	t.Helper()
 	canned := strings.Join(append(slices.Clone(lines), blockResultLine), "\n") + "\n"
 	var texts []string
-	_, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), func(e contracts.BackendEvent) {
+	_, err := readTurn(context.Background(), startLineReader(strings.NewReader(canned), nil), nil, func(e contracts.BackendEvent) {
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
 		}

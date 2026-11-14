@@ -47,37 +47,47 @@ func TestResponderCloseTwiceReturnsNil(t *testing.T) {
 	}
 }
 
+type signalWriteCloser struct {
+	wrote chan struct{}
+}
+
+func (w signalWriteCloser) Write(p []byte) (int, error) {
+	select {
+	case w.wrote <- struct{}{}:
+	default:
+	}
+	return len(p), nil
+}
+
+func (signalWriteCloser) Close() error { return nil }
+
 func TestCloseWhileRespondIsInFlight(t *testing.T) {
 	t.Parallel()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	stream, feed := io.Pipe()
 	t.Cleanup(func() { mustClose(t, feed) })
-	r := newStreamResponder(ctx, nil, "", "", "", nil)
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	r.spawn = func(string) (*streamSession, error) {
 		t.Error("a responder must not spawn a process once it is closed")
 		return nil, errors.New("unexpected spawn")
 	}
-	r.sess = newStreamSession(&spyWriteCloser{}, stream)
+	wrote := make(chan struct{}, 1)
+	r.sess = newStreamSession(signalWriteCloser{wrote: wrote}, stream)
 
 	responded := make(chan error, 1)
 	go func() {
-		_, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
+		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
 		responded <- err
 	}()
-	closed := make(chan error, 1)
-	go func() { closed <- r.Close() }()
-	cancel()
-
-	if err := <-closed; err != nil {
+	awaitWithin(t, wrote, "the prompt reaching the CLI")
+	if err := r.Close(); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	if err := <-responded; !errors.Is(err, context.Canceled) && !errors.Is(err, ErrResponderClosed) {
-		t.Fatalf("in-flight Respond err = %v, want the context error or ErrResponderClosed", err)
+	if err := awaitWithin(t, responded, "Respond in flight during Close"); !errors.Is(err, ErrResponderClosed) {
+		t.Fatalf("in-flight Respond err = %v, want ErrResponderClosed", err)
 	}
 	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "again"}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
-		t.Fatalf("Respond after the racing Close: err = %v, want ErrResponderClosed", err)
+		t.Fatalf("Respond after Close: err = %v, want ErrResponderClosed", err)
 	}
 }
 

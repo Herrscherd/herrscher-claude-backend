@@ -218,12 +218,14 @@ type usage struct {
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 }
 
-func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent)) (turnResult, error) {
 	parser := newTurnParser()
 	for {
 		select {
 		case <-ctx.Done():
 			return turnResult{}, ctx.Err()
+		case <-done:
+			return turnResult{}, io.ErrClosedPipe
 		case ln, ok := <-lines:
 			turn, done, err := parser.consume(ln, ok, onEvent)
 			if err != nil || done {
@@ -515,16 +517,7 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if _, err = s.writeStdin(line); err != nil {
 		return turnResult{}, err
 	}
-	turnCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	go func() {
-		select {
-		case <-s.done:
-			cancel()
-		case <-turnCtx.Done():
-		}
-	}()
-	turn, err := readTurn(turnCtx, s.lines, onEvent)
+	turn, err := readTurn(ctx, s.lines, s.done, onEvent)
 	if err != nil {
 		return turn, err
 	}
@@ -714,7 +707,7 @@ func (r *streamResponder) Close() error {
 // ErrTurnFailed matches every turn that the claude CLI reported as failed.
 var ErrTurnFailed = errors.New("claude turn failed")
 
-// ErrResponderClosed matches a Respond call made after Close.
+// ErrResponderClosed matches a Respond or Compact call made after Close, and a turn that Close interrupted.
 var ErrResponderClosed = errors.New("claude responder is closed")
 
 var errTurnReported = newCatalogError(keyTurnFailed)

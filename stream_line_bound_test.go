@@ -91,7 +91,7 @@ func TestReadBoundedLineKeepsCapacityWithinBound(t *testing.T) {
 
 func TestReadTurnReadsFinalLineWithoutNewline(t *testing.T) {
 	stream := `{"type":"result","is_error":false,"result":"hello","session_id":"s1"}`
-	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(stream), nil), nil)
+	turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(stream), nil), nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

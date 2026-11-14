@@ -46,7 +46,7 @@ func TestReadTurnFailsWhenTheLineChannelCloses(t *testing.T) {
 	close(lines)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := readTurn(ctx, lines, nil)
+	_, err := readTurn(ctx, lines, nil, nil)
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("readTurn on a closed line channel: err = %v, want io.ErrUnexpectedEOF", err)
 	}
@@ -54,15 +54,29 @@ func TestReadTurnFailsWhenTheLineChannelCloses(t *testing.T) {
 
 func TestCompactNamesAStreamThatEndsMidTurn(t *testing.T) {
 	t.Parallel()
-	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine))
-	r.spawn = func(string) (*streamSession, error) {
-		return newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine)), nil
-	}
+	for _, tc := range []struct {
+		name    string
+		session i18n.Language
+		want    i18n.Language
+	}{
+		{"unknown session language", i18n.Language(0), i18n.English},
+		{"english", i18n.English, i18n.English},
+		{"french", i18n.French, i18n.French},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+			r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine))
+			r.spawn = func(string) (*streamSession, error) {
+				return newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine)), nil
+			}
 
-	_, err := r.Compact(context.Background(), contracts.CompactRequest{}, nil)
-	if !errors.Is(err, io.EOF) {
-		t.Fatalf("errors.Is(err, io.EOF) = false for %v", err)
+			req := contracts.CompactRequest{Session: contracts.SessionInfo{Language: tc.session}}
+			_, err := r.Compact(context.Background(), req, nil)
+			if !errors.Is(err, io.EOF) {
+				t.Fatalf("errors.Is(err, io.EOF) = false for %v", err)
+			}
+			assertUnavailableReason(t, err, mustRender(t, tc.want, keyTurnStreamEnded))
+		})
 	}
-	assertUnavailableReason(t, err, mustRender(t, i18n.English, keyTurnStreamEnded))
 }

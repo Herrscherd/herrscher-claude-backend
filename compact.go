@@ -5,7 +5,6 @@ import (
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
-	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 var (
@@ -43,7 +42,7 @@ func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequ
 	defer r.turnMu.Unlock()
 	turn, err := r.runTurn(ctx, compactMessage(req.Instruction), onEvent)
 	if err != nil {
-		return contracts.CompactResult{}, &compactUnavailableError{cause: localizeStreamEnd(i18n.English, err)}
+		return contracts.CompactResult{}, &compactUnavailableError{cause: localizeStreamEnd(req.Session.Language, err)}
 	}
 	if turn.IsError {
 		return contracts.CompactResult{}, &compactUnavailableError{cause: errFromTurn(turn, turn.SessionID, errTurnReported.Error())}
