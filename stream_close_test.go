@@ -249,64 +249,62 @@ func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
 	}
 }
 
+const partialAssistantLine = `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
+
 func TestRetryStopsAfterOneRetry(t *testing.T) {
-	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
+	overBoundRetry := func() io.Reader {
+		line, _ := lineSource(maxStreamLineBytes)
+		return line
+	}
+	plainEndRetry := func() io.Reader { return strings.NewReader(partialAssistantLine) }
 	for _, tc := range []struct {
 		name  string
 		retry func() io.Reader
 		want  error
 		kinds []string
 	}{
-		{
-			name: "retry hits an over-bound line",
-			retry: func() io.Reader {
-				line, _ := lineSource(maxStreamLineBytes)
-				return line
-			},
-			want:  ErrStreamLineTooLong,
-			kinds: []string{"text", "reset"},
-		},
-		{
-			name:  "retry ends at a plain end of stream after text",
-			retry: func() io.Reader { return strings.NewReader(assistantLine) },
-			want:  io.EOF,
-			kinds: []string{"text", "reset", "text"},
-		},
+		{"retry hits an over-bound line", overBoundRetry, ErrStreamLineTooLong, []string{"text", "reset"}},
+		{"retry ends at a plain end of stream after text", plainEndRetry, io.EOF, []string{"text", "reset", "text"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			first := &spyWriteCloser{}
-			second := &spyWriteCloser{}
-			spawns := 0
-			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-			r.sess = newStreamSession(first, strings.NewReader(assistantLine))
-			r.spawn = func(string) (*streamSession, error) {
-				spawns++
-				if spawns > 1 {
-					t.Error("a retry that fails must not start another attempt")
-					return nil, errors.New("unexpected spawn")
-				}
-				return newStreamSession(second, tc.retry()), nil
-			}
-			var kinds []string
-			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
-				kinds = append(kinds, e.Kind)
-			})
-			if !errors.Is(err, tc.want) {
-				t.Fatalf("err = %v, want %v", err, tc.want)
-			}
-			if !slices.Equal(kinds, tc.kinds) {
-				t.Fatalf("events = %v, want %v", kinds, tc.kinds)
-			}
-			if spawns != 1 {
-				t.Fatalf("spawned %d retries, want 1", spawns)
-			}
-			if first.writes != 1 || second.writes != 1 {
-				t.Fatalf("prompt written %d and %d times, want once per attempt", first.writes, second.writes)
-			}
-			if !first.closed {
-				t.Fatal("the abandoned attempt was left open")
-			}
-			requireSessionDropped(t, r, second)
+			requireRetryStops(t, tc.retry, tc.want, tc.kinds)
 		})
 	}
+}
+
+func requireRetryStops(t *testing.T, retry func() io.Reader, want error, wantKinds []string) {
+	t.Helper()
+	first := &spyWriteCloser{}
+	second := &spyWriteCloser{}
+	spawns := 0
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = newStreamSession(first, strings.NewReader(partialAssistantLine))
+	r.spawn = func(string) (*streamSession, error) {
+		spawns++
+		if spawns > 1 {
+			t.Error("a retry that fails must not start another attempt")
+			return nil, errors.New("unexpected spawn")
+		}
+		return newStreamSession(second, retry()), nil
+	}
+	var kinds []string
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+		kinds = append(kinds, e.Kind)
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("err = %v, want %v", err, want)
+	}
+	if !slices.Equal(kinds, wantKinds) {
+		t.Fatalf("events = %v, want %v", kinds, wantKinds)
+	}
+	if spawns != 1 {
+		t.Fatalf("spawned %d retries, want 1", spawns)
+	}
+	if first.writes != 1 || second.writes != 1 {
+		t.Fatalf("prompt written %d and %d times, want once per attempt", first.writes, second.writes)
+	}
+	if !first.closed {
+		t.Fatal("the abandoned attempt was left open")
+	}
+	requireSessionDropped(t, r, second)
 }
