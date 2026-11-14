@@ -435,6 +435,30 @@ func TestReadHistoryLeavesOutAnAPIErrorEntryAndKeepsTheRealReply(t *testing.T) {
 	}
 }
 
+func TestReadHistoryLetsTwoUserMessagesFollowWhenAnAPIErrorSitsBetweenThem(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`,
+		`{"type":"user","message":{"role":"user","content":"again"},"uuid":"u1","parentUuid":"a1"}`,
+	}, "\n") + "\n"
+	history, err := newTranscriptCaseWith(t, transcript).r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	want := []contracts.HistoryMessage{
+		{Role: contracts.RoleUser, Text: "go"},
+		{Role: contracts.RoleUser, Text: "again"},
+	}
+	if len(history.Messages) != len(want) {
+		t.Fatalf("ReadHistory returned %d messages, want %d: %+v", len(history.Messages), len(want), history.Messages)
+	}
+	for index := range want {
+		if got := history.Messages[index]; got.Role != want[index].Role || got.Text != want[index].Text {
+			t.Fatalf("message %d = %+v, want %+v", index, got, want[index])
+		}
+	}
+}
+
 func TestReadHistoryWithoutASessionIsEmpty(t *testing.T) {
 	r := newStreamResponder(t.Context(), nil, "", "", "", map[string]string{configDirVar: t.TempDir()})
 	history, err := r.ReadHistory(t.Context())

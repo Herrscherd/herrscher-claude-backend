@@ -139,7 +139,9 @@ between two of them; a user entry with real text ends the message.
 
 An assistant entry the CLI flags with `isApiErrorMessage` is left out, as the
 stream leaves its text out: a history has no role for an error, and the stream
-reports that error as the failure of its turn, not as a reply.
+reports that error as the failure of its turn, not as a reply. The omitted entry
+leaves no placeholder, so when a user entry follows it, two user messages can
+sit next to each other in the history.
 
 `PruneHistory` checks every edit first, against the contract and against the
 calls of that history, and changes nothing when one fails. It edits only
