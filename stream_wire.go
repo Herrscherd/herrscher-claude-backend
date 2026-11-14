@@ -9,6 +9,14 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
+const (
+	wireUser        = "user"
+	wireAssistant   = "assistant"
+	blockText       = "text"
+	blockToolUse    = "tool_use"
+	blockToolResult = "tool_result"
+)
+
 type contentBlock struct {
 	Type      string          `json:"type"`
 	Text      string          `json:"text"`

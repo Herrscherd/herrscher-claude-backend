@@ -9,12 +9,7 @@ import (
 )
 
 const (
-	wireUser        = "user"
-	wireAssistant   = "assistant"
-	blockText       = "text"
-	blockToolUse    = "tool_use"
-	blockToolResult = "tool_result"
-	stateActive     = "active"
+	stateActive = "active"
 
 	textBlockSeparator = "\n\n"
 )
