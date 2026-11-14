@@ -182,9 +182,16 @@ func toolDetail(input json.RawMessage) string {
 	return ""
 }
 
+type apiErrorFlag bool
+
+func (f *apiErrorFlag) UnmarshalJSON(data []byte) error {
+	*f = string(data) == "true"
+	return nil
+}
+
 type streamEvent struct {
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	IsAPIError   bool    `json:"isApiErrorMessage"`
+	TotalCostUSD float64      `json:"total_cost_usd"`
+	IsAPIError   apiErrorFlag `json:"isApiErrorMessage"`
 	Message      struct {
 		Content []contentBlock `json:"content"`
 		Usage   *usage         `json:"usage"`
