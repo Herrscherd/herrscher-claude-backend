@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os/exec"
 	"slices"
@@ -161,21 +162,24 @@ func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 
 func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
 	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
-	overBoundLine := strings.Repeat("a", maxStreamLineBytes) + "\n"
+	overBoundLine := func() io.Reader {
+		line, _ := lineSource(maxStreamLineBytes)
+		return line
+	}
 	for _, tc := range []struct {
 		name   string
-		stream string
+		stream io.Reader
 		want   error
 	}{
-		{"drifted result", `{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
-		{"drifted intermediate line", `{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n", ErrStreamDrift},
-		{"line over the size limit", assistantLine + overBoundLine, ErrStreamLineTooLong},
-		{"line over the size limit before any event", overBoundLine, ErrStreamLineTooLong},
+		{"drifted result", strings.NewReader(`{"type":"result","is_error":"false","result":"ok","session_id":"s"}` + "\n"), ErrStreamDrift},
+		{"drifted intermediate line", strings.NewReader(`{"type":7}` + "\n" + `{"type":"result","is_error":false,"result":"ok","session_id":"s"}` + "\n"), ErrStreamDrift},
+		{"line over the size limit", io.MultiReader(strings.NewReader(assistantLine), overBoundLine()), ErrStreamLineTooLong},
+		{"line over the size limit before any event", overBoundLine(), ErrStreamLineTooLong},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writer := &spyWriteCloser{}
 			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-			r.sess = newStreamSession(writer, strings.NewReader(tc.stream))
+			r.sess = newStreamSession(writer, tc.stream)
 			r.spawn = func(string) (*streamSession, error) {
 				t.Error("a stream that ends the turn must not restart the session")
 				return nil, errors.New("unexpected spawn")
