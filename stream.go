@@ -379,11 +379,26 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 }
 
 type resultControl struct {
-	Type      string `json:"type"`
-	Subtype   string `json:"subtype"`
-	IsError   bool   `json:"is_error"`
-	SessionID string `json:"session_id"`
-	Result    string `json:"result"`
+	Type      string          `json:"type"`
+	Subtype   string          `json:"subtype"`
+	IsError   bool            `json:"is_error"`
+	SessionID string          `json:"session_id"`
+	Result    string          `json:"result"`
+	Errors    json.RawMessage `json:"errors"`
+}
+
+func errorsDetail(raw json.RawMessage) string {
+	var messages []string
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		return ""
+	}
+	var kept []string
+	for _, message := range messages {
+		if message = strings.TrimSpace(message); message != "" {
+			kept = append(kept, message)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
@@ -414,6 +429,9 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	}
 	if control.IsError {
 		turn.ErrMsg = control.Result
+		if turn.ErrMsg == "" {
+			turn.ErrMsg = errorsDetail(control.Errors)
+		}
 	}
 	return turn, true, nil
 }
