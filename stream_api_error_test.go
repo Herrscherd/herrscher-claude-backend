@@ -13,8 +13,12 @@ import (
 
 const syntheticAPIErrorText = "API Error: rate limit reached"
 
+func apiErrorMessageLine(text string) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, text)
+}
+
 func apiErrorStream(text, result string) string {
-	return fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, text) + "\n" +
+	return apiErrorMessageLine(text) + "\n" +
 		fmt.Sprintf(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":%q,"session_id":"s"}`, result) + "\n"
 }
 
@@ -103,7 +107,7 @@ func TestRespondKeepsResultTextOverAPIErrorText(t *testing.T) {
 }
 
 func TestRespondSucceedsWhenAPIErrorMarkerPrecedesSuccessfulResult(t *testing.T) {
-	stream := fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, syntheticAPIErrorText) + "\n" +
+	stream := apiErrorMessageLine(syntheticAPIErrorText) + "\n" +
 		`{"type":"result","subtype":"success","is_error":false,"result":"PONG","session_id":"s"}` + "\n"
 	got, err := respondWithStream(t, stream, nil)
 	if err != nil {
@@ -116,8 +120,8 @@ func TestRespondSucceedsWhenAPIErrorMarkerPrecedesSuccessfulResult(t *testing.T)
 
 func TestRespondUsesLastNonEmptyAPIErrorText(t *testing.T) {
 	const older, newer = "API Error: first attempt", "API Error: second attempt"
-	stream := fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, older) + "\n" +
-		fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, newer) + "\n" +
+	stream := apiErrorMessageLine(older) + "\n" +
+		apiErrorMessageLine(newer) + "\n" +
 		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"thinking","thinking":"hmm"}]},"isApiErrorMessage":true,"session_id":"s"}` + "\n" +
 		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"","session_id":"s"}` + "\n"
 	_, err := respondWithStream(t, stream, nil)
