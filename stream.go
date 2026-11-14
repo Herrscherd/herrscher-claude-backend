@@ -387,7 +387,7 @@ type resultControl struct {
 	Errors    json.RawMessage `json:"errors"`
 }
 
-func errorsDetail(raw json.RawMessage) string {
+func joinedErrors(raw json.RawMessage) string {
 	var messages []string
 	if err := json.Unmarshal(raw, &messages); err != nil {
 		return ""
@@ -430,7 +430,7 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	if control.IsError {
 		turn.ErrMsg = control.Result
 		if strings.TrimSpace(turn.ErrMsg) == "" {
-			turn.ErrMsg = errorsDetail(control.Errors)
+			turn.ErrMsg = joinedErrors(control.Errors)
 		}
 	}
 	return turn, true, nil
