@@ -8,8 +8,6 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-const textBlockSeparator = "\n\n"
-
 func streamBase(fields []string) []string {
 	out := make([]string, 0, len(fields))
 	for _, field := range fields {
