@@ -36,12 +36,18 @@ It is never read from the daemon's own environment.
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
 accumulate across turns. A turn counts as taken by the CLI once the stream has
-carried any assistant or user line for it (text, thinking, tool use, tool result
-or usage), or a `system` line of subtype `init` or `api_retry`: the CLI writes
-those only after it has received the prompt. If the process dies before any line
-of the stream for the turn, the responder emits `{Kind:"reset"}`, restarts with
-`--resume <session id>`, and resends the prompt once. If it dies after a taken
-turn, or after that resend, the prompt is never resent: the
+carried one of its `assistant` or `user` lines (text, thinking, tool use, tool
+result or usage), or a `system` line of subtype `init` or `api_retry`. That list
+is closed: every other `system` line, such as the `hook_started` lines of hooks,
+and every line of an unknown type or that does not decode, leaves the turn not
+taken. The `init` subtype is measured: on the CLI 2.1.322, `init` comes only
+after the prompt has been received, while the SessionStart hook lines come
+before it, at startup, with stdin still empty, so counting them would drop the
+resend and lose the prompt. The `api_retry` subtype is deduced, not measured:
+it follows an API request, and that request carries the prompt. If the process
+dies before the turn is taken, the responder emits `{Kind:"reset"}`, restarts
+with `--resume <session id>`, and resends the prompt once. If it dies after a
+taken turn, or after that resend, the prompt is never resent: the
 turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
 language, says that the stream ended before the turn finished, and the text
 already rendered stays rendered. The dead process is dropped, and the next turn
@@ -49,11 +55,13 @@ restarts it with `--resume <session id>`, the last session id the stream showed.
 Every line of the stream that carries a `session_id`, for example `init`,
 `api_retry`, `assistant`, `user` or `result`, records it, even on a turn that
 then fails; a session that has shown none restarts with the id it was started
-with, if any. If the one resend also ends the stream before any line, the error
-is the same. One window stays open: a death after the CLI has read the prompt but
-before any line of the stream, where the single resend with `--resume` can put
-that prompt twice in the resumed history. No tool can run in that window, since a
-tool use always reaches the stream in an assistant line first. `Close` interrupts the turn in
+with, if any. If the one resend also ends the stream before the turn is taken,
+the error is the same. Two windows remain in which the single resend with
+`--resume` can put the prompt twice in the resumed history: a death after the
+CLI has read the prompt but before any line of the list above, and a death after
+a line outside that list that the CLI wrote once it had read the prompt. No tool
+can run in either window, since a tool use always reaches the stream in an
+assistant line first, and that line is taken. `Close` interrupts the turn in
 flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
