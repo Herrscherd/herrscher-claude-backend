@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -216,31 +215,6 @@ type usage struct {
 	OutputTokens             int `json:"output_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
-}
-
-type readLine struct {
-	data []byte
-	err  error
-}
-
-func startLineReader(source io.Reader, done <-chan struct{}) chan readLine {
-	lines := make(chan readLine, 1)
-	go func() {
-		defer close(lines)
-		reader := bufio.NewReader(source)
-		for {
-			data, err := reader.ReadBytes('\n')
-			select {
-			case lines <- readLine{data, err}:
-			case <-done:
-				return
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
-	return lines
 }
 
 func readTurn(ctx context.Context, lines <-chan readLine, onEvent func(contracts.BackendEvent)) (turnResult, error) {
@@ -621,7 +595,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	}
 	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
-		if errors.Is(err, ErrStreamDrift) || ctx.Err() != nil {
+		if errors.Is(err, ErrStreamDrift) || errors.Is(err, ErrStreamLineTooLong) || ctx.Err() != nil {
 			return turnResult{}, errors.Join(err, r.dropSession())
 		}
 		if onEvent != nil {
