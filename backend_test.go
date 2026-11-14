@@ -44,3 +44,27 @@ func TestClaudeBackendsAreSkillNative(t *testing.T) {
 		}
 	}
 }
+
+func TestNewBackendSelection(t *testing.T) {
+	if _, ok := mustBackend(t, Config{Kind: "oneshot", Cmd: "foo"}).(*oneShotResponder); !ok {
+		t.Fatal("oneshot backend should yield oneShotResponder")
+	}
+	if _, ok := mustBackend(t, Config{Kind: "stream", Cmd: "claude"}).(*streamResponder); !ok {
+		t.Fatal("stream backend should yield streamResponder")
+	}
+}
+
+func TestNewBackendOneshotRequiresCmd(t *testing.T) {
+	if _, err := NewBackend(context.Background(), Config{Kind: "oneshot"}); err == nil {
+		t.Fatal("oneshot backend with empty Cmd should error")
+	}
+}
+
+func mustBackend(t *testing.T, c Config) contracts.Backend {
+	t.Helper()
+	b, err := NewBackend(context.Background(), c)
+	if err != nil {
+		t.Fatalf("NewBackend(%+v): %v", c, err)
+	}
+	return b
+}
