@@ -9,8 +9,8 @@ import (
 var _ contracts.HistoryEditor = (*streamResponder)(nil)
 
 func (r *streamResponder) ReadHistory(ctx context.Context) (contracts.History, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.turnMu.Lock()
+	defer r.turnMu.Unlock()
 	read, err := r.loadTranscript(ctx, nil)
 	if err != nil {
 		return contracts.History{}, err
@@ -19,14 +19,14 @@ func (r *streamResponder) ReadHistory(ctx context.Context) (contracts.History, e
 }
 
 func (r *streamResponder) PruneHistory(ctx context.Context, edits []contracts.HistoryEdit) (contracts.PruneOutcome, error) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.turnMu.Lock()
+	defer r.turnMu.Unlock()
 	plan, err := r.planPrune(ctx, edits)
 	if err != nil || plan.outcome.Edited == 0 {
 		return plan.outcome, err
 	}
-	if r.sess != nil {
-		if dropErr := r.dropSession(); dropErr != nil {
+	if session := r.currentSession(); session != nil {
+		if dropErr := r.dropSession(session); dropErr != nil {
 			return contracts.PruneOutcome{}, dropErr
 		}
 		plan, err = r.planPrune(ctx, edits)
@@ -71,8 +71,8 @@ func (r *streamResponder) loadTranscript(ctx context.Context, keepResults map[st
 		return nil, err
 	}
 	sessionID := r.currentSessionID()
-	if r.sess != nil && r.sess.sessID != "" {
-		sessionID = r.sess.sessID
+	if session := r.currentSession(); session != nil && session.sessID != "" {
+		sessionID = session.sessID
 	}
 	if sessionID == "" {
 		return newHistoryBuilder(transcriptFile{}, nil, newChainIndex(), keepResults), nil
