@@ -43,19 +43,18 @@ wraps `io.EOF` and its text, in the prompt's language, says that the stream
 ended before the turn finished. `Close` interrupts the turn in flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
-line the reader has already received is rendered whole, with no error, even
-when `Close` arrives first: nothing is lost and nothing is replayed. Once the
-responder is closed,
-every `Respond` and `Compact` returns `ErrResponderClosed` without starting a
-process. The text of that error, like the stream-ended text, is in the prompt's
-language, English when it is unknown. Every `Close` returns only once the
-process it stopped is killed and reaped, so a second concurrent `Close` waits
-for the same teardown too. A spawn in flight when `Close` runs is reaped as soon
-as it returns; if it has not returned after 5 seconds, `Close` gives up and
-returns a teardown timeout error, and the spawn is still reaped when it does
-return. That error is meant for logs only: the herrscher host records it at debug
-level and never shows it to a user. A session
-that `install` replaces is killed, never left running. A stream line over 16 MiB
+line the reader has already received is rendered whole, with no error, even when
+`Close` arrives first: nothing is lost and nothing is replayed. Once the
+responder is closed, every `Respond` and `Compact` returns `ErrResponderClosed`
+without starting a process. The text of that error, like the stream-ended text,
+is in the prompt's language, English when it is unknown. Every `Close` returns
+only once the process it stopped is killed and reaped, so a second concurrent
+`Close` waits for the same teardown too. A spawn in flight when `Close` runs is
+reaped as soon as it returns; if it has not returned after 5 seconds, `Close`
+gives up and returns a teardown timeout error, and the spawn is still reaped
+when it does return. That error is meant for logs only: the herrscher host
+records it at debug level and never shows it to a user. A session that `install`
+replaces is killed, never left running. A stream line over 16 MiB
 (`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`)
 ends the turn with an error and is never retried: the CLI may already have acted
 on the turn, and resending the prompt would duplicate it. Once a line is
