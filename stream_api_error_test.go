@@ -102,6 +102,33 @@ func TestRespondKeepsResultTextOverAPIErrorText(t *testing.T) {
 	}
 }
 
+func TestRespondSucceedsWhenAPIErrorMarkerPrecedesSuccessfulResult(t *testing.T) {
+	stream := fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, syntheticAPIErrorText) + "\n" +
+		`{"type":"result","subtype":"success","is_error":false,"result":"PONG","session_id":"s"}` + "\n"
+	got, err := respondWithStream(t, stream, nil)
+	if err != nil {
+		t.Fatalf("a successful result must not fail the turn: %v", err)
+	}
+	if got != "PONG" {
+		t.Fatalf("reply = %q, want PONG", got)
+	}
+}
+
+func TestRespondUsesLastNonEmptyAPIErrorText(t *testing.T) {
+	const older, newer = "API Error: first attempt", "API Error: second attempt"
+	stream := fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, older) + "\n" +
+		fmt.Sprintf(`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":%q}]},"isApiErrorMessage":true,"session_id":"s"}`, newer) + "\n" +
+		`{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"thinking","thinking":"hmm"}]},"isApiErrorMessage":true,"session_id":"s"}` + "\n" +
+		`{"type":"result","subtype":"error_during_execution","is_error":true,"result":"","session_id":"s"}` + "\n"
+	_, err := respondWithStream(t, stream, nil)
+	if err == nil {
+		t.Fatal("expected the API error to fail the turn")
+	}
+	if err.Error() != newer {
+		t.Fatalf("error = %q, want the last API error detail %q", err.Error(), newer)
+	}
+}
+
 func TestReadTurnReadsModelTextWhenAPIErrorMarkerIsUnexpected(t *testing.T) {
 	cases := []struct {
 		name   string
