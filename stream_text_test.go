@@ -88,7 +88,7 @@ func TestAPIErrorBlocksAreNotCountedAsEmittedText(t *testing.T) {
 	assertTextDetails(t, got, []string{"Voici."})
 }
 
-func TestFirstTextAfterAResetHasNoSeparator(t *testing.T) {
+func TestRetriedAttemptFirstTextHasNoSeparator(t *testing.T) {
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	r.sess = newStreamSession(discardWriteCloser{}, strings.NewReader(""))
 	r.spawn = func(string) (*streamSession, error) {

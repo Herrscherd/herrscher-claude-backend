@@ -19,6 +19,7 @@ const (
 	sessionIDTextLine          = `{"type":"assistant","session_id":"sid-x","message":{"content":[{"type":"text","text":"partial"}]}}`
 	sessionResultWithoutIDLine = `{"type":"result","is_error":false,"result":"done"}`
 	sessionNumericIDTextLine   = `{"type":"assistant","session_id":42,"message":{"content":[{"type":"text","text":"partial"}]}}`
+	sessionResultOwnIDLine     = `{"type":"result","is_error":false,"result":"done","session_id":"sid-y"}`
 )
 
 func TestDeathAfterALineCarryingASessionIDResumesThatSession(t *testing.T) {
@@ -115,6 +116,29 @@ func TestTurnEndingWithoutSessionIDKeepsTheIDOfItsLines(t *testing.T) {
 	}
 	if got := r.ResumeToken(); got != "sid-x" {
 		t.Fatalf("ResumeToken() = %q, want %q: the id of the lines before the result", got, "sid-x")
+	}
+	mustClose(t, r)
+}
+
+func TestResultSessionIDWinsOverTheIDOfItsEarlierLines(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "prompts.log")
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = startShellSession(t, loggedPromptCLI(log, sessionIDTextLine+"\n"+sessionResultOwnIDLine))
+	r.spawn = func(id string) (*streamSession, error) {
+		t.Errorf("a successful turn must not restart the session (resume %q)", id)
+		return nil, errors.New("unexpected spawn")
+	}
+
+	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	if err != nil {
+		t.Fatalf("Respond: %v", err)
+	}
+	if reply != "done" {
+		t.Fatalf("reply = %q, want %q", reply, "done")
+	}
+	if got := r.ResumeToken(); got != "sid-y" {
+		t.Fatalf("ResumeToken() = %q, want %q: the result's id replaces the id of the lines before it", got, "sid-y")
 	}
 	mustClose(t, r)
 }
