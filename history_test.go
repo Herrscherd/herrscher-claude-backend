@@ -329,6 +329,25 @@ func TestAssistantTextBlocksOfATurnAreSeparatedByAParagraphBreak(t *testing.T) {
 	}
 }
 
+func TestAssistantTextBlocksAreTrimmedLikeTheStream(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Je regarde.\n"}]},"uuid":"a1","parentUuid":"u0"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a"}}]},"uuid":"a2","parentUuid":"a1"}`,
+		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a3","parentUuid":"a2"}`,
+	}, "\n") + "\n"
+	history, err := newTranscriptCaseWith(t, transcript).r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory: %v", err)
+	}
+	if len(history.Messages) != 2 {
+		t.Fatalf("ReadHistory returned %d messages, want 2: %+v", len(history.Messages), history.Messages)
+	}
+	if got, want := history.Messages[1].Text, "Je regarde.\n\nVoici."; got != want {
+		t.Fatalf("assistant text = %q, want %q", got, want)
+	}
+}
+
 func TestReadHistoryWithoutASessionIsEmpty(t *testing.T) {
 	r := newStreamResponder(t.Context(), nil, "", "", "", map[string]string{configDirVar: t.TempDir()})
 	history, err := r.ReadHistory(t.Context())

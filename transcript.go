@@ -339,10 +339,11 @@ func joinText(have, more string) string {
 }
 
 func joinParagraphs(have, more string) string {
-	if strings.TrimSpace(more) == "" {
+	trimmed := strings.TrimSpace(more)
+	if trimmed == "" {
 		return have
 	}
-	return joinWith(textBlockSeparator, have, more)
+	return joinWith(textBlockSeparator, have, trimmed)
 }
 
 func joinWith(separator, have, more string) string {
