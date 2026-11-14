@@ -39,7 +39,11 @@ accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
 restarts with `--resume <session id>`, and retries once. A stream line over 16 MiB
 (`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`) ends
 the turn with an error and is never retried: the CLI may already have acted on the
-turn, and resending the prompt would duplicate it.
+turn, and resending the prompt would duplicate it. The reader holds at most 16 MiB
+plus 4 KiB of a line, and it reports an over-bound line once the CLI has written 4 KiB
+past the bound, at the end of the stream, or when the context of the turn is cancelled
+(the turn then ends with the context error). The `claude` process is killed and reaped
+in each case.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
