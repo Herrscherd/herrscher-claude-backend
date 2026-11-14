@@ -180,7 +180,7 @@ func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testi
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Contains(pruned, []byte(errorLine+"\n")) {
+			if !containsLine(pruned, errorLine) {
 				t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
 			}
 			want := "package\n" + fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(longResult())-7)
@@ -189,6 +189,15 @@ func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testi
 			}
 		})
 	}
+}
+
+func containsLine(content []byte, line string) bool {
+	for _, candidate := range strings.Split(string(content), "\n") {
+		if candidate == line {
+			return true
+		}
+	}
+	return false
 }
 
 func resultOfCall(t *testing.T, r *streamResponder, callID string) string {
