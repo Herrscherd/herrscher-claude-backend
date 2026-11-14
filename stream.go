@@ -654,7 +654,7 @@ var ErrTurnFailed = errors.New("claude turn failed")
 var errTurnReported = newCatalogError(keyTurnFailed)
 
 // ErrStreamDrift matches a stream event whose control fields no longer decode.
-// The turn is not retried: resending the prompt would duplicate it. ErrStreamLineTooLong gets the same treatment.
+// The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
 const maxErrorDetailRunes = 2000
