@@ -36,7 +36,7 @@ func lineSource(content int) (io.Reader, *repeatBytes) {
 }
 
 func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
-	source, body := lineSource(maxStreamLineBytes + 2*lineReadSlack)
+	source, body := lineSource(maxStreamLineBytes + lineReadSlack)
 	done := make(chan struct{})
 	defer close(done)
 	lines := startLineReader(source, done)
