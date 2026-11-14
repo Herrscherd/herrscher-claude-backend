@@ -223,6 +223,7 @@ type readLine struct {
 const maxStreamLineBytes = 16 << 20
 
 // ErrStreamLineTooLong matches a stream line that does not end within the size limit.
+// The turn is not retried: the CLI may already have acted on the lines before it.
 var ErrStreamLineTooLong = errors.New("claude stream line exceeds the size limit")
 
 func readBoundedLine(reader *bufio.Reader) ([]byte, error) {
@@ -641,7 +642,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	}
 	turn, err := r.sess.Send(ctx, content, onEvent)
 	if err != nil {
-		if errors.Is(err, ErrStreamDrift) || ctx.Err() != nil {
+		if errors.Is(err, ErrStreamDrift) || errors.Is(err, ErrStreamLineTooLong) || ctx.Err() != nil {
 			return turnResult{}, errors.Join(err, r.dropSession())
 		}
 		if onEvent != nil {
@@ -700,7 +701,7 @@ var ErrTurnFailed = errors.New("claude turn failed")
 var errTurnReported = newCatalogError(keyTurnFailed)
 
 // ErrStreamDrift matches a stream event whose control fields no longer decode.
-// The turn is not retried: resending the prompt would duplicate it.
+// The turn is not retried: resending the prompt would duplicate it. ErrStreamLineTooLong gets the same treatment.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
 const maxErrorDetailRunes = 2000

@@ -36,7 +36,10 @@ It is never read from the daemon's own environment.
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
 accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
-restarts with `--resume <session id>`, and retries once.
+restarts with `--resume <session id>`, and retries once. A stream line over 16 MiB
+(`ErrStreamLineTooLong`) or an event that no longer decodes (`ErrStreamDrift`) ends
+the turn with an error and is never retried: the CLI may already have acted on the
+turn, and resending the prompt would duplicate it.
 
 `oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
 the final argument and piped on stdin. It requires a non-empty command.
