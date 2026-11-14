@@ -20,6 +20,7 @@ const (
 	resendToolUseLine    = `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}]}}`
 	resendToolResultLine = `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}`
 	resendUsageLine      = `{"type":"assistant","message":{"content":[],"usage":{"input_tokens":3,"output_tokens":1}}}`
+	resendAPIRetryLine   = `{"type":"system","subtype":"api_retry","attempt":1,"session_id":"conv-1"}`
 	resendResultLine     = `{"type":"result","is_error":false,"result":"done","session_id":"conv-2"}`
 )
 
@@ -54,6 +55,7 @@ func TestRespondDoesNotResendAPromptTheCLIAlreadyTook(t *testing.T) {
 		{"tool use", resendToolUseLine},
 		{"tool result", resendToolResultLine},
 		{"usage", resendUsageLine},
+		{"api retry", resendAPIRetryLine},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
