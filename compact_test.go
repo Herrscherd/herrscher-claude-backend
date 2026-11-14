@@ -271,6 +271,7 @@ func TestCompactUnavailableCarriesItsReasonAsACode(t *testing.T) {
 		{name: "context cancelled", cancelled: true, reply: compactSuccessWithUsage, is: context.Canceled, wantReason: "context canceled"},
 		{name: "reason is the first non blank line", reply: resultLine(t, "\n  line one  \nline two"), is: ErrTurnFailed, wantReason: "line one", keeps: "line two"},
 		{name: "oversized multi line cause is cut to 200 runes", reply: resultLine(t, oversized), is: ErrTurnFailed, wantReason: strings.Repeat("x", 199) + "…", keeps: "second line"},
+		{name: "empty result falls back to the marked API error text", reply: apiErrorMessageLine(syntheticAPIErrorText) + "\n" + resultLine(t, ""), is: ErrTurnFailed, wantReason: syntheticAPIErrorText},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
