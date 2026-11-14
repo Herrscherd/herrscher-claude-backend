@@ -248,3 +248,41 @@ func TestRespondStopsProcessOnOverBoundLine(t *testing.T) {
 		t.Fatal("a session that ended on an over-bound line must not stay installed")
 	}
 }
+
+func TestRetryThatHitsOverBoundLineStopsAfterOneRetry(t *testing.T) {
+	assistantLine := `{"type":"assistant","message":{"content":[{"type":"text","text":"partial"}]}}` + "\n"
+	first := &spyWriteCloser{}
+	second := &spyWriteCloser{}
+	spawns := 0
+	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
+	r.sess = newStreamSession(first, strings.NewReader(assistantLine))
+	r.spawn = func(string) (*streamSession, error) {
+		spawns++
+		if spawns > 1 {
+			t.Error("a retry that hits an over-bound line must not start another attempt")
+			return nil, errors.New("unexpected spawn")
+		}
+		line, _ := lineSource(maxStreamLineBytes)
+		return newStreamSession(second, line), nil
+	}
+	var kinds []string
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+		kinds = append(kinds, e.Kind)
+	})
+	if !errors.Is(err, ErrStreamLineTooLong) {
+		t.Fatalf("err = %v, want ErrStreamLineTooLong", err)
+	}
+	if want := []string{"text", "reset"}; !slices.Equal(kinds, want) {
+		t.Fatalf("events = %v, want %v", kinds, want)
+	}
+	if spawns != 1 {
+		t.Fatalf("spawned %d retries, want 1", spawns)
+	}
+	if first.writes != 1 || second.writes != 1 {
+		t.Fatalf("prompt written %d and %d times, want once per attempt", first.writes, second.writes)
+	}
+	if !first.closed {
+		t.Fatal("the abandoned attempt was left open")
+	}
+	requireSessionDropped(t, r, second)
+}
