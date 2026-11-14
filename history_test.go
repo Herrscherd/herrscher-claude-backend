@@ -155,52 +155,54 @@ func assertKeyOrderKept(t *testing.T, path string) {
 
 func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testing.T) {
 	const errorLine = `{"type":"assistant","isApiErrorMessage":true,"message":{"id":"err","role":"assistant","model":"<synthetic>","content":[{"type":"text","text":"API Error: refused"}]},"uuid":"a1","parentUuid":"u0"}`
-	transcript := strings.Join([]string{
-		`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
-		errorLine,
-		`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a2","parentUuid":"a1"}`,
-		`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"` + longResult() + `"}]},"uuid":"u3","parentUuid":"a2"}`,
-		`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a4","parentUuid":"u3"}`,
-	}, "\n") + "\n"
-	fixture := newTranscriptCaseWith(t, transcript)
-	r, path := fixture.r, fixture.path
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
-	if err != nil || outcome.Edited != 1 {
-		t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
-	}
-	pruned, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Contains(pruned, []byte(errorLine+"\n")) {
-		t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
-	}
-	if got, want := resultOfToolUse(t, pruned, "t1"), "package\n"+fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(longResult())-7); got != want {
-		t.Fatalf("pruned result of t1 = %q, want %q", got, want)
+	for _, tc := range []struct {
+		name    string
+		content string
+	}{
+		{name: "string content", content: `"` + longResult() + `"`},
+		{name: "block content", content: `[{"type":"text","text":"` + longResult() + `"}]`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			transcript := strings.Join([]string{
+				`{"type":"user","message":{"role":"user","content":"go"},"uuid":"u0","parentUuid":null}`,
+				errorLine,
+				`{"type":"assistant","message":{"id":"m1","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"parser.go"}}]},"uuid":"a2","parentUuid":"a1"}`,
+				`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":` + tc.content + `}]},"uuid":"u3","parentUuid":"a2"}`,
+				`{"type":"assistant","message":{"id":"m2","role":"assistant","content":[{"type":"text","text":"Voici."}]},"uuid":"a4","parentUuid":"u3"}`,
+			}, "\n") + "\n"
+			fixture := newTranscriptCaseWith(t, transcript)
+			r, path := fixture.r, fixture.path
+			outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
+			if err != nil || outcome.Edited != 1 {
+				t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
+			}
+			pruned, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Contains(pruned, []byte(errorLine+"\n")) {
+				t.Fatalf("pruned transcript lacks the API error line byte for byte:\n%s", pruned)
+			}
+			want := "package\n" + fmt.Sprintf(prunedResultNote, utf8.RuneCountInString(longResult())-7)
+			if got := resultOfCall(t, r, "t1"); got != want {
+				t.Fatalf("pruned result of t1 = %q, want %q", got, want)
+			}
+		})
 	}
 }
 
-func resultOfToolUse(t *testing.T, transcript []byte, toolUseID string) string {
+func resultOfCall(t *testing.T, r *streamResponder, callID string) string {
 	t.Helper()
-	for line := range strings.SplitSeq(strings.TrimSpace(string(transcript)), "\n") {
-		var entry struct {
-			Message struct {
-				Content []struct {
-					ToolUseID string          `json:"tool_use_id"`
-					Content   json.RawMessage `json:"content"`
-				} `json:"content"`
-			} `json:"message"`
-		}
-		if json.Unmarshal([]byte(line), &entry) != nil {
-			continue
-		}
-		for _, block := range entry.Message.Content {
-			if block.ToolUseID == toolUseID {
-				return resultText(block.Content)
-			}
+	history, err := r.ReadHistory(t.Context())
+	if err != nil {
+		t.Fatalf("ReadHistory after prune: %v", err)
+	}
+	for _, call := range history.Calls() {
+		if call.ID == callID {
+			return call.Result
 		}
 	}
-	t.Fatalf("transcript holds no tool_result for %s", toolUseID)
+	t.Fatalf("history holds no call %s", callID)
 	return ""
 }
 
