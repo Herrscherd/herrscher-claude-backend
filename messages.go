@@ -25,6 +25,7 @@ const (
 	keyModelsTooMany         = "models.too_many_pages"
 	keyModelsRedirect        = "models.redirect"
 	keyTurnFailed            = "turn.failed"
+	keyTurnStreamEnded       = "turn.stream_ended"
 	keyUsageNoLogin          = "usage.no_oauth_login"
 	keyUsageExpired          = "usage.token_expired"
 	keyUsageRefused          = "usage.refused"

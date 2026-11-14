@@ -16,6 +16,7 @@ import (
 	"sync"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 const (
@@ -578,7 +579,7 @@ func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, 
 	}
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
-		return "", err
+		return "", localizeStreamEnd(prompt.Language, err)
 	}
 	if turn.IsError {
 		return turn.Text, errFromTurn(turn, turn.SessionID, localizedTurnFailure(prompt.Language))
@@ -662,6 +663,22 @@ var ErrTurnFailed = errors.New("claude turn failed")
 var ErrResponderClosed = errors.New("claude responder is closed")
 
 var errTurnReported = newCatalogError(keyTurnFailed)
+
+type streamEndedError struct {
+	text  string
+	cause error
+}
+
+func (e *streamEndedError) Error() string { return e.text }
+
+func (e *streamEndedError) Unwrap() error { return e.cause }
+
+func localizeStreamEnd(lang i18n.Language, err error) error {
+	if !errors.Is(err, io.EOF) {
+		return err
+	}
+	return &streamEndedError{text: newMessages().localized(lang, keyTurnStreamEnded), cause: err}
+}
 
 // ErrStreamDrift matches a stream event whose control fields no longer decode.
 // The turn is not retried: resending the prompt would duplicate it.

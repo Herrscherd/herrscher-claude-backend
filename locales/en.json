@@ -60,6 +60,11 @@
     "other": "claude reported an error"
   },
   {
+    "id": "turn.stream_ended",
+    "description": "A turn whose stream ended before the claude CLI finished it, after the retry",
+    "other": "claude stream ended before the turn finished"
+  },
+  {
     "id": "usage.no_oauth_login",
     "description": "The account has no claude.ai login whose usage limits can be read",
     "other": "no claude.ai login to read the usage limits from"

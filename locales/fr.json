@@ -60,6 +60,11 @@
     "other": "claude a signalé une erreur"
   },
   {
+    "id": "turn.stream_ended",
+    "description": "Un tour dont le flux s'est arrêté avant que la CLI claude ne l'achève, après la relance",
+    "other": "le flux claude s'est arrêté avant la fin du tour"
+  },
+  {
     "id": "usage.no_oauth_login",
     "description": "Le compte n'a aucune connexion claude.ai dont lire les limites d'usage",
     "other": "aucune connexion claude.ai dont lire les limites d'usage"

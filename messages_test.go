@@ -22,7 +22,7 @@ func allMessageKeys() []string {
 		keySettingCmd, keySettingModel, keySettingStream, keySettingDir, keySettingKind, keySettingEnv,
 		keyGatewayPairIncomplete,
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
-		keyTurnFailed,
+		keyTurnFailed, keyTurnStreamEnded,
 		keyUsageNoLogin, keyUsageExpired, keyUsageRefused, keyUsageUnknown, keyUsageLoginFile,
 	}
 }
