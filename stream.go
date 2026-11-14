@@ -26,7 +26,6 @@ const (
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"
 	stateActive     = "active"
-	modelSynthetic  = "<synthetic>"
 )
 
 func streamBase(fields []string) []string {
@@ -183,16 +182,11 @@ type streamEvent struct {
 	TotalCostUSD float64 `json:"total_cost_usd"`
 	IsAPIError   bool    `json:"isApiErrorMessage"`
 	Message      struct {
-		Model   string         `json:"model"`
 		Content []contentBlock `json:"content"`
 		Usage   *usage         `json:"usage"`
 	} `json:"message"`
 	Usage      *usage                `json:"usage"`
 	ModelUsage map[string]modelUsage `json:"modelUsage"`
-}
-
-func (e streamEvent) reportsAPIError() bool {
-	return e.IsAPIError || e.Message.Model == modelSynthetic
 }
 
 type modelUsage struct {
@@ -297,7 +291,7 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 		return
 	}
 	var event streamEvent
-	if !decodeOrSkip(line, &event) || event.reportsAPIError() {
+	if !decodeOrSkip(line, &event) || event.IsAPIError {
 		return
 	}
 	for _, b := range event.Message.Content {
