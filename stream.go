@@ -100,6 +100,7 @@ type turnResult struct {
 	SessionID   string
 	IsError     bool
 	ErrMsg      string
+	APIErrMsg   string
 	InTokens    int
 	OutTokens   int
 	CacheRead   int
@@ -116,7 +117,10 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 }
 
-type turnParser struct{ agents map[string]bool }
+type turnParser struct {
+	agents   map[string]bool
+	apiError string
+}
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
 
@@ -178,8 +182,16 @@ func toolDetail(input json.RawMessage) string {
 	return ""
 }
 
+type apiErrorFlag bool
+
+func (f *apiErrorFlag) UnmarshalJSON(data []byte) error {
+	*f = string(data) == "true"
+	return nil
+}
+
 type streamEvent struct {
-	TotalCostUSD float64 `json:"total_cost_usd"`
+	TotalCostUSD float64      `json:"total_cost_usd"`
+	IsAPIError   apiErrorFlag `json:"isApiErrorMessage"`
 	Message      struct {
 		Content []contentBlock `json:"content"`
 		Usage   *usage         `json:"usage"`
@@ -280,17 +292,23 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	case wireUser:
 		p.parseToolResults(line, onEvent)
 	case "result":
-		return parseResult(line, onEvent)
+		turn, done, err := parseResult(line, onEvent)
+		turn.APIErrMsg = p.apiError
+		return turn, done, err
 	}
 	return turnResult{}, false, nil
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
-	if onEvent == nil {
-		return
-	}
 	var event streamEvent
 	if !decodeOrSkip(line, &event) {
+		return
+	}
+	if event.IsAPIError {
+		p.recordAPIError(event.Message.Content)
+		return
+	}
+	if onEvent == nil {
 		return
 	}
 	for _, b := range event.Message.Content {
@@ -298,6 +316,18 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	}
 	if u := event.Message.Usage; u != nil {
 		onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
+	}
+}
+
+func (p *turnParser) recordAPIError(content []contentBlock) {
+	var texts []string
+	for _, b := range content {
+		if t := strings.TrimSpace(b.Text); b.Type == blockText && t != "" {
+			texts = append(texts, t)
+		}
+	}
+	if len(texts) > 0 {
+		p.apiError = strings.Join(texts, "\n")
 	}
 }
 
@@ -349,11 +379,26 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 }
 
 type resultControl struct {
-	Type      string `json:"type"`
-	Subtype   string `json:"subtype"`
-	IsError   bool   `json:"is_error"`
-	SessionID string `json:"session_id"`
-	Result    string `json:"result"`
+	Type      string          `json:"type"`
+	Subtype   string          `json:"subtype"`
+	IsError   bool            `json:"is_error"`
+	SessionID string          `json:"session_id"`
+	Result    string          `json:"result"`
+	Errors    json.RawMessage `json:"errors"`
+}
+
+func joinedErrors(raw json.RawMessage) string {
+	var messages []string
+	if err := json.Unmarshal(raw, &messages); err != nil {
+		return ""
+	}
+	var kept []string
+	for _, message := range messages {
+		if message = strings.TrimSpace(message); message != "" {
+			kept = append(kept, message)
+		}
+	}
+	return strings.Join(kept, "\n")
 }
 
 func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
@@ -384,6 +429,9 @@ func parseResult(line []byte, onEvent func(contracts.BackendEvent)) (turnResult,
 	}
 	if control.IsError {
 		turn.ErrMsg = control.Result
+		if strings.TrimSpace(turn.ErrMsg) == "" {
+			turn.ErrMsg = joinedErrors(control.Errors)
+		}
 	}
 	return turn, true, nil
 }
@@ -624,9 +672,17 @@ var errTurnReported = newCatalogError(keyTurnFailed)
 // The turn is not retried: resending the prompt would duplicate it.
 var ErrStreamDrift = errors.New("claude stream event does not match the protocol")
 
+const maxErrorDetailRunes = 2000
+
+func errorDetail(text string) string {
+	return truncateRunes(strings.TrimSpace(text), maxErrorDetailRunes)
+}
+
 func errFromTurn(turn turnResult, sessID, reported string) error {
-	if turn.ErrMsg != "" {
-		return &turnError{msg: turn.ErrMsg, sessID: sessID}
+	for _, candidate := range []string{turn.ErrMsg, turn.APIErrMsg} {
+		if msg := errorDetail(candidate); msg != "" {
+			return &turnError{msg: msg, sessID: sessID}
+		}
 	}
 	return &turnError{msg: reported, sessID: sessID}
 }

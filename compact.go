@@ -3,7 +3,6 @@ package claude
 import (
 	"context"
 	"strings"
-	"unicode/utf8"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
@@ -72,8 +71,16 @@ func compactReason(cause error) string {
 }
 
 func truncateRunes(text string, limit int) string {
-	if utf8.RuneCountInString(text) <= limit {
-		return text
+	keep := 0
+	count := 0
+	for offset := range text {
+		if count == limit-1 {
+			keep = offset
+		}
+		count++
+		if count > limit {
+			return text[:keep] + "…"
+		}
 	}
-	return string([]rune(text)[:limit-1]) + "…"
+	return text
 }
