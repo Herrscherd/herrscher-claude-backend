@@ -87,17 +87,17 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	}
 	turn, err := session.Send(ctx, content, onEvent)
 	if err != nil {
-		return r.retryTurn(ctx, session, content, onEvent, err)
+		return r.retryTurn(ctx, session, content, onEvent, turn, err)
 	}
 	r.publishSessionID(turn.SessionID)
 	return turn, nil
 }
 
-func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, content string, onEvent func(contracts.BackendEvent), cause error) (turnResult, error) {
+func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, content string, onEvent func(contracts.BackendEvent), failure turnResult, cause error) (turnResult, error) {
 	if r.isClosed() {
 		return turnResult{}, ErrResponderClosed
 	}
-	if errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil {
+	if failure.acted || errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil {
 		return turnResult{}, errors.Join(cause, r.dropSession(failed))
 	}
 	if onEvent != nil {

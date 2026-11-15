@@ -254,8 +254,8 @@ func TestRetryStopsAfterOneRetry(t *testing.T) {
 		want  error
 		kinds []string
 	}{
-		{"retry hits an over-bound line", overBoundLineSource, ErrStreamLineTooLong, []string{"text", "reset"}},
-		{"retry ends at a plain end of stream after text", plainEndRetry, io.EOF, []string{"text", "reset", "text"}},
+		{"retry hits an over-bound line", overBoundLineSource, ErrStreamLineTooLong, []string{"reset"}},
+		{"retry ends at a plain end of stream after text", plainEndRetry, io.EOF, []string{"reset", "text"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			requireRetryStops(t, tc.retry, tc.want, tc.kinds)
@@ -269,7 +269,7 @@ func requireRetryStops(t *testing.T, retry func() io.Reader, want error, wantKin
 	second := &spyWriteCloser{}
 	spawns := 0
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	r.sess = newStreamSession(first, strings.NewReader(partialAssistantLine))
+	r.sess = newStreamSession(first, strings.NewReader(""))
 	r.spawn = func(string) (*streamSession, error) {
 		spawns++
 		if spawns > 1 {

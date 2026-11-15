@@ -35,12 +35,54 @@ It is never read from the daemon's own environment.
 
 `stream`, the default, keeps one persistent `claude` process alive per session
 and speaks stream-json over stdin and stdout, so context, tools and cost
-accumulate across turns. If the process dies mid-turn it emits `{Kind:"reset"}`,
-restarts with `--resume <session id>`, and retries once. The retry resends the
-prompt, so a turn that the CLI had already acted on before the process died can
-run twice. If the restarted process also ends the stream mid-turn, the error
-wraps `io.EOF` and its text, in the prompt's language, says that the stream
-ended before the turn finished. `Close` interrupts the turn in flight: it kills
+accumulate across turns. A turn counts as taken by the CLI once the stream has
+carried an `assistant` or `user` line whose header decodes, whatever its
+content, or a `system` line of subtype `init` or `api_retry`. That list is
+closed: every other `system` line, such as the `hook_started` lines of hooks,
+and every line of an unknown type or that does not decode, leaves the turn not
+taken. Measured on the CLI 2.1.322: a fresh start, with stdin open and no prompt
+written, was killed after 10 seconds, and it wrote its SessionStart hook lines
+at startup and no `init` line, so the hook lines do not count. A fresh start
+of the same CLI that was given a prompt wrote its `init` line 67 ms after the
+prompt was written to stdin, so a line of that subtype takes the turn on a fresh
+start; that it is never written before the prompt is read is deduced. The `api_retry`
+subtype is deduced, not measured: it follows an API request, and that request
+carries the prompt. If the process
+dies before the turn is taken, the responder emits `{Kind:"reset"}`, restarts
+with `--resume <session id>`, and resends the prompt once. If it dies after a
+taken turn, or after that resend, the prompt is never resent: the
+turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
+language, says that the stream ended before the turn finished, and the text
+already rendered stays rendered. The dead process is dropped, and the next turn
+restarts it with `--resume <session id>`, the last session id recorded from the
+stream. A session id is recorded only from a line that takes the turn, or from
+the `result` line, and it is recorded even on a turn that then fails. The id of
+any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
+`session_id` on its `hook_started` lines, measured by a run killed before any
+prompt was written, and whether that session is already persisted when the
+hook runs is deduced, not measured, so resuming it could fail. The id of an
+`init` line is recorded, since that line is written once the prompt has been
+given (deduced, not measured); that the session is already persisted when it is
+written is deduced, not measured, the same as for a hook line. The difference is
+that `init` is written once the CLI has the prompt (deduced, not measured),
+while a hook line is written before. How the CLI answers a `--resume` on an id
+it has not persisted is not measured. A session that has recorded none restarts
+with the id it was started with, if any. If the one resend also ends the stream
+before the turn is taken, the error is the same. Two windows remain in which the
+single resend with `--resume` can put the prompt twice in the resumed history: a
+death after the CLI has read the prompt but before any line of the list above,
+and a death after a line outside that list that the CLI wrote once it had read
+the prompt. No tool can run in these two windows, since a tool use reaches the
+stream in an assistant line first and that line is taken; this is deduced, not
+measured.
+
+A third window would lose the prompt instead of doubling it. The order of the
+lines on `--resume` is not measured: if the CLI wrote `init` before reading the
+prompt, a death between the write of `init` and the read of the prompt would
+count as a taken turn and drop the resend.
+
+`Close` interrupts the turn in
+flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
 line the reader has already received is rendered whole, with no error, even when
@@ -78,13 +120,12 @@ the final argument and piped on stdin. It requires a non-empty command.
 
 A `text` event that follows another `text` event in the same attempt starts with
 `"\n\n"`, and the first text of an attempt has no prefix. Consumers concatenate the
-details as they arrive and add nothing between them. A `reset` ends the
-abandoned attempt, not the turn: the text emitted before it belongs to the
-abandoned attempt, and the text that follows it, from the retried attempt,
-starts a new sequence and has no prefix. A consumer that accumulates text must
-start a fresh accumulator on `reset`, or the abandoned attempt's text stays in
-front of the retry. After an over-bound line, the text already emitted stays with
-the consumer, with no `reset`, and the error follows it.
+details as they arrive and add nothing between them. A `reset` is emitted only
+before any text of the turn, so no text precedes it: without earlier text, there
+is nothing to throw away. The text that follows a `reset`, from the retried
+attempt, is the first text of that attempt and has no prefix. After an
+over-bound line, the text already emitted stays with the consumer, with no
+`reset`, and the error follows it.
 
 ## Resume and memory
 

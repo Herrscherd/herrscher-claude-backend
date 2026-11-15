@@ -22,12 +22,15 @@ type turnResult struct {
 	OutTokens   int
 	CacheRead   int
 	CacheCreate int
+	acted       bool
 }
 
 type turnParser struct {
 	agents      map[string]bool
 	apiError    string
 	textEmitted bool
+	acted       bool
+	sessionID   string
 }
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
@@ -37,16 +40,23 @@ func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, 
 	for {
 		select {
 		case <-ctx.Done():
-			return turnResult{}, ctx.Err()
+			return parser.progress(), ctx.Err()
 		case <-done:
-			return turnResult{}, io.ErrClosedPipe
+			return parser.progress(), io.ErrClosedPipe
 		case ln, ok := <-lines:
 			turn, finished, err := parser.consume(ln, ok, onEvent)
-			if err != nil || finished {
-				return turn, err
+			if err != nil {
+				return parser.progress(), err
+			}
+			if finished {
+				return turn, nil
 			}
 		}
 	}
+}
+
+func (p *turnParser) progress() turnResult {
+	return turnResult{acted: p.acted, SessionID: p.sessionID}
 }
 
 func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
@@ -65,10 +75,27 @@ func (p *turnParser) consume(line readLine, open bool, onEvent func(contracts.Ba
 	return turnResult{}, false, nil
 }
 
-func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
-	var head struct {
-		Type string `json:"type"`
+type lineHead struct {
+	Type      string          `json:"type"`
+	Subtype   json.RawMessage `json:"subtype"`
+	SessionID json.RawMessage `json:"session_id"`
+}
+
+func (h lineHead) isPromptTakingLine() bool {
+	subtype := stringOrEmpty(h.Subtype)
+	return subtype == subtypeInit || subtype == subtypeAPIRetry
+}
+
+func stringOrEmpty(raw json.RawMessage) string {
+	var value string
+	if json.Unmarshal(raw, &value) != nil {
+		return ""
 	}
+	return value
+}
+
+func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)) (turnResult, bool, error) {
+	var head lineHead
 	if err := json.Unmarshal(line, &head); err != nil {
 		var typeErr *json.UnmarshalTypeError
 		if errors.As(err, &typeErr) {
@@ -77,16 +104,36 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 		return turnResult{}, false, nil
 	}
 	switch head.Type {
+	case wireSystem:
+		if head.isPromptTakingLine() {
+			p.takeTurn(head.SessionID)
+		}
 	case wireAssistant:
+		p.takeTurn(head.SessionID)
 		p.parseAssistant(line, onEvent)
 	case wireUser:
+		p.takeTurn(head.SessionID)
 		p.parseToolResults(line, onEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
 		turn.APIErrMsg = p.apiError
+		if turn.SessionID == "" {
+			turn.SessionID = p.sessionID
+		}
 		return turn, done, err
 	}
 	return turnResult{}, false, nil
+}
+
+func (p *turnParser) takeTurn(sessionID json.RawMessage) {
+	p.acted = true
+	p.noteSessionID(sessionID)
+}
+
+func (p *turnParser) noteSessionID(raw json.RawMessage) {
+	if id := stringOrEmpty(raw); id != "" {
+		p.sessionID = id
+	}
 }
 
 func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendEvent)) {
