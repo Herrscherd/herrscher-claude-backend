@@ -151,7 +151,7 @@ func TestPruneHistoryKeepsWhatClaudeWritesWhileItCloses(t *testing.T) {
 	r.sess = startShellSession(t, "sleep 60")
 	r.sess.sessID = transcriptSessionID
 	r.sess.stdin = &closingAppend{WriteCloser: r.sess.stdin, path: fixture.path, t: t}
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
+	outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
 	if err != nil || outcome.Edited != 1 {
 		t.Fatalf("PruneHistory = %+v, %v, want the call pruned after claude closed", outcome, err)
 	}

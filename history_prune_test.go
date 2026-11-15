@@ -166,7 +166,7 @@ func TestPruneHistoryKillsTheLiveSessionBeforeWritingSoTheNextTurnResumes(t *tes
 	probe := &transcriptProbe{WriteCloser: r.sess.stdin, path: fixture.path}
 	r.sess.stdin = probe
 	claude := r.sess.cmd
-	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
+	if _, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
 		t.Fatalf("PruneHistory: %v", err)
 	}
 	if !probe.untouchedAtClose {
@@ -192,7 +192,7 @@ func TestPruneHistoryFailingAfterTheSessionDropKeepsTheIDForResume(t *testing.T)
 	if err := os.MkdirAll(filepath.Join(path+transcriptPreviousExt, "blocker"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); !errors.Is(err, ErrTranscriptBackup) {
+	if _, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); !errors.Is(err, ErrTranscriptBackup) {
 		t.Fatalf("PruneHistory error = %v, want ErrTranscriptBackup with its previous backup path taken", err)
 	}
 	if entries, err := os.ReadDir(filepath.Dir(path)); err != nil || len(entries) != 3 {

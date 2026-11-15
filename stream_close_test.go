@@ -57,10 +57,10 @@ func startShellSession(t *testing.T, script string) *streamSession {
 func TestStreamSessionCloseTwiceReturnsNil(t *testing.T) {
 	t.Parallel()
 	s := startShellSession(t, "sleep 60")
-	if err := s.Close(); err != nil {
+	if err := closeWithin(t, s); err != nil {
 		t.Fatalf("first Close returned %v, want nil after a kill", err)
 	}
-	if err := s.Close(); err != nil {
+	if err := closeWithin(t, s); err != nil {
 		t.Fatalf("second Close returned %v, want nil", err)
 	}
 }

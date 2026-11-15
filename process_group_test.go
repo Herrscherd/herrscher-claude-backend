@@ -117,19 +117,6 @@ func requireSetsid(t *testing.T) {
 	}
 }
 
-func closeWithin(t *testing.T, sess *streamSession) error {
-	t.Helper()
-	done := make(chan error, 1)
-	go func() { done <- sess.Close() }()
-	select {
-	case err := <-done:
-		return err
-	case <-time.After(descendantDeadline):
-		t.Fatal("Close did not return within 10 seconds")
-		return nil
-	}
-}
-
 func runCmdAsync(ctx context.Context, script string) <-chan cmdResult {
 	done := make(chan cmdResult, 1)
 	go func() {

@@ -120,7 +120,7 @@ func TestDropSessionAfterCloseStillReapsItsProcess(t *testing.T) {
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if err := r.dropSession(session); err != nil {
+	if err := returnWithin(t, "dropSession", func() error { return r.dropSession(session) }); err != nil {
 		t.Fatalf("dropSession after Close: %v", err)
 	}
 	if cli.cmd.ProcessState == nil {
@@ -157,7 +157,7 @@ func TestCloseFromTheResultEventKeepsTheTurnAndKillsTheProcess(t *testing.T) {
 	var closeErr error
 	onEvent := func(e contracts.BackendEvent) {
 		if e.Kind == "result" {
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		}
 	}
 	text, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
