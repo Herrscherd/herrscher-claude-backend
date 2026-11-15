@@ -24,6 +24,11 @@ func returnWithin[T any](t *testing.T, what string, call func() T) T {
 	}
 }
 
+func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
+	t.Helper()
+	return returnWithin(t, what, func() T { return <-ch })
+}
+
 func closeWithin(t *testing.T, sess *streamSession) error {
 	t.Helper()
 	return returnWithin(t, "Close", sess.Close)

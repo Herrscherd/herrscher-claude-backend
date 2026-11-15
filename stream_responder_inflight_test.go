@@ -64,18 +64,6 @@ func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	return session, nil
 }
 
-func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(5 * time.Second):
-		t.Fatalf("%s did not happen within 5 seconds", what)
-	}
-	var zero T
-	return zero
-}
-
 func TestCloseInterruptsATurnBlockedOnTheCLI(t *testing.T) {
 	t.Parallel()
 	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}

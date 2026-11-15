@@ -54,19 +54,31 @@ func escapedSpawnAndWait(pidFile string) string {
 	return "setsid sh -c 'echo $$ > " + pidFile + "; exec sleep 300' &\nwait"
 }
 
+func readPID(pidFile string) (int, error) {
+	raw, err := os.ReadFile(pidFile)
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(raw)))
+}
+
 func awaitDescendantPID(t *testing.T, pidFile string) int {
 	t.Helper()
 	deadline := time.Now().Add(descendantDeadline)
+	registered := false
 	for {
-		raw, readErr := os.ReadFile(pidFile)
+		pid, readErr := readPID(pidFile)
 		if readErr == nil {
-			if pid, convErr := strconv.Atoi(strings.TrimSpace(string(raw))); convErr == nil {
+			if !registered {
 				t.Cleanup(func() { killOwnedDescendant(t, pid) })
+				registered = true
+			}
+			if descendantRunning(t, pid) {
 				return pid
 			}
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("descendant pid never written to %s: %v", pidFile, readErr)
+			t.Fatalf("descendant never ran as %q within 10 seconds (pid file %s: %v)", descendantArgs, pidFile, readErr)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -126,17 +138,6 @@ func runCmdAsync(ctx context.Context, script string) <-chan cmdResult {
 	return done
 }
 
-func awaitRunCmd(t *testing.T, done <-chan cmdResult) cmdResult {
-	t.Helper()
-	select {
-	case res := <-done:
-		return res
-	case <-time.After(descendantDeadline):
-		t.Fatal("runCmd did not return within 10 seconds")
-		return cmdResult{}
-	}
-}
-
 func runProbeAsync(ctx context.Context, script string) <-chan probeResult {
 	done := make(chan probeResult, 1)
 	go func() {
@@ -145,17 +146,6 @@ func runProbeAsync(ctx context.Context, script string) <-chan probeResult {
 		done <- probeResult{report: report, ok: ok}
 	}()
 	return done
-}
-
-func awaitProbe(t *testing.T, done <-chan probeResult) probeResult {
-	t.Helper()
-	select {
-	case res := <-done:
-		return res
-	case <-time.After(descendantDeadline):
-		t.Fatal("runProbeCommand did not return within 10 seconds")
-		return probeResult{}
-	}
 }
 
 func TestStreamCloseKillsDescendants(t *testing.T) {
@@ -208,7 +198,7 @@ func TestOneshotCancelKillsDescendants(t *testing.T) {
 	descendant := awaitDescendantPID(t, pidFile)
 	cancel()
 	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
-	if res := awaitRunCmd(t, done); res.err == nil {
+	if res := awaitWithin(t, done, "runCmd"); res.err == nil {
 		t.Fatal("cancelled runCmd reported success")
 	}
 }
@@ -223,7 +213,7 @@ func TestOneshotCancelReturnsWhenDescendantEscapesGroup(t *testing.T) {
 	done := runCmdAsync(ctx, script)
 	awaitDescendantPID(t, pidFile)
 	cancel()
-	if res := awaitRunCmd(t, done); res.err == nil {
+	if res := awaitWithin(t, done, "runCmd"); res.err == nil {
 		t.Fatal("cancelled runCmd reported success")
 	}
 }
@@ -234,7 +224,7 @@ func TestOneshotNormalExitKillsDescendantAndKeepsOutput(t *testing.T) {
 	script := fakeClaudeScript(t, spawnAndExit(pidFile)+"\necho answer")
 	done := runCmdAsync(t.Context(), script)
 	descendant := awaitDescendantPID(t, pidFile)
-	res := awaitRunCmd(t, done)
+	res := awaitWithin(t, done, "runCmd")
 	if res.err != nil {
 		t.Fatalf("runCmd after a normal exit: %v", res.err)
 	}
@@ -254,7 +244,7 @@ func TestProbeCancelKillsDescendants(t *testing.T) {
 	descendant := awaitDescendantPID(t, pidFile)
 	cancel()
 	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
-	if res := awaitProbe(t, done); res.ok {
+	if res := awaitWithin(t, done, "runProbeCommand"); res.ok {
 		t.Fatal("cancelled probe reported a readable report")
 	}
 }
@@ -265,9 +255,66 @@ func TestProbeNormalExitKillsDescendants(t *testing.T) {
 	script := fakeClaudeScript(t, spawnAndExit(pidFile)+"\necho '{}'")
 	done := runProbeAsync(t.Context(), script)
 	descendant := awaitDescendantPID(t, pidFile)
-	res := awaitProbe(t, done)
+	res := awaitWithin(t, done, "runProbeCommand")
 	if !res.ok {
 		t.Fatal("probe after a normal exit did not read its report")
 	}
 	awaitDescendantGone(t, descendant, descendantDeadline)
+}
+
+const leaderGroupEnv = "HERRSCHER_TEST_LEADER_CHILD_PID_FILE"
+
+func TestLeaderLeavesItsGroupHelper(t *testing.T) {
+	pidFile := os.Getenv(leaderGroupEnv)
+	if pidFile == "" {
+		t.Skip("re-executed by TestCloseKillsALeaderThatLeftItsGroup only")
+	}
+	child := exec.CommandContext(t.Context(), "sleep", "300")
+	child.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if err := child.Start(); err != nil {
+		t.Fatalf("start child: %v", err)
+	}
+	if err := syscall.Setpgid(0, child.Process.Pid); err != nil {
+		t.Fatalf("join the child's group: %v", err)
+	}
+	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)+"\n"), 0o600); err != nil {
+		t.Fatalf("write child pid: %v", err)
+	}
+	time.Sleep(time.Hour)
+}
+
+func TestCloseKillsALeaderThatLeftItsGroup(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test binary: %v", err)
+	}
+	cmd := newGroupCommand(t.Context(), "sh", "-c", `exec "$0" "-test.run=^TestLeaderLeavesItsGroupHelper$"`, self)
+	cmd.Env = append(os.Environ(), leaderGroupEnv+"="+pidFile)
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin pipe: %v", err)
+	}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start leader: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := cmd.Process.Kill(); err != nil && !errors.Is(err, os.ErrProcessDone) {
+			t.Errorf("kill leader: %v", err)
+		}
+	})
+	sess := newStreamSession(stdin, stdout)
+	sess.cmd = cmd
+	awaitDescendantPID(t, pidFile)
+	if err := closeWithin(t, sess); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if cmd.ProcessState == nil {
+		t.Fatal("Close returned before the leader was reaped")
+	}
 }
