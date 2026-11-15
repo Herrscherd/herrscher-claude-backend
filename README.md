@@ -40,11 +40,13 @@ carried an `assistant` or `user` line whose header decodes, whatever its
 content, or a `system` line of subtype `init` or `api_retry`. That list is
 closed: every other `system` line, such as the `hook_started` lines of hooks,
 and every line of an unknown type or that does not decode, leaves the turn not
-taken. The `init` subtype is measured: on the CLI 2.1.322, `init` comes only
-after the prompt has been received, while the SessionStart hook lines come
-before it, at startup, with stdin still empty, so counting them would drop the
-resend and lose the prompt. The `api_retry` subtype is deduced, not measured:
-it follows an API request, and that request carries the prompt. If the process
+taken. Measured on the CLI 2.1.322: a fresh start, with stdin open and no prompt
+written, was killed after 10 seconds, and it wrote its SessionStart hook lines
+at startup and no `init` line, so the hook lines do not count. The `init`
+subtype is deduced, not measured: it is taken to be written only once the
+prompt has been read, so a line of that subtype takes the turn. The `api_retry`
+subtype is deduced, not measured: it follows an API request, and that request
+carries the prompt. If the process
 dies before the turn is taken, the responder emits `{Kind:"reset"}`, restarts
 with `--resume <session id>`, and resends the prompt once. If it dies after a
 taken turn, or after that resend, the prompt is never resent: the
@@ -63,9 +65,12 @@ resend also ends the stream before the turn is taken,
 the error is the same. Two windows remain in which the single resend with
 `--resume` can put the prompt twice in the resumed history: a death after the
 CLI has read the prompt but before any line of the list above, and a death after
-a line outside that list that the CLI wrote once it had read the prompt. No tool
-can run in either window, since a tool use always reaches the stream in an
-assistant line first, and that line is taken. `Close` interrupts the turn in
+a line outside that list that the CLI wrote once it had read the prompt. The
+order of the lines on `--resume` is not measured either: if the CLI wrote `init`
+before reading the prompt, a death between the two would count as a taken turn
+and drop the resend, so the prompt would be lost. No tool can run in these
+windows, since a tool use always reaches the stream in an assistant line first,
+and that line is taken. `Close` interrupts the turn in
 flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
