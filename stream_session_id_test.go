@@ -157,6 +157,43 @@ func TestSuccessfulTurnKeepsTheLatestTakingLineIDOrTheResultID(t *testing.T) {
 	}
 }
 
+func TestHookThenResultTurnNeverKeepsTheHookID(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name    string
+		priorID string
+		result  string
+		want    string
+	}{
+		{"result without id keeps the previous id", "conv-1", sessionResultWithoutIDLine, "conv-1"},
+		{"result without id and no previous id stays empty", "", sessionResultWithoutIDLine, ""},
+		{"result id wins over the previous id", "conv-1", sessionResultOwnIDLine, "sid-y"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			log := filepath.Join(t.TempDir(), "prompts.log")
+			r := newStreamResponder(context.Background(), nil, "", tc.priorID, "", nil)
+			r.sess = startShellSession(t, loggedPromptCLI(log, resendHookWithIDLine+"\n"+tc.result))
+			r.spawn = func(id string) (*streamSession, error) {
+				t.Errorf("a successful turn must not restart the session (resume %q)", id)
+				return nil, errors.New("unexpected spawn")
+			}
+
+			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+			if err != nil {
+				t.Fatalf("Respond: %v", err)
+			}
+			if reply != "done" {
+				t.Fatalf("reply = %q, want %q", reply, "done")
+			}
+			if got := r.ResumeToken(); got != tc.want {
+				t.Fatalf("ResumeToken() = %q, want %q: the session id of the hook line is never kept", got, tc.want)
+			}
+			mustClose(t, r)
+		})
+	}
+}
+
 func TestLineWithAnUndecodableTypeIsDriftAndItsIDIsNotRecorded(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "prompts.log")
