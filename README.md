@@ -353,8 +353,8 @@ go build ./...
 go test ./...
 ```
 
-Go 1.27.0, depending only on `herrscher-contracts`. `stream_live_test.go` is gated
-behind `CLAUDE_BACKEND_LIVE=1` and shells out to a real `claude`.
+Go 1.27.0, depending only on `herrscher-contracts`. `stream_live_test.go` is
+gated behind `CLAUDE_BACKEND_LIVE=1` and shells out to a real `claude`.
 
 ## Further reading
 
