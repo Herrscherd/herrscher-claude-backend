@@ -73,7 +73,7 @@ func awaitDescendantPID(t *testing.T, pidFile string) int {
 
 func descendantRunning(t *testing.T, pid int) bool {
 	t.Helper()
-	out, err := exec.Command("ps", "-o", "stat=,args=", "-p", strconv.Itoa(pid)).Output()
+	out, err := exec.CommandContext(context.WithoutCancel(t.Context()), "ps", "-o", "stat=,args=", "-p", strconv.Itoa(pid)).Output()
 	if _, exited := errors.AsType[*exec.ExitError](err); exited {
 		return false
 	}
