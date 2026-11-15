@@ -118,7 +118,7 @@ func TestLaterPrunesKeepTheOriginalAndReplaceOnePreviousBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		beforeLast = current
-		if outcome, pruneErr := r.PruneHistory(t.Context(), edits); pruneErr != nil || outcome.Edited != 1 {
+		if outcome, pruneErr := pruneWithin(t, r, edits); pruneErr != nil || outcome.Edited != 1 {
 			t.Fatalf("prune %d = %+v, %v, want one edit", index, outcome, pruneErr)
 		}
 	}

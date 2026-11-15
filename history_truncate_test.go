@@ -191,7 +191,7 @@ func TestPruneResultKeepsTheHeadAndTheTailOfAResult(t *testing.T) {
 	result := []rune(longResult())
 	const keep, keepTail = 7, 10
 	want := string(result[:keep]) + "\n" + fmt.Sprintf(prunedResultNote, len(result)-keep-keepTail) + "\n" + string(result[len(result)-keepTail:])
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: keep, KeepTail: keepTail}})
+	outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: keep, KeepTail: keepTail}})
 	if err != nil || outcome.Edited != 1 {
 		t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
 	}
@@ -215,7 +215,7 @@ func TestPruneResultWithATailCountsTheRunesOfTheHistory(t *testing.T) {
 	const keep, keepTail = 7, 10
 	note := []rune(fmt.Sprintf(prunedResultNote, len(result)-keep-keepTail))
 	keptResult := keep + 1 + len(note) + 1 + keepTail
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: keep, KeepTail: keepTail}})
+	outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: keep, KeepTail: keepTail}})
 	if err != nil {
 		t.Fatalf("PruneHistory: %v", err)
 	}
@@ -234,14 +234,14 @@ func TestPruneResultWithATailTwiceEditsNothingTheSecondTime(t *testing.T) {
 	fixture := newTranscriptCase(t)
 	r, path := fixture.r, fixture.path
 	edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 10, KeepTail: 5}}
-	if _, err := r.PruneHistory(t.Context(), edits); err != nil {
+	if _, err := pruneWithin(t, r, edits); err != nil {
 		t.Fatalf("first PruneHistory: %v", err)
 	}
 	once, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := r.PruneHistory(t.Context(), edits)
+	second, err := pruneWithin(t, r, edits)
 	if err != nil || second.Edited != 0 || second.CharsAfter != second.CharsBefore {
 		t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
 	}
@@ -254,7 +254,7 @@ func TestPruneResultWithATailTwiceEditsNothingTheSecondTime(t *testing.T) {
 func TestPruneResultKeepingTheWholeResultEditsNothing(t *testing.T) {
 	fixture := newTranscriptCase(t)
 	length := len([]rune(longResult()))
-	outcome, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: length - 10, KeepTail: 10}})
+	outcome, err := pruneWithin(t, fixture.r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: length - 10, KeepTail: 10}})
 	if err != nil || outcome.Edited != 0 {
 		t.Fatalf("PruneHistory = %+v, %v, want no edit", outcome, err)
 	}

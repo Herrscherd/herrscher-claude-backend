@@ -50,7 +50,7 @@ func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
 	if body.read > maxStreamLineBytes+lineReadBufferBytes {
 		t.Fatalf("read %d bytes of an over-bound line, want at most %d", body.read, maxStreamLineBytes+lineReadBufferBytes)
 	}
-	if reopened := returnWithin(t, "the line reader to stop", func() bool { _, open := <-lines; return open }); reopened {
+	if receivedMore := returnWithin(t, "the line reader to stop", func() bool { _, open := <-lines; return open }); receivedMore {
 		t.Fatal("the line reader kept going after the over-bound line")
 	}
 }

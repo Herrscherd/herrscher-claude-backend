@@ -63,14 +63,14 @@ func mustClose(t *testing.T, closer io.Closer) {
 	}
 }
 
-func respondWithin(ctx context.Context, t *testing.T, r *streamResponder, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
+func respondWithin(ctx context.Context, t *testing.T, b contracts.Backend, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	t.Helper()
 	type respondResult struct {
 		text string
 		err  error
 	}
 	res := returnWithin(t, "Respond", func() respondResult {
-		text, err := r.Respond(ctx, prompt, onEvent)
+		text, err := b.Respond(ctx, prompt, onEvent)
 		return respondResult{text: text, err: err}
 	})
 	return res.text, res.err
