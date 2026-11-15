@@ -81,7 +81,7 @@ type lineHead struct {
 	SessionID json.RawMessage `json:"session_id"`
 }
 
-func (h lineHead) takesTurn() bool {
+func (h lineHead) isPromptTakingLine() bool {
 	subtype := rawString(h.Subtype)
 	return subtype == subtypeInit || subtype == subtypeAPIRetry
 }
@@ -105,7 +105,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	}
 	switch head.Type {
 	case wireSystem:
-		if head.takesTurn() {
+		if head.isPromptTakingLine() {
 			p.takeTurn(head.SessionID)
 		}
 	case wireAssistant:
