@@ -70,7 +70,7 @@ func TestStreamSessionCloseAfterNormalExitReturnsNil(t *testing.T) {
 	s := startShellSession(t, "exit 0")
 	for range s.lines {
 	}
-	if err := s.Close(); err != nil {
+	if err := closeWithin(t, s); err != nil {
 		t.Fatalf("Close after a normal exit returned %v, want nil", err)
 	}
 }
@@ -84,7 +84,7 @@ func TestRespondClosesRestartedSessionWhenItsSendFails(t *testing.T) {
 		return newStreamSession(fresh, strings.NewReader("")), nil
 	}
 
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if !errors.Is(err, writeErr) {
 		t.Fatalf("err = %v, want the restarted session's write error", err)
 	}
@@ -110,7 +110,7 @@ func TestRespondLogsOldSessionCloseErrorOnRestart(t *testing.T) {
 		return newStreamSession(&spyWriteCloser{}, strings.NewReader(reply)), nil
 	}
 
-	got, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	got, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if err != nil {
 		t.Fatalf("Respond after a restart: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestStartLineReaderStopsOnceDone(t *testing.T) {
 
 func TestStreamSessionCloseStopsItsLineReader(t *testing.T) {
 	s := newStreamSession(&spyWriteCloser{}, endlessLines{})
-	if err := s.Close(); err != nil {
+	if err := closeWithin(t, s); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	requireLineReaderStopped(t, s.lines)
@@ -179,7 +179,7 @@ func TestRespondDoesNotResendAfterStreamDrift(t *testing.T) {
 				return nil, errors.New("unexpected spawn")
 			}
 			var kinds []string
-			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+			_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 				kinds = append(kinds, e.Kind)
 			})
 			if !errors.Is(err, tc.want) {
@@ -278,7 +278,7 @@ func requireRetryStops(t *testing.T, retry func() io.Reader, want error, wantKin
 		return newStreamSession(second, retry()), nil
 	}
 	var kinds []string
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 	})
 	if !errors.Is(err, want) {

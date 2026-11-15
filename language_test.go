@@ -171,7 +171,7 @@ func TestRunCmdLeavesSlashCommandsIntactInFrench(t *testing.T) {
 func TestCompactionNeverReceivesADirective(t *testing.T) {
 	r, sent := compactingResponder(t.Context(), successResult+successResult)
 	respondAll(t, r, contracts.Prompt{Content: "bonjour", Language: i18n.French})
-	if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil); err != nil {
+	if _, err := compactWithin(t.Context(), t, r, contracts.CompactRequest{}, nil); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
 	got := sentContents(t, sent)

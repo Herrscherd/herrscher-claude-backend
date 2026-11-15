@@ -110,7 +110,7 @@ func TestCloseFromResetCallbackDoesNotRespawn(t *testing.T) {
 	var closeErr error
 	onEvent := func(e contracts.BackendEvent) {
 		if e.Kind == "reset" {
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		}
 	}
 	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
@@ -138,7 +138,7 @@ func TestCloseFromATextEventDoesNotRetry(t *testing.T) {
 	onEvent := func(e contracts.BackendEvent) {
 		switch e.Kind {
 		case "text":
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		case "reset":
 			resets++
 		}

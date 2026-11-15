@@ -44,10 +44,10 @@ func TestDeathAfterALineCarryingASessionIDResumesThatSession(t *testing.T) {
 				return startShellSession(t, loggedPromptCLI(log, sessionResumedTurnEnd)), nil
 			}
 
-			if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "first"}, nil); !errors.Is(err, io.EOF) {
+			if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); !errors.Is(err, io.EOF) {
 				t.Fatalf("first turn err = %v, want the stream-ended error wrapping io.EOF", err)
 			}
-			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "second"}, nil)
+			reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, nil)
 			if err != nil {
 				t.Fatalf("second turn: %v", err)
 			}
@@ -74,7 +74,7 @@ func TestInitLineAloneCountsAsATakenTurn(t *testing.T) {
 	}
 
 	var kinds []string
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "first"}, func(e contracts.BackendEvent) {
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 	})
 	if !errors.Is(err, io.EOF) {
@@ -86,7 +86,7 @@ func TestInitLineAloneCountsAsATakenTurn(t *testing.T) {
 	if slices.Contains(kinds, "reset") {
 		t.Fatalf("events = %q, want no reset for a turn the CLI took", kinds)
 	}
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "second"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, nil)
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestTurnEndingWithoutSessionIDKeepsTheIDOfItsLines(t *testing.T) {
 		return nil, errors.New("unexpected spawn")
 	}
 
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestSuccessfulTurnKeepsTheLatestTakingLineIDOrTheResultID(t *testing.T) {
 				return nil, errors.New("unexpected spawn")
 			}
 
-			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+			reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 			if err != nil {
 				t.Fatalf("Respond: %v", err)
 			}
@@ -179,7 +179,7 @@ func TestHookThenResultTurnNeverKeepsTheHookID(t *testing.T) {
 				return nil, errors.New("unexpected spawn")
 			}
 
-			reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+			reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 			if err != nil {
 				t.Fatalf("Respond: %v", err)
 			}
@@ -205,10 +205,10 @@ func TestLineWithAnUndecodableTypeIsDriftAndItsIDIsNotRecorded(t *testing.T) {
 		return startShellSession(t, loggedPromptCLI(log, sessionResumedTurnEnd)), nil
 	}
 
-	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "first"}, nil); !errors.Is(err, ErrStreamDrift) {
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); !errors.Is(err, ErrStreamDrift) {
 		t.Fatalf("first turn err = %v, want ErrStreamDrift", err)
 	}
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "second"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, nil)
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestNonStringSessionIDOnANonResultLineIsIgnored(t *testing.T) {
 		return nil, errors.New("unexpected spawn")
 	}
 
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}

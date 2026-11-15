@@ -70,7 +70,7 @@ func TestRespondDoesNotResendAPromptTheCLIAlreadyTook(t *testing.T) {
 				return nil, errors.New("unexpected spawn")
 			}
 
-			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+			_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 			if !errors.Is(err, io.EOF) {
 				t.Fatalf("err = %v, want the stream-ended error wrapping io.EOF", err)
 			}
@@ -93,7 +93,7 @@ func TestRespondKeepsThePartialTextOfADeadTurn(t *testing.T) {
 	}
 
 	var kinds, texts []string
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi", Language: i18n.English}, func(e contracts.BackendEvent) {
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi", Language: i18n.English}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
@@ -121,7 +121,7 @@ func TestRespondResendsThePromptOnceWhenTheCLIDiesBeforeAnyEvent(t *testing.T) {
 	}
 
 	var kinds []string
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 	})
 	if err != nil {
@@ -152,7 +152,7 @@ func TestTextAfterAResetHasNoSeparator(t *testing.T) {
 	}
 
 	var kinds, texts []string
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
@@ -180,7 +180,7 @@ func TestHookLineAloneDoesNotCountAsATakenTurn(t *testing.T) {
 	}
 
 	var kinds []string
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 	})
 	if err != nil {
@@ -230,7 +230,7 @@ func assertHookLineIsNotResumed(t *testing.T, priorID string, wantResume []strin
 	}
 
 	var kinds []string
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
 		kinds = append(kinds, e.Kind)
 	})
 	if err != nil {
@@ -262,10 +262,10 @@ func TestTurnAfterADeathMidTurnResumesTheSession(t *testing.T) {
 		return startShellSession(t, loggedPromptCLI(log, resendResultLine)), nil
 	}
 
-	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "first"}, nil); !errors.Is(err, io.EOF) {
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); !errors.Is(err, io.EOF) {
 		t.Fatalf("first turn err = %v, want the stream-ended error wrapping io.EOF", err)
 	}
-	reply, err := r.Respond(context.Background(), contracts.Prompt{Content: "second"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, nil)
 	if err != nil {
 		t.Fatalf("second turn: %v", err)
 	}

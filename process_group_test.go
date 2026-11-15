@@ -291,7 +291,14 @@ func TestLeaderLeavesItsGroupHelper(t *testing.T) {
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)+"\n"), 0o600); err != nil {
 		t.Fatalf("write child pid: %v", err)
 	}
-	time.Sleep(time.Hour)
+	awaitParentExit(os.Getppid(), 2*time.Minute)
+}
+
+func awaitParentExit(parent int, limit time.Duration) {
+	deadline := time.Now().Add(limit)
+	for os.Getppid() == parent && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
 }
 
 func TestCloseKillsALeaderThatLeftItsGroup(t *testing.T) {

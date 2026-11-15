@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"context"
 	"io"
 	"testing"
 	"time"
@@ -57,7 +58,33 @@ func mustWriteString(t *testing.T, writer io.Writer, text string) {
 
 func mustClose(t *testing.T, closer io.Closer) {
 	t.Helper()
-	if err := closer.Close(); err != nil {
+	if err := returnWithin(t, "close", closer.Close); err != nil {
 		t.Errorf("close: %v", err)
 	}
+}
+
+func respondWithin(ctx context.Context, t *testing.T, r *streamResponder, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
+	t.Helper()
+	type respondResult struct {
+		text string
+		err  error
+	}
+	res := returnWithin(t, "Respond", func() respondResult {
+		text, err := r.Respond(ctx, prompt, onEvent)
+		return respondResult{text: text, err: err}
+	})
+	return res.text, res.err
+}
+
+func compactWithin(ctx context.Context, t *testing.T, r *streamResponder, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
+	t.Helper()
+	type compactResult struct {
+		result contracts.CompactResult
+		err    error
+	}
+	res := returnWithin(t, "Compact", func() compactResult {
+		result, err := r.Compact(ctx, req, onEvent)
+		return compactResult{result: result, err: err}
+	})
+	return res.result, res.err
 }
