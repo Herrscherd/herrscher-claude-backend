@@ -142,6 +142,32 @@ func TestRespondResendsThePromptOnceWhenTheCLIDiesBeforeAnyEvent(t *testing.T) {
 	mustClose(t, r)
 }
 
+func TestTextAfterAResetHasNoSeparator(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "prompts.log")
+	r := newStreamResponder(context.Background(), nil, "", "conv-1", "", nil)
+	r.sess = startShellSession(t, loggedPromptCLI(log, ""))
+	r.spawn = func(string) (*streamSession, error) {
+		return startShellSession(t, loggedPromptCLI(log, textBlockLine("Voici."))), nil
+	}
+
+	var kinds, texts []string
+	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, func(e contracts.BackendEvent) {
+		kinds = append(kinds, e.Kind)
+		if e.Kind == "text" {
+			texts = append(texts, e.Detail)
+		}
+	})
+	if !errors.Is(err, io.EOF) {
+		t.Fatalf("err = %v, want the stream-ended error wrapping io.EOF", err)
+	}
+	if want := []string{"reset", "text"}; !slices.Equal(kinds, want) {
+		t.Fatalf("events = %q, want %q", kinds, want)
+	}
+	assertTextDetails(t, texts, []string{"Voici."})
+	mustClose(t, r)
+}
+
 func TestHookLineAloneDoesNotCountAsATakenTurn(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "prompts.log")
