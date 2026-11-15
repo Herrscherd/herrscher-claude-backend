@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -138,14 +139,16 @@ func runProbeCommand(ctx context.Context, env []string, into any, binary string,
 	argv := probeArgv(binary, args...)
 	command := newGroupCommand(ctx, argv[0], argv[1:]...)
 	command.Env = env
-	out, runErr := command.Output()
+	var out bytes.Buffer
+	command.Stdout = &out
+	runErr := runGroup(command)
 	if ctx.Err() != nil {
 		return unreachable(contracts.HealthDegraded, reasonTimeout), false
 	}
 	if errors.Is(runErr, exec.ErrNotFound) || errors.Is(runErr, fs.ErrNotExist) {
 		return unreachable(contracts.HealthDown, reasonCLINotFound), false
 	}
-	if err := json.Unmarshal(out, into); err != nil {
+	if err := json.Unmarshal(out.Bytes(), into); err != nil {
 		return unreachable(contracts.HealthDown, reasonUnreadable), false
 	}
 	return contracts.ProbeReport{}, true

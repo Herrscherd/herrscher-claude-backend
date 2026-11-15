@@ -2,6 +2,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -107,9 +108,11 @@ func runCmd(ctx context.Context, cmdStr string, env map[string]string, prompt co
 	cmd := newGroupCommand(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Env = spawnEnv(os.Environ(), env)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return string(out), fmt.Errorf("oneshot backend %q: %w", fields[0], err)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := runGroup(cmd); err != nil {
+		return out.String(), fmt.Errorf("oneshot backend %q: %w", fields[0], err)
 	}
-	return string(out), nil
+	return out.String(), nil
 }
