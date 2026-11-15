@@ -224,6 +224,10 @@ func TestCloseGivesUpOnASpawnThatNeverReturns(t *testing.T) {
 	case <-time.After(teardownBound + 5*time.Second):
 		t.Fatal("Close did not give up within its bound while a spawn never returned")
 	}
+	releaseOnce()
+	if err := awaitWithin(t, responded, "Respond once its spawn is released"); err == nil {
+		t.Fatal("Respond returned nil although its spawn was released with an error")
+	}
 }
 
 type blockingCloser struct {
