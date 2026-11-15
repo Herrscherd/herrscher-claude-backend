@@ -42,9 +42,10 @@ closed: every other `system` line, such as the `hook_started` lines of hooks,
 and every line of an unknown type or that does not decode, leaves the turn not
 taken. Measured on the CLI 2.1.322: a fresh start, with stdin open and no prompt
 written, was killed after 10 seconds, and it wrote its SessionStart hook lines
-at startup and no `init` line, so the hook lines do not count. The `init`
-subtype is deduced, not measured: it is taken to be written only once the
-prompt has been read, so a line of that subtype takes the turn. The `api_retry`
+at startup and no `init` line, so the hook lines do not count. A fresh start
+of the same CLI that was given a prompt wrote its `init` line 67 ms after the
+prompt was written to stdin, so a line of that subtype takes the turn on a fresh
+start; that it is never written before the prompt is read is deduced. The `api_retry`
 subtype is deduced, not measured: it follows an API request, and that request
 carries the prompt. If the process
 dies before the turn is taken, the responder emits `{Kind:"reset"}`, restarts
