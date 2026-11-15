@@ -107,7 +107,7 @@ func TestCompactWrapsATurnError(t *testing.T) {
 func TestRespondReportsATurnError(t *testing.T) {
 	reply := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}` + "\n"
 	r, _ := compactingResponder(t.Context(), reply)
-	_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil)
+	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if !errors.Is(err, ErrTurnFailed) {
 		t.Fatalf("err = %v, want it to match ErrTurnFailed", err)
 	}
@@ -138,7 +138,7 @@ func TestCancelledContextSendsNothing(t *testing.T) {
 	})
 	t.Run("respond", func(t *testing.T) {
 		r, sent := compactingResponder(ctx, compactSuccessWithUsage)
-		if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); !errors.Is(err, context.Canceled) {
+		if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "hi"}, nil); !errors.Is(err, context.Canceled) {
 			t.Fatalf("Respond err = %v, want context.Canceled", err)
 		}
 		if sent.Len() != 0 {

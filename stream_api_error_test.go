@@ -28,7 +28,7 @@ func respondWithStream(t *testing.T, stream string, onEvent func(contracts.Backe
 	r.spawn = func(string) (*streamSession, error) {
 		return newStreamSession(discardWriteCloser{}, strings.NewReader(stream)), nil
 	}
-	return r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
+	return respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, onEvent)
 }
 
 func TestReadTurnDropsAPIErrorMessageContent(t *testing.T) {
