@@ -185,18 +185,10 @@ linters:
       - path: ^(cmd|tools)/
         linters: [gosec]
         text: "^G(304|703):"
-      - path: ^backend\.go$
+      - path: ^process_group\.go$
         linters: [gosec]
         text: "^G204:"
-        source: 'exec\.CommandContext\(ctx, fields\[0\], args\.\.\.\)'
-      - path: ^stream_session\.go$
-        linters: [gosec]
-        text: "^G204:"
-        source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
-      - path: ^health\.go$
-        linters: [gosec]
-        text: "^G204:"
-        source: 'exec\.CommandContext\(ctx, argv\[0\], argv\[1:\]\.\.\.\)'
+        source: 'exec\.CommandContext\(ctx, name, args\.\.\.\)'
 
 formatters:
   enable:

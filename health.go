@@ -20,7 +20,6 @@ const (
 	nativeLoginCommand  = "claude auth login"
 	profileLoginCommand = "herrscher account add claude "
 	probePrompt         = "Reply with the single word ok."
-	probeWaitDelay      = time.Second
 	reasonTimeout       = "timeout"
 	reasonCLINotFound   = "claude cli not found"
 	reasonUnreadable    = "unreadable claude output"
@@ -137,9 +136,8 @@ func cheapestModel() string {
 
 func runProbeCommand(ctx context.Context, env []string, into any, binary string, args ...string) (contracts.ProbeReport, bool) {
 	argv := probeArgv(binary, args...)
-	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	command := newGroupCommand(ctx, argv[0], argv[1:]...)
 	command.Env = env
-	command.WaitDelay = probeWaitDelay
 	out, runErr := command.Output()
 	if ctx.Err() != nil {
 		return unreachable(contracts.HealthDegraded, reasonTimeout), false

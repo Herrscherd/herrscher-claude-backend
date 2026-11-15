@@ -83,7 +83,7 @@ count as a taken turn and drop the resend.
 
 `Close` interrupts the turn in
 flight: it kills
-the `claude` process without waiting for the turn to end, and the `Respond` or
+the `claude` process and every process it started, without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
 line the reader has already received is rendered whole, with no error, even when
 `Close` arrives first: nothing is lost and nothing is replayed. Once the
@@ -108,7 +108,12 @@ in addition. An over-bound line is reported at most 4 KiB past the bound: at the
 first line end after the bound, when the 4 KiB read buffer fills with no line
 end, or at the end of the stream. If the context of the turn is cancelled before
 that, the turn ends with the context error and no over-bound finding is made.
-The `claude` process is killed and reaped in every case. The worst case is 40
+The `claude` process and its descendants are killed in every case, and the
+`claude` process is reaped. On Unix the `claude` process is started in its own
+process group and the whole group is killed, so a tool, MCP server or helper it
+spawned does not outlive the session; a descendant that calls `setsid` leaves
+the group and is not reached. On Windows only the `claude` process itself is
+killed, and its descendants can outlive it. The worst case is 40
 MiB of line buffers per session: while a line grows to its bound, the reader
 keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
 consumer's full line.

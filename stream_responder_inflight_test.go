@@ -46,7 +46,7 @@ func (w promptWriteCloser) Write(p []byte) (int, error) {
 
 func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	c.spawns.Add(1)
-	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", c.script)
+	cmd := newGroupCommand(c.t.Context(), "sh", "-c", c.script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -38,7 +37,7 @@ func (s *spyWriteCloser) Close() error {
 
 func startShellSession(t *testing.T, script string) *streamSession {
 	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "sh", "-c", script)
+	cmd := newGroupCommand(t.Context(), "sh", "-c", script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)

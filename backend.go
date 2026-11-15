@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"slices"
 	"strings"
 
@@ -105,7 +104,7 @@ func runCmd(ctx context.Context, cmdStr string, env map[string]string, prompt co
 	fields := strings.Fields(cmdStr)
 	content := turnContent(prompt)
 	args := append(slices.Clone(fields[1:]), content)
-	cmd := exec.CommandContext(ctx, fields[0], args...)
+	cmd := newGroupCommand(ctx, fields[0], args...)
 	cmd.Stdin = strings.NewReader(content)
 	cmd.Env = spawnEnv(os.Environ(), env)
 	out, err := cmd.CombinedOutput()
