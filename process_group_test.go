@@ -65,20 +65,25 @@ func readPID(pidFile string) (int, error) {
 func awaitDescendantPID(t *testing.T, pidFile string) int {
 	t.Helper()
 	deadline := time.Now().Add(descendantDeadline)
-	registered := false
 	for {
 		pid, readErr := readPID(pidFile)
 		if readErr == nil {
-			if !registered {
-				t.Cleanup(func() { killOwnedDescendant(t, pid) })
-				registered = true
-			}
-			if descendantRunning(t, pid) {
-				return pid
-			}
+			t.Cleanup(func() { killOwnedDescendant(t, pid) })
+			return pid
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("descendant never ran as %q within 10 seconds (pid file %s: %v)", descendantArgs, pidFile, readErr)
+			t.Fatalf("pid file %s never readable within 10 seconds: %v", pidFile, readErr)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func requireDescendantRunning(t *testing.T, pid int) {
+	t.Helper()
+	deadline := time.Now().Add(descendantDeadline)
+	for !descendantRunning(t, pid) {
+		if time.Now().After(deadline) {
+			t.Fatalf("descendant %d never ran as %q within 10 seconds", pid, descendantArgs)
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
@@ -157,11 +162,12 @@ func TestStreamCloseKillsDescendants(t *testing.T) {
 		t.Fatalf("startStreamSession: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := sess.Close(); err != nil {
+		if err := closeWithin(t, sess); err != nil {
 			t.Errorf("cleanup Close: %v", err)
 		}
 	})
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	if err := closeWithin(t, sess); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
@@ -179,11 +185,12 @@ func TestStreamContextCancelKillsDescendants(t *testing.T) {
 		t.Fatalf("startStreamSession: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := sess.Close(); err != nil {
+		if err := closeWithin(t, sess); err != nil {
 			t.Errorf("cleanup Close: %v", err)
 		}
 	})
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	cancel()
 	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 }
@@ -196,6 +203,7 @@ func TestOneshotCancelKillsDescendants(t *testing.T) {
 	t.Cleanup(cancel)
 	done := runCmdAsync(ctx, script)
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	cancel()
 	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 	if res := awaitWithin(t, done, "runCmd"); res.err == nil {
@@ -211,7 +219,7 @@ func TestOneshotCancelReturnsWhenDescendantEscapesGroup(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	done := runCmdAsync(ctx, script)
-	awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, awaitDescendantPID(t, pidFile))
 	cancel()
 	if res := awaitWithin(t, done, "runCmd"); res.err == nil {
 		t.Fatal("cancelled runCmd reported success")
@@ -224,6 +232,7 @@ func TestOneshotNormalExitKillsDescendantAndKeepsOutput(t *testing.T) {
 	script := fakeClaudeScript(t, spawnAndExit(pidFile)+"\necho answer")
 	done := runCmdAsync(t.Context(), script)
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	res := awaitWithin(t, done, "runCmd")
 	if res.err != nil {
 		t.Fatalf("runCmd after a normal exit: %v", res.err)
@@ -242,6 +251,7 @@ func TestProbeCancelKillsDescendants(t *testing.T) {
 	t.Cleanup(cancel)
 	done := runProbeAsync(ctx, script)
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	cancel()
 	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 	if res := awaitWithin(t, done, "runProbeCommand"); res.ok {
@@ -255,6 +265,7 @@ func TestProbeNormalExitKillsDescendants(t *testing.T) {
 	script := fakeClaudeScript(t, spawnAndExit(pidFile)+"\necho '{}'")
 	done := runProbeAsync(t.Context(), script)
 	descendant := awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, descendant)
 	res := awaitWithin(t, done, "runProbeCommand")
 	if !res.ok {
 		t.Fatal("probe after a normal exit did not read its report")
@@ -310,7 +321,7 @@ func TestCloseKillsALeaderThatLeftItsGroup(t *testing.T) {
 	})
 	sess := newStreamSession(stdin, stdout)
 	sess.cmd = cmd
-	awaitDescendantPID(t, pidFile)
+	requireDescendantRunning(t, awaitDescendantPID(t, pidFile))
 	if err := closeWithin(t, sess); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
