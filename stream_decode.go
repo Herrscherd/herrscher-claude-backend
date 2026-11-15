@@ -82,11 +82,11 @@ type lineHead struct {
 }
 
 func (h lineHead) isPromptTakingLine() bool {
-	subtype := rawString(h.Subtype)
+	subtype := stringOrEmpty(h.Subtype)
 	return subtype == subtypeInit || subtype == subtypeAPIRetry
 }
 
-func rawString(raw json.RawMessage) string {
+func stringOrEmpty(raw json.RawMessage) string {
 	var value string
 	if json.Unmarshal(raw, &value) != nil {
 		return ""
@@ -131,7 +131,7 @@ func (p *turnParser) takeTurn(sessionID json.RawMessage) {
 }
 
 func (p *turnParser) noteSessionID(raw json.RawMessage) {
-	if id := rawString(raw); id != "" {
+	if id := stringOrEmpty(raw); id != "" {
 		p.sessionID = id
 	}
 }
