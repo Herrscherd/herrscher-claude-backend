@@ -169,25 +169,23 @@ func TestCompactAndRespondNeverOverlap(t *testing.T) {
 
 	compactErr := make(chan error, 1)
 	respondErr := make(chan error, 1)
-	var wg sync.WaitGroup
-	wg.Go(func() {
-		_, err := compactWithin(t.Context(), t, r, contracts.CompactRequest{}, nil)
+	go func() {
+		_, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil)
 		compactErr <- err
-	})
+	}()
 	select {
 	case <-entered:
 	case <-time.After(5 * time.Second):
 		t.Fatal("Compact never reached spawn")
 	}
-	wg.Go(func() {
+	go func() {
 		_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil)
 		respondErr <- err
-	})
-	wg.Wait()
-	if err := <-compactErr; err != nil {
+	}()
+	if err := awaitWithin(t, compactErr, "Compact in flight"); err != nil {
 		t.Errorf("Compact: %v", err)
 	}
-	if err := <-respondErr; err != nil {
+	if err := awaitWithin(t, respondErr, "Respond in flight"); err != nil {
 		t.Errorf("Respond: %v", err)
 	}
 	if got := spawns.Load(); got != 1 {

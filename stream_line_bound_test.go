@@ -43,14 +43,14 @@ func TestStartLineReaderRejectsLineOverBound(t *testing.T) {
 	done := make(chan struct{})
 	defer close(done)
 	lines := startLineReader(source, done)
-	ln := <-lines
+	ln := awaitWithin(t, lines, "the first line")
 	if !errors.Is(ln.err, ErrStreamLineTooLong) {
 		t.Fatalf("err = %v, want ErrStreamLineTooLong", ln.err)
 	}
 	if body.read > maxStreamLineBytes+lineReadBufferBytes {
 		t.Fatalf("read %d bytes of an over-bound line, want at most %d", body.read, maxStreamLineBytes+lineReadBufferBytes)
 	}
-	if _, open := <-lines; open {
+	if reopened := returnWithin(t, "the line reader to stop", func() bool { _, open := <-lines; return open }); reopened {
 		t.Fatal("the line reader kept going after the over-bound line")
 	}
 }
@@ -59,7 +59,7 @@ func TestStartLineReaderRejectsLineOneByteOverBound(t *testing.T) {
 	source, _ := lineSource(maxStreamLineBytes)
 	done := make(chan struct{})
 	defer close(done)
-	ln := <-startLineReader(source, done)
+	ln := awaitWithin(t, startLineReader(source, done), "the first line")
 	if !errors.Is(ln.err, ErrStreamLineTooLong) {
 		t.Fatalf("err = %v, want ErrStreamLineTooLong for a line of %d bytes with its newline", ln.err, maxStreamLineBytes+1)
 	}
@@ -69,7 +69,7 @@ func TestStartLineReaderAcceptsLineAtBound(t *testing.T) {
 	source, _ := lineSource(maxStreamLineBytes - 1)
 	done := make(chan struct{})
 	defer close(done)
-	ln := <-startLineReader(source, done)
+	ln := awaitWithin(t, startLineReader(source, done), "the first line")
 	if ln.err != nil {
 		t.Fatalf("err = %v, want a line of exactly %d bytes accepted", ln.err, maxStreamLineBytes)
 	}
