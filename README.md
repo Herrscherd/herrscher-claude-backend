@@ -62,9 +62,10 @@ any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
 prompt was written, and whether that session is already persisted when the
 hook runs is deduced, not measured, so resuming it could fail. The id of an
 `init` line is recorded, since that line is written once the prompt has been
-given; that the session is already persisted when it is written is deduced, not
+given (deduced, not measured); that the session is already persisted when it is written is deduced, not
 measured, the same as for a hook line. The difference is that `init` is written
-once the CLI has the prompt, while a hook line is written before. How the CLI
+once the CLI has the prompt (deduced, not measured), while a hook line is
+written before. How the CLI
 answers a `--resume` on an id it has not persisted is not measured. A session that
 has recorded none restarts with the id it was started with, if any. If the one
 resend also ends the stream before the turn is taken,
