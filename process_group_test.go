@@ -18,8 +18,9 @@ import (
 )
 
 const (
-	descendantDeadline = 10 * time.Second
-	descendantArgs     = "sleep 300"
+	descendantDeadline     = 10 * time.Second
+	cancelTeardownDeadline = 500 * time.Millisecond
+	descendantArgs         = "sleep 300"
 )
 
 type cmdResult struct {
@@ -98,9 +99,9 @@ func killOwnedDescendant(t *testing.T, pid int) {
 	}
 }
 
-func awaitDescendantGone(t *testing.T, pid int) {
+func awaitDescendantGone(t *testing.T, pid int, within time.Duration) {
 	t.Helper()
-	deadline := time.Now().Add(descendantDeadline)
+	deadline := time.Now().Add(within)
 	for descendantRunning(t, pid) {
 		if time.Now().After(deadline) {
 			t.Fatalf("descendant %d survived the teardown", pid)
@@ -187,7 +188,7 @@ func TestStreamCloseKillsDescendants(t *testing.T) {
 	if err := closeWithin(t, sess); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
-	awaitDescendantGone(t, descendant)
+	awaitDescendantGone(t, descendant, descendantDeadline)
 }
 
 func TestStreamContextCancelKillsDescendants(t *testing.T) {
@@ -207,7 +208,7 @@ func TestStreamContextCancelKillsDescendants(t *testing.T) {
 	})
 	descendant := awaitDescendantPID(t, pidFile)
 	cancel()
-	awaitDescendantGone(t, descendant)
+	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 }
 
 func TestOneshotCancelKillsDescendants(t *testing.T) {
@@ -219,10 +220,10 @@ func TestOneshotCancelKillsDescendants(t *testing.T) {
 	done := runCmdAsync(ctx, script)
 	descendant := awaitDescendantPID(t, pidFile)
 	cancel()
+	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 	if res := awaitRunCmd(t, done); res.err == nil {
 		t.Fatal("cancelled runCmd reported success")
 	}
-	awaitDescendantGone(t, descendant)
 }
 
 func TestOneshotCancelReturnsWhenDescendantEscapesGroup(t *testing.T) {
@@ -253,7 +254,7 @@ func TestOneshotNormalExitKillsDescendantAndKeepsOutput(t *testing.T) {
 	if res.out != "answer\n" {
 		t.Fatalf("output = %q, want the answer", res.out)
 	}
-	awaitDescendantGone(t, descendant)
+	awaitDescendantGone(t, descendant, descendantDeadline)
 }
 
 func TestProbeCancelKillsDescendants(t *testing.T) {
@@ -265,10 +266,10 @@ func TestProbeCancelKillsDescendants(t *testing.T) {
 	done := runProbeAsync(ctx, script)
 	descendant := awaitDescendantPID(t, pidFile)
 	cancel()
+	awaitDescendantGone(t, descendant, cancelTeardownDeadline)
 	if res := awaitProbe(t, done); res.ok {
 		t.Fatal("cancelled probe reported a readable report")
 	}
-	awaitDescendantGone(t, descendant)
 }
 
 func TestProbeNormalExitKillsDescendants(t *testing.T) {
@@ -281,5 +282,5 @@ func TestProbeNormalExitKillsDescendants(t *testing.T) {
 	if !res.ok {
 		t.Fatal("probe after a normal exit did not read its report")
 	}
-	awaitDescendantGone(t, descendant)
+	awaitDescendantGone(t, descendant, descendantDeadline)
 }
