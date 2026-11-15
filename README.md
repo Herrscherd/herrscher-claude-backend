@@ -81,10 +81,10 @@ lines on `--resume` is not measured: if the CLI wrote `init` before reading the
 prompt, a death between the write of `init` and the read of the prompt would
 count as a taken turn and drop the resend.
 
-`Close` interrupts the turn in
-flight: it kills
-the `claude` process and every process it started, without waiting for the turn to end, and the `Respond` or
-`Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
+`Close` interrupts the turn in flight: it kills the `claude` process and, on
+Unix, every process still in its process group, without waiting for the turn to
+end. The `Respond` or `Compact` call then returns `ErrResponderClosed` with no
+retry. A turn whose `result`
 line the reader has already received is rendered whole, with no error, even when
 `Close` arrives first: nothing is lost and nothing is replayed. Once the
 responder is closed, every `Respond` and `Compact` returns `ErrResponderClosed`
@@ -108,12 +108,26 @@ in addition. An over-bound line is reported at most 4 KiB past the bound: at the
 first line end after the bound, when the 4 KiB read buffer fills with no line
 end, or at the end of the stream. If the context of the turn is cancelled before
 that, the turn ends with the context error and no over-bound finding is made.
-The `claude` process and its descendants are killed in every case, and the
-`claude` process is reaped. On Unix the `claude` process is started in its own
-process group and the whole group is killed, so a tool, MCP server or helper it
-spawned does not outlive the session; a descendant that calls `setsid` leaves
-the group and is not reached. On Windows only the `claude` process itself is
-killed, and its descendants can outlive it. The worst case is 40
+The `claude` process is always reaped once its session or turn ends. On Unix it
+is started as the leader of its own process group, and that group is killed on
+`Close`, when a oneshot turn is cancelled, and after a oneshot `claude` process
+exits. A tool, MCP server or helper it spawned that is still in the group does
+not outlive the session. A descendant that calls `setsid` leaves the group, is
+not reached, and can outlive the session. On Windows only the `claude` process
+itself is killed, and its descendants can outlive it.
+
+The group is signalled by its id after the leader has been reaped. If the group
+is already empty at that moment and another process group takes the same id
+before the signal, that group is signalled. Linux does not hand out an id while a
+live process group still uses it, so this window only exists once the group has
+emptied.
+
+Output pipes are read until they close, and the wait for them is bounded by
+`groupWaitDelay`, one second, after the `claude` process exits or is cancelled.
+A oneshot turn whose process exits successfully while a descendant still holds
+its stdout open keeps the output it has read and returns no error. Such a turn
+returns about one second after the exit, then the group is killed. The health
+probe has the same one-second bound. The worst case is 40
 MiB of line buffers per session: while a line grows to its bound, the reader
 keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
 consumer's full line.
@@ -316,6 +330,22 @@ own: its deadline is the context of the caller.
 The endpoint is not a documented API: its shape is the one the claude CLI reads,
 and the CLI itself marks it experimental. `Models` on a result event comes from
 the `modelUsage` of the result message, one entry per model of the turn.
+
+## Security
+
+Every process this backend starts goes through `newGroupCommand` in
+`process_group.go`. Its contract is that it runs only commands the operator
+configured: the program name and the configured arguments of `CLAUDE_CMD`, of
+the stream command and of the health probe. Turn content is never the program
+name. A oneshot turn passes its content as the last argument element and on
+stdin, so the contract covers the program name and the configured arguments,
+not the values of the arguments that carry the turn.
+
+Because of this contract, gosec rule G204 (command started with variable
+arguments) is excluded for `process_group.go` only. Its callers, `runCmd`, the
+stream session and the health probe, are no longer checked by G204, so a future
+caller that builds the program name from turn content would not be flagged by
+the linter. Such a change must be refused in review.
 
 ## Build and test
 
