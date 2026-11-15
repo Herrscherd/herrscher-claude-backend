@@ -62,19 +62,19 @@ any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
 prompt was written, and whether that session is already persisted when the
 hook runs is deduced, not measured, so resuming it could fail. The id of an
 `init` line is recorded, since that line is written once the prompt has been
-given (deduced, not measured); that the session is already persisted when it is written is deduced, not
-measured, the same as for a hook line. The difference is that `init` is written
-once the CLI has the prompt (deduced, not measured), while a hook line is
-written before. How the CLI
-answers a `--resume` on an id it has not persisted is not measured. A session that
-has recorded none restarts with the id it was started with, if any. If the one
-resend also ends the stream before the turn is taken,
-the error is the same. Two windows remain in which the single resend with
-`--resume` can put the prompt twice in the resumed history: a death after the
-CLI has read the prompt but before any line of the list above, and a death after
-a line outside that list that the CLI wrote once it had read the prompt. No
-tool can run in these two windows, since a tool use reaches the stream in an
-assistant line first and that line is taken; this is deduced, not measured.
+given (deduced, not measured); that the session is already persisted when it is
+written is deduced, not measured, the same as for a hook line. The difference is
+that `init` is written once the CLI has the prompt (deduced, not measured),
+while a hook line is written before. How the CLI answers a `--resume` on an id
+it has not persisted is not measured. A session that has recorded none restarts
+with the id it was started with, if any. If the one resend also ends the stream
+before the turn is taken, the error is the same. Two windows remain in which the
+single resend with `--resume` can put the prompt twice in the resumed history: a
+death after the CLI has read the prompt but before any line of the list above,
+and a death after a line outside that list that the CLI wrote once it had read
+the prompt. No tool can run in these two windows, since a tool use reaches the
+stream in an assistant line first and that line is taken; this is deduced, not
+measured.
 
 A third window would lose the prompt instead of doubling it. The order of the
 lines on `--resume` is not measured: if the CLI wrote `init` before reading the
