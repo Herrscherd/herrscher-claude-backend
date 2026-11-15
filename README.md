@@ -110,8 +110,8 @@ end, or at the end of the stream. If the context of the turn is cancelled before
 that, the turn ends with the context error and no over-bound finding is made.
 The `claude` process is always reaped once its session or turn ends. On Unix it
 is started as the leader of its own process group, and that group is killed on
-`Close`, when a oneshot turn is cancelled, and after a oneshot `claude` process
-exits. A tool, MCP server or helper it spawned that is still in the group does
+`Close`, when the context of a session or of a oneshot turn is cancelled, and
+after a oneshot `claude` process exits. A tool, MCP server or helper it spawned that is still in the group does
 not outlive the session. A descendant that calls `setsid` leaves the group, is
 not reached, and can outlive the session. On Windows only the `claude` process
 itself is killed, and its descendants can outlive it.

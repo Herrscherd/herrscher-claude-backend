@@ -190,6 +190,26 @@ func TestStreamCloseKillsDescendants(t *testing.T) {
 	awaitDescendantGone(t, descendant)
 }
 
+func TestStreamContextCancelKillsDescendants(t *testing.T) {
+	t.Parallel()
+	pidFile := filepath.Join(t.TempDir(), "descendant.pid")
+	script := fakeClaudeScript(t, spawnAndWait(pidFile))
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	sess, err := startStreamSession(ctx, []string{"sh", script}, "", "", t.TempDir(), nil)
+	if err != nil {
+		t.Fatalf("startStreamSession: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := sess.Close(); err != nil {
+			t.Errorf("cleanup Close: %v", err)
+		}
+	})
+	descendant := awaitDescendantPID(t, pidFile)
+	cancel()
+	awaitDescendantGone(t, descendant)
+}
+
 func TestOneshotCancelKillsDescendants(t *testing.T) {
 	t.Parallel()
 	pidFile := filepath.Join(t.TempDir(), "descendant.pid")
