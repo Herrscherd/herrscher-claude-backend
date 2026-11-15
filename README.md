@@ -115,11 +115,16 @@ session. A descendant that calls `setsid` leaves the group, is not reached, and
 can outlive the session. On Windows only the `claude` process itself is killed,
 and its descendants can outlive it.
 
-The group is signalled by its id after the leader has been reaped. If the group
-is already empty at that moment and another process group takes the same id
-before the signal, that group is signalled. Linux does not hand out an id while
-a live process group still uses it, so this window only exists once the group
-has emptied.
+The group is signalled by its id in two ways. `Close`, `killAndReap` and the
+cancellation of the context (`cmd.Cancel`) signal it before the leader is
+reaped: the `claude` process is then still a zombie, which keeps its pid, and so
+the group id, from being reused. Only `runGroup` (the oneshot turn and the
+health probe) signals it after `Wait` has reaped the leader. From that point
+Linux does not hand out an id while a live process of the group still uses it,
+so the group is protected as long as one of its members lives. The one
+remaining risk is that the group has already emptied when the signal is sent
+and another process group takes the same id before it: that group would then
+be signalled.
 
 Output pipes are read until they close, and the wait for them is bounded by
 `groupWaitDelay`, one second, after the `claude` process exits or is cancelled.
