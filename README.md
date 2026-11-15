@@ -60,18 +60,27 @@ the `result` line, and it is recorded even on a turn that then fails. The id of
 any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
 `session_id` on its `hook_started` lines, measured by a run killed before any
 prompt was written, and whether that session is already persisted when the
-hook runs is deduced, not measured, so resuming it could fail. A session that
+hook runs is deduced, not measured, so resuming it could fail. The id of an
+`init` line is recorded, since that line is written once the prompt has been
+given; that the session is already persisted when it is written is deduced, not
+measured, the same as for a hook line. The difference is that `init` is written
+once the CLI has the prompt, while a hook line is written before. How the CLI
+answers a `--resume` on an id it has not persisted is not measured. A session that
 has recorded none restarts with the id it was started with, if any. If the one
 resend also ends the stream before the turn is taken,
 the error is the same. Two windows remain in which the single resend with
 `--resume` can put the prompt twice in the resumed history: a death after the
 CLI has read the prompt but before any line of the list above, and a death after
-a line outside that list that the CLI wrote once it had read the prompt. The
-order of the lines on `--resume` is not measured either: if the CLI wrote `init`
-before reading the prompt, a death between the two would count as a taken turn
-and drop the resend, so the prompt would be lost. No tool can run in these
-windows, since a tool use always reaches the stream in an assistant line first,
-and that line is taken. `Close` interrupts the turn in
+a line outside that list that the CLI wrote once it had read the prompt. No
+tool can run in these two windows, since a tool use reaches the stream in an
+assistant line first and that line is taken; this is deduced, not measured.
+
+A third window would lose the prompt instead of doubling it. The order of the
+lines on `--resume` is not measured: if the CLI wrote `init` before reading the
+prompt, a death between the write of `init` and the read of the prompt would
+count as a taken turn and drop the resend.
+
+`Close` interrupts the turn in
 flight: it kills
 the `claude` process without waiting for the turn to end, and the `Respond` or
 `Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
