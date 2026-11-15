@@ -214,7 +214,7 @@ func TestReadHistoryFollowsTheBranchOfTheLeafAfterARewind(t *testing.T) {
 	if strings.Join(texts, "|") != "start|hello|do Y instead||done" || history.Calls()[0].Result != keptOutput() {
 		t.Fatalf("ReadHistory = %+v, want only the branch of the leaf", history.Messages)
 	}
-	if _, err = fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "y1", Action: contracts.PruneCall}}); err != nil {
+	if _, err = pruneWithin(t, fixture.r, []contracts.HistoryEdit{{CallID: "y1", Action: contracts.PruneCall}}); err != nil {
 		t.Fatalf("PruneHistory: %v", err)
 	}
 	assertUntouchedLines(t, fixture.path, rewoundFixture(), "u0", "a0", "u1", "a1", "u2", "u3", "a3")

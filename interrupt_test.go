@@ -21,12 +21,10 @@ func TestInterrupt_PreservesSessionForResume(t *testing.T) {
 	r.sess = sess
 
 	ctx, cancel := context.WithCancel(context.Background())
-	go func() {
-		mustWriteString(t, pw, `{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`+"\n")
-		cancel()
-	}()
+	go mustWriteString(t, pw, `{"type":"assistant","message":{"content":[{"type":"text","text":"working"}]}}`+"\n")
 
-	if _, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil); err == nil {
+	onEvent := func(contracts.BackendEvent) { cancel() }
+	if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "hi"}, onEvent); err == nil {
 		t.Fatal("expected a cancellation error from the interrupted turn")
 	}
 	if r.sess != nil {

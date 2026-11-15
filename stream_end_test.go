@@ -29,7 +29,7 @@ func TestRespondNamesAStreamThatEndsMidTurn(t *testing.T) {
 				return newStreamSession(&spyWriteCloser{}, strings.NewReader(partialAssistantLine)), nil
 			}
 
-			_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi", Language: tc.lang}, nil)
+			_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi", Language: tc.lang}, nil)
 			if !errors.Is(err, io.EOF) {
 				t.Fatalf("errors.Is(err, io.EOF) = false for %v", err)
 			}
@@ -72,7 +72,7 @@ func TestCompactNamesAStreamThatEndsMidTurn(t *testing.T) {
 			}
 
 			req := contracts.CompactRequest{Session: contracts.SessionInfo{Language: tc.session}}
-			_, err := r.Compact(context.Background(), req, nil)
+			_, err := compactWithin(context.Background(), t, r, req, nil)
 			if !errors.Is(err, io.EOF) {
 				t.Fatalf("errors.Is(err, io.EOF) = false for %v", err)
 			}

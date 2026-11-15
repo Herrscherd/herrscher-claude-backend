@@ -39,7 +39,7 @@ func TestConfigFieldsReachTheStreamChild(t *testing.T) {
 	}
 	t.Cleanup(func() { mustClose(t, responder) })
 
-	got, err := responder.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	got, err := respondWithin(context.Background(), t, responder, contracts.Prompt{Content: "hi"}, nil)
 	if err != nil {
 		t.Fatalf("Respond: %v", err)
 	}

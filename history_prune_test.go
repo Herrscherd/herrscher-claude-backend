@@ -21,7 +21,7 @@ func TestPruneHistoryEditsResultsInPlaceAndKeepsABackup(t *testing.T) {
 		{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7},
 		{CallID: "t2", Action: contracts.PruneCall},
 	}
-	outcome, err := r.PruneHistory(t.Context(), edits)
+	outcome, err := pruneWithin(t, r, edits)
 	if err != nil {
 		t.Fatalf("PruneHistory: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestPruneHistoryKeepsTheAPIErrorLineByteForByteBesideAPrunedResult(t *testi
 			}, "\n") + "\n"
 			fixture := newTranscriptCaseWith(t, transcript)
 			r, path := fixture.r, fixture.path
-			outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
+			outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 7}})
 			if err != nil || outcome.Edited != 1 {
 				t.Fatalf("PruneHistory = %+v, %v, want one edit", outcome, err)
 			}
@@ -123,7 +123,7 @@ func TestPruneHistoryRefusesACallOutsideTheHistory(t *testing.T) {
 		t.Run(callID, func(t *testing.T) {
 			fixture := newTranscriptCase(t)
 			r, path := fixture.r, fixture.path
-			_, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{
+			_, err := pruneWithin(t, r, []contracts.HistoryEdit{
 				{CallID: "t1", Action: contracts.PruneCall},
 				{CallID: callID, Action: contracts.PruneCall},
 			})
@@ -139,7 +139,7 @@ func TestPruneHistoryRefusesACallOutsideTheHistory(t *testing.T) {
 
 func TestPruneHistoryRefusesMalformedEdits(t *testing.T) {
 	r := newTranscriptCase(t).r
-	_, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1"}})
+	_, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1"}})
 	if !errors.Is(err, contracts.ErrInvalidHistoryEdit) {
 		t.Fatalf("PruneHistory error = %v, want ErrInvalidHistoryEdit", err)
 	}
@@ -166,7 +166,7 @@ func TestPruneHistoryKillsTheLiveSessionBeforeWritingSoTheNextTurnResumes(t *tes
 	probe := &transcriptProbe{WriteCloser: r.sess.stdin, path: fixture.path}
 	r.sess.stdin = probe
 	claude := r.sess.cmd
-	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
+	if _, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); err != nil {
 		t.Fatalf("PruneHistory: %v", err)
 	}
 	if !probe.untouchedAtClose {
@@ -192,7 +192,7 @@ func TestPruneHistoryFailingAfterTheSessionDropKeepsTheIDForResume(t *testing.T)
 	if err := os.MkdirAll(filepath.Join(path+transcriptPreviousExt, "blocker"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); !errors.Is(err, ErrTranscriptBackup) {
+	if _, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}}); !errors.Is(err, ErrTranscriptBackup) {
 		t.Fatalf("PruneHistory error = %v, want ErrTranscriptBackup with its previous backup path taken", err)
 	}
 	if entries, err := os.ReadDir(filepath.Dir(path)); err != nil || len(entries) != 3 {
@@ -214,7 +214,7 @@ func TestPruneHistoryKeepsTheLiveSessionWhenNothingChanges(t *testing.T) {
 	fixture := newTranscriptCase(t)
 	r, path := fixture.r, fixture.path
 	r.sess = newStreamSession(&sentLines{}, strings.NewReader(""))
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 1000}})
+	outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 1000}})
 	if err != nil || outcome.Edited != 0 || outcome.CharsAfter != outcome.CharsBefore {
 		t.Fatalf("PruneHistory = %+v, %v, want no edit", outcome, err)
 	}
@@ -228,7 +228,7 @@ func TestPruneHistoryKeepsTheLiveSessionWhenNothingChanges(t *testing.T) {
 
 func TestPruneHistoryRefusesAKeepTailOnAPrunedCall(t *testing.T) {
 	fixture := newTranscriptCase(t)
-	_, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall, KeepTail: 3}})
+	_, err := pruneWithin(t, fixture.r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall, KeepTail: 3}})
 	if !errors.Is(err, contracts.ErrInvalidHistoryEdit) {
 		t.Fatalf("PruneHistory error = %v, want ErrInvalidHistoryEdit", err)
 	}
@@ -239,7 +239,7 @@ func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
 	fixture := newTranscriptCase(t)
 	r, path := fixture.r, fixture.path
 	edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: 10}}
-	first, err := r.PruneHistory(t.Context(), edits)
+	first, err := pruneWithin(t, r, edits)
 	if err != nil || first.Edited != 1 || first.CharsAfter >= first.CharsBefore {
 		t.Fatalf("first PruneHistory = %+v, %v, want one edit and fewer runes", first, err)
 	}
@@ -247,7 +247,7 @@ func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := r.PruneHistory(t.Context(), edits)
+	second, err := pruneWithin(t, r, edits)
 	if err != nil || second.Edited != 0 || second.CharsAfter != second.CharsBefore {
 		t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
 	}
@@ -262,7 +262,7 @@ func TestPruneResultTwiceEditsNothingTheSecondTime(t *testing.T) {
 
 func TestPruneResultNeverGrowsAShortResult(t *testing.T) {
 	fixture := newTranscriptCase(t)
-	outcome, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t2", Action: contracts.PruneResult, KeepChars: 1}})
+	outcome, err := pruneWithin(t, fixture.r, []contracts.HistoryEdit{{CallID: "t2", Action: contracts.PruneResult, KeepChars: 1}})
 	if err != nil || outcome.Edited != 0 || outcome.CharsAfter != outcome.CharsBefore {
 		t.Fatalf("PruneHistory = %+v, %v, want no edit", outcome, err)
 	}
@@ -286,7 +286,7 @@ func TestPruneHistoryRewritesOnlyTheTextBlocksOfAResult(t *testing.T) {
 	for name, tc := range cases {
 		t.Run(name, func(t *testing.T) {
 			fixture := newTranscriptCaseWith(t, mixedResultFixture())
-			if _, err := fixture.r.PruneHistory(t.Context(), []contracts.HistoryEdit{tc.edit}); err != nil {
+			if _, err := pruneWithin(t, fixture.r, []contracts.HistoryEdit{tc.edit}); err != nil {
 				t.Fatalf("PruneHistory: %v", err)
 			}
 			assertPrunedBlocks(t, prunedResultBlocks(t, fixture.path), tc.want)
@@ -314,11 +314,11 @@ func TestPruneResultRecognisesOnlyAPrunedShape(t *testing.T) {
 			transcript := strings.Replace(transcriptFixture(), longResult(), strings.ReplaceAll(tc.text, "\n", `\n`), 1)
 			fixture := newTranscriptCaseWith(t, transcript)
 			edits := []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneResult, KeepChars: tc.keep, KeepTail: tc.keepTail}}
-			first, err := fixture.r.PruneHistory(t.Context(), edits)
+			first, err := pruneWithin(t, fixture.r, edits)
 			if err != nil || first.Edited != tc.wantEdited {
 				t.Fatalf("PruneHistory = %+v, %v, want %d edited", first, err, tc.wantEdited)
 			}
-			second, err := fixture.r.PruneHistory(t.Context(), edits)
+			second, err := pruneWithin(t, fixture.r, edits)
 			if err != nil || second.Edited != 0 {
 				t.Fatalf("second PruneHistory = %+v, %v, want no edit", second, err)
 			}

@@ -37,7 +37,7 @@ func sentContents(t *testing.T, sent *sentLines) []string {
 func respondAll(t *testing.T, r *streamResponder, prompts ...contracts.Prompt) {
 	t.Helper()
 	for index := range prompts {
-		if _, err := r.Respond(context.Background(), prompts[index], nil); err != nil {
+		if _, err := respondWithin(context.Background(), t, r, prompts[index], nil); err != nil {
 			t.Fatalf("Respond(%+v): %v", prompts[index], err)
 		}
 	}
@@ -111,7 +111,7 @@ func TestUserContentIsSentUnaltered(t *testing.T) {
 
 func TestFrenchTurnFailureIsWrittenInFrench(t *testing.T) {
 	r, _ := compactingResponder(t.Context(), emptyFailure)
-	_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi", Language: i18n.French}, nil)
+	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "hi", Language: i18n.French}, nil)
 	if err == nil || err.Error() != "claude a signalé une erreur" {
 		t.Fatalf("err = %v, want the French turn failure text", err)
 	}
@@ -122,7 +122,7 @@ func TestFrenchTurnFailureIsWrittenInFrench(t *testing.T) {
 
 func TestTurnFailureWithoutLanguageIsEnglish(t *testing.T) {
 	r, _ := compactingResponder(t.Context(), emptyFailure)
-	_, err := r.Respond(t.Context(), contracts.Prompt{Content: "hi"}, nil)
+	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if err == nil || err.Error() != "claude reported an error" {
 		t.Fatalf("err = %v, want the English turn failure text", err)
 	}
@@ -171,7 +171,7 @@ func TestRunCmdLeavesSlashCommandsIntactInFrench(t *testing.T) {
 func TestCompactionNeverReceivesADirective(t *testing.T) {
 	r, sent := compactingResponder(t.Context(), successResult+successResult)
 	respondAll(t, r, contracts.Prompt{Content: "bonjour", Language: i18n.French})
-	if _, err := r.Compact(t.Context(), contracts.CompactRequest{}, nil); err != nil {
+	if _, err := compactWithin(t.Context(), t, r, contracts.CompactRequest{}, nil); err != nil {
 		t.Fatalf("Compact: %v", err)
 	}
 	got := sentContents(t, sent)

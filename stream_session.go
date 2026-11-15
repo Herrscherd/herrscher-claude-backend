@@ -45,7 +45,7 @@ func streamArgv(base []string, model, resumeID string) []string {
 
 func startStreamSession(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) (*streamSession, error) {
 	argv := streamArgv(base, model, resumeID)
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	cmd := newGroupCommand(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir
 	cmd.Env = spawnEnv(os.Environ(), env)
 	cmd.Stderr = os.Stderr
@@ -110,7 +110,7 @@ func (s *streamSession) Close() error {
 }
 
 func killAndReap(cmd *exec.Cmd) error {
-	killErr := cmd.Process.Kill()
+	killErr := killGroup(cmd)
 	killed := killErr == nil
 	if errors.Is(killErr, os.ErrProcessDone) {
 		killErr = nil

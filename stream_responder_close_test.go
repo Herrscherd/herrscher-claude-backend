@@ -19,11 +19,11 @@ func TestRespondAfterCloseReturnsErrResponderClosed(t *testing.T) {
 		return nil, errors.New("unexpected spawn")
 	}
 	r.sess = newStreamSession(writer, strings.NewReader(""))
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("err = %v, want ErrResponderClosed", err)
 	}
@@ -36,10 +36,10 @@ func TestResponderCloseTwiceReturnsNil(t *testing.T) {
 	t.Parallel()
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("first Close: %v", err)
 	}
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("second Close: %v, want nil", err)
 	}
 }
@@ -76,13 +76,13 @@ func TestCloseWhileRespondIsInFlight(t *testing.T) {
 		responded <- err
 	}()
 	awaitWithin(t, wrote, "the prompt reaching the CLI")
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	if err := awaitWithin(t, responded, "Respond in flight during Close"); !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("in-flight Respond err = %v, want ErrResponderClosed", err)
 	}
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "again"}, nil)
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "again"}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("Respond after Close: err = %v, want ErrResponderClosed", err)
 	}
@@ -96,11 +96,11 @@ func TestCompactAfterCloseReturnsErrResponderClosedWithoutSpawning(t *testing.T)
 		return nil, errors.New("unexpected spawn")
 	}
 	r.sess = newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 
-	_, err := r.Compact(context.Background(), contracts.CompactRequest{}, nil)
+	_, err := compactWithin(context.Background(), t, r, contracts.CompactRequest{}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("err = %v, want ErrResponderClosed", err)
 	}
@@ -113,20 +113,20 @@ func TestDropSessionAfterCloseStillReapsItsProcess(t *testing.T) {
 	t.Parallel()
 	cli := &sleepingCLI{prompted: make(chan struct{}, 1), t: t, script: sleepScript}
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	session, err := cli.spawn("")
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
-	if err := r.dropSession(session); err != nil {
+	if err := returnWithin(t, "dropSession", func() error { return r.dropSession(session) }); err != nil {
 		t.Fatalf("dropSession after Close: %v", err)
 	}
 	if cli.cmd.ProcessState == nil {
 		t.Fatal("dropSession after Close did not reap the process it was given")
 	}
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("second Close after dropSession: %v, want nil", err)
 	}
 }
@@ -138,12 +138,12 @@ func TestRespondAfterCloseWithCancelledContextReturnsErrResponderClosed(t *testi
 		t.Error("a closed responder must not spawn a process")
 		return nil, errors.New("unexpected spawn")
 	}
-	if err := r.Close(); err != nil {
+	if err := returnWithin(t, "Close", r.Close); err != nil {
 		t.Fatalf("Close: %v", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := r.Respond(ctx, contracts.Prompt{Content: "hi"}, nil)
+	_, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "hi"}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("err = %v, want ErrResponderClosed, not the context error", err)
 	}
@@ -157,7 +157,7 @@ func TestCloseFromTheResultEventKeepsTheTurnAndKillsTheProcess(t *testing.T) {
 	var closeErr error
 	onEvent := func(e contracts.BackendEvent) {
 		if e.Kind == "result" {
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		}
 	}
 	text, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
@@ -173,7 +173,7 @@ func TestCloseFromTheResultEventKeepsTheTurnAndKillsTheProcess(t *testing.T) {
 	if cli.cmd.ProcessState == nil {
 		t.Fatal("the CLI process was not killed and reaped by Close")
 	}
-	_, err = r.Respond(context.Background(), contracts.Prompt{Content: "again"}, nil)
+	_, err = respondWithin(context.Background(), t, r, contracts.Prompt{Content: "again"}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("Respond after Close err = %v, want ErrResponderClosed", err)
 	}

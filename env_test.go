@@ -48,7 +48,7 @@ func TestBackendConfigCarriesEnvToOneShot(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewBackend: %v", err)
 	}
-	out, err := b.Respond(context.Background(), contracts.Prompt{Content: "x"}, nil)
+	out, err := respondWithin(context.Background(), t, b, contracts.Prompt{Content: "x"}, nil)
 	if err != nil {
 		t.Fatalf("Respond: %v (output %q)", err, out)
 	}
@@ -184,7 +184,7 @@ func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewBackend: %v", err)
 		}
-		out, err := b.Respond(context.Background(), contracts.Prompt{Content: "x"}, nil)
+		out, err := respondWithin(context.Background(), t, b, contracts.Prompt{Content: "x"}, nil)
 		if err != nil {
 			t.Fatalf("Respond: %v (output %q)", err, out)
 		}
@@ -203,7 +203,7 @@ func TestGatewaySpawnScrubsInheritedLegacyAuthToken(t *testing.T) {
 		if err != nil {
 			t.Fatalf("NewBackend: %v", err)
 		}
-		out, err := b.Respond(context.Background(), contracts.Prompt{Content: "x"}, nil)
+		out, err := respondWithin(context.Background(), t, b, contracts.Prompt{Content: "x"}, nil)
 		if err != nil {
 			t.Fatalf("Respond: %v (output %q)", err, out)
 		}

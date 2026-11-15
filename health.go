@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,7 +21,6 @@ const (
 	nativeLoginCommand  = "claude auth login"
 	profileLoginCommand = "herrscher account add claude "
 	probePrompt         = "Reply with the single word ok."
-	probeWaitDelay      = time.Second
 	reasonTimeout       = "timeout"
 	reasonCLINotFound   = "claude cli not found"
 	reasonUnreadable    = "unreadable claude output"
@@ -137,17 +137,18 @@ func cheapestModel() string {
 
 func runProbeCommand(ctx context.Context, env []string, into any, binary string, args ...string) (contracts.ProbeReport, bool) {
 	argv := probeArgv(binary, args...)
-	command := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	command := newGroupCommand(ctx, argv[0], argv[1:]...)
 	command.Env = env
-	command.WaitDelay = probeWaitDelay
-	out, runErr := command.Output()
+	var out bytes.Buffer
+	command.Stdout = &out
+	runErr := runGroup(command)
 	if ctx.Err() != nil {
 		return unreachable(contracts.HealthDegraded, reasonTimeout), false
 	}
 	if errors.Is(runErr, exec.ErrNotFound) || errors.Is(runErr, fs.ErrNotExist) {
 		return unreachable(contracts.HealthDown, reasonCLINotFound), false
 	}
-	if err := json.Unmarshal(out, into); err != nil {
+	if err := json.Unmarshal(out.Bytes(), into); err != nil {
 		return unreachable(contracts.HealthDown, reasonUnreadable), false
 	}
 	return contracts.ProbeReport{}, true

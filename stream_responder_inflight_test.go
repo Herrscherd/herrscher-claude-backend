@@ -46,7 +46,7 @@ func (w promptWriteCloser) Write(p []byte) (int, error) {
 
 func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	c.spawns.Add(1)
-	cmd := exec.CommandContext(c.t.Context(), "sh", "-c", c.script)
+	cmd := newGroupCommand(c.t.Context(), "sh", "-c", c.script)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -62,18 +62,6 @@ func (c *sleepingCLI) spawn(string) (*streamSession, error) {
 	session := newStreamSession(promptWriteCloser{WriteCloser: stdin, prompted: c.prompted}, stdout)
 	session.cmd = cmd
 	return session, nil
-}
-
-func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	select {
-	case v := <-ch:
-		return v
-	case <-time.After(5 * time.Second):
-		t.Fatalf("%s did not happen within 5 seconds", what)
-	}
-	var zero T
-	return zero
 }
 
 func TestCloseInterruptsATurnBlockedOnTheCLI(t *testing.T) {
@@ -122,7 +110,7 @@ func TestCloseFromResetCallbackDoesNotRespawn(t *testing.T) {
 	var closeErr error
 	onEvent := func(e contracts.BackendEvent) {
 		if e.Kind == "reset" {
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		}
 	}
 	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, onEvent)
@@ -150,7 +138,7 @@ func TestCloseFromATextEventDoesNotRetry(t *testing.T) {
 	onEvent := func(e contracts.BackendEvent) {
 		switch e.Kind {
 		case "text":
-			closeErr = r.Close()
+			closeErr = returnWithin(t, "Close", r.Close)
 		case "reset":
 			resets++
 		}
@@ -235,6 +223,10 @@ func TestCloseGivesUpOnASpawnThatNeverReturns(t *testing.T) {
 		}
 	case <-time.After(teardownBound + 5*time.Second):
 		t.Fatal("Close did not give up within its bound while a spawn never returned")
+	}
+	releaseOnce()
+	if err := awaitWithin(t, responded, "Respond once its spawn is released"); err == nil {
+		t.Fatal("Respond returned nil although its spawn was released with an error")
 	}
 }
 

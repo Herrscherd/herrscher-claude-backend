@@ -16,7 +16,7 @@ func TestInstallKillsTheSessionItReplaces(t *testing.T) {
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	replaced := &spyWriteCloser{}
 	r.sess = newStreamSession(replaced, strings.NewReader(""))
-	if !r.install(newStreamSession(&spyWriteCloser{}, strings.NewReader(""))) {
+	if !returnWithin(t, "install", func() bool { return r.install(newStreamSession(&spyWriteCloser{}, strings.NewReader(""))) }) {
 		t.Fatal("install refused on an open responder")
 	}
 	if !replaced.closed {
@@ -38,7 +38,7 @@ func TestClosedResponderNamesItselfInTheSessionLanguage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-			if err := r.Close(); err != nil {
+			if err := returnWithin(t, "Close", r.Close); err != nil {
 				t.Fatalf("Close: %v", err)
 			}
 			want := mustRender(t, tc.want, keyTurnResponderClosed)
@@ -50,7 +50,7 @@ func TestClosedResponderNamesItselfInTheSessionLanguage(t *testing.T) {
 
 func assertRespondNamesClosedSession(t *testing.T, r *streamResponder, lang i18n.Language, want string) {
 	t.Helper()
-	_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi", Language: lang}, nil)
+	_, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi", Language: lang}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("Respond: errors.Is(err, ErrResponderClosed) = false for %v", err)
 	}
@@ -61,7 +61,7 @@ func assertRespondNamesClosedSession(t *testing.T, r *streamResponder, lang i18n
 
 func assertCompactNamesClosedSession(t *testing.T, r *streamResponder, lang i18n.Language, want string) {
 	t.Helper()
-	_, err := r.Compact(context.Background(), contracts.CompactRequest{Session: contracts.SessionInfo{Language: lang}}, nil)
+	_, err := compactWithin(context.Background(), t, r, contracts.CompactRequest{Session: contracts.SessionInfo{Language: lang}}, nil)
 	if !errors.Is(err, ErrResponderClosed) {
 		t.Fatalf("Compact: errors.Is(err, ErrResponderClosed) = false for %v", err)
 	}
@@ -75,10 +75,10 @@ func TestReplacedAndDroppedSessionsKeepThePendingCountBalanced(t *testing.T) {
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
 	first := newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
 	second := newStreamSession(&spyWriteCloser{}, strings.NewReader(""))
-	if !r.install(first) || !r.install(second) {
+	if !returnWithin(t, "install", func() bool { return r.install(first) && r.install(second) }) {
 		t.Fatal("install refused on an open responder")
 	}
-	if err := r.dropSession(second); err != nil {
+	if err := returnWithin(t, "dropSession", func() error { return r.dropSession(second) }); err != nil {
 		t.Fatalf("dropSession: %v", err)
 	}
 	closed := make(chan error, 1)

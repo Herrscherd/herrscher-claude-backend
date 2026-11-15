@@ -118,7 +118,7 @@ func TestLaterPrunesKeepTheOriginalAndReplaceOnePreviousBackup(t *testing.T) {
 			t.Fatal(err)
 		}
 		beforeLast = current
-		if outcome, pruneErr := r.PruneHistory(t.Context(), edits); pruneErr != nil || outcome.Edited != 1 {
+		if outcome, pruneErr := pruneWithin(t, r, edits); pruneErr != nil || outcome.Edited != 1 {
 			t.Fatalf("prune %d = %+v, %v, want one edit", index, outcome, pruneErr)
 		}
 	}
@@ -151,7 +151,7 @@ func TestPruneHistoryKeepsWhatClaudeWritesWhileItCloses(t *testing.T) {
 	r.sess = startShellSession(t, "sleep 60")
 	r.sess.sessID = transcriptSessionID
 	r.sess.stdin = &closingAppend{WriteCloser: r.sess.stdin, path: fixture.path, t: t}
-	outcome, err := r.PruneHistory(t.Context(), []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
+	outcome, err := pruneWithin(t, r, []contracts.HistoryEdit{{CallID: "t1", Action: contracts.PruneCall}})
 	if err != nil || outcome.Edited != 1 {
 		t.Fatalf("PruneHistory = %+v, %v, want the call pruned after claude closed", outcome, err)
 	}

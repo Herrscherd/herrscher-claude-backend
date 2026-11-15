@@ -107,7 +107,7 @@ func TestRespondFailedRestartClearsSession(t *testing.T) {
 	r := newStreamResponder(context.Background(), []string{"herrscher-no-such-binary"}, "", "", "", nil)
 	r.sess = dead
 
-	if _, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil); err == nil {
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "hi"}, nil); err == nil {
 		t.Fatal("expected the failed restart to error")
 	}
 	if r.sess != nil {
@@ -173,6 +173,6 @@ func TestResumeTokenDoesNotBlockDuringTurn(t *testing.T) {
 		t.Fatal("ResumeToken blocked behind an in-flight turn")
 	}
 	cancel()
-	<-turnDone
+	awaitWithin(t, turnDone, "the turn to return after cancel")
 	mustClose(t, pw)
 }

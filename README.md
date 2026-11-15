@@ -25,11 +25,11 @@ herrscher plugin add github.com/Herrscherd/herrscher-claude-backend
 | `CLAUDE_MODEL` | | the model a session gets when it names none |
 | `CLAUDE_STREAM` | `true` | `false` selects the oneshot strategy |
 | `CLAUDE_DIR` | | the working directory the CLI runs in |
-| `CLAUDE_KIND` | | `stream` or `oneshot`, the explicit form of `CLAUDE_STREAM` |
+| `CLAUDE_KIND` | | `stream` or `oneshot`, explicit form of `CLAUDE_STREAM` |
 
 There is one more setting, `env`, and it has no environment binding on purpose.
-The host injects it per session, `K=V` per line, merged onto every spawned child.
-It is never read from the daemon's own environment.
+The host injects it per session, `K=V` per line, merged onto every spawned
+child. It is never read from the daemon's own environment.
 
 ## Two strategies
 
@@ -42,88 +42,110 @@ closed: every other `system` line, such as the `hook_started` lines of hooks,
 and every line of an unknown type or that does not decode, leaves the turn not
 taken. Measured on the CLI 2.1.322: a fresh start, with stdin open and no prompt
 written, was killed after 10 seconds, and it wrote its SessionStart hook lines
-at startup and no `init` line, so the hook lines do not count. A fresh start
-of the same CLI that was given a prompt wrote its `init` line 67 ms after the
+at startup and no `init` line, so the hook lines do not count. A fresh start of
+the same CLI that was given a prompt wrote its `init` line 67 ms after the
 prompt was written to stdin, so a line of that subtype takes the turn on a fresh
-start; that it is never written before the prompt is read is deduced. The `api_retry`
-subtype is deduced, not measured: it follows an API request, and that request
-carries the prompt. If the process
-dies before the turn is taken, the responder emits `{Kind:"reset"}`, restarts
-with `--resume <session id>`, and resends the prompt once. If it dies after a
-taken turn, or after that resend, the prompt is never resent: the
-turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
-language, says that the stream ended before the turn finished, and the text
-already rendered stays rendered. The dead process is dropped, and the next turn
-restarts it with `--resume <session id>`, the last session id recorded from the
-stream. A session id is recorded only from a line that takes the turn, or from
-the `result` line, and it is recorded even on a turn that then fails. The id of
-any other line is not recorded, a hook line included: the CLI 2.1.322 writes a
-`session_id` on its `hook_started` lines, measured by a run killed before any
-prompt was written, and whether that session is already persisted when the
-hook runs is deduced, not measured, so resuming it could fail. The id of an
-`init` line is recorded, since that line is written once the prompt has been
-given (deduced, not measured); that the session is already persisted when it is
-written is deduced, not measured, the same as for a hook line. The difference is
-that `init` is written once the CLI has the prompt (deduced, not measured),
-while a hook line is written before. How the CLI answers a `--resume` on an id
-it has not persisted is not measured. A session that has recorded none restarts
-with the id it was started with, if any. If the one resend also ends the stream
-before the turn is taken, the error is the same. Two windows remain in which the
-single resend with `--resume` can put the prompt twice in the resumed history: a
-death after the CLI has read the prompt but before any line of the list above,
-and a death after a line outside that list that the CLI wrote once it had read
-the prompt. No tool can run in these two windows, since a tool use reaches the
-stream in an assistant line first and that line is taken; this is deduced, not
-measured.
+start; that it is never written before the prompt is read is deduced. The
+`api_retry` subtype is deduced, not measured: it follows an API request, and
+that request carries the prompt. If the process dies before the turn is taken,
+the responder emits `{Kind:"reset"}`, restarts with `--resume <session id>`, and
+resends the prompt once. If it dies after a taken turn, or after that resend,
+the prompt is never resent: the turn ends with an error that wraps `io.EOF` and
+whose text, in the prompt's language, says that the stream ended before the turn
+finished, and the text already rendered stays rendered. The dead process is
+dropped, and the next turn restarts it with `--resume <session id>`, the last
+session id recorded from the stream. A session id is recorded only from a line
+that takes the turn, or from the `result` line, and it is recorded even on a
+turn that then fails. The id of any other line is not recorded, a hook line
+included: the CLI 2.1.322 writes a `session_id` on its `hook_started` lines,
+measured by a run killed before any prompt was written, and whether that session
+is already persisted when the hook runs is deduced, not measured, so resuming it
+could fail. The id of an `init` line is recorded, since that line is written
+once the prompt has been given (deduced, not measured); that the session is
+already persisted when it is written is deduced, not measured, the same as for a
+hook line. The difference is that `init` is written once the CLI has the prompt
+(deduced, not measured), while a hook line is written before. How the CLI
+answers a `--resume` on an id it has not persisted is not measured. A session
+that has recorded none restarts with the id it was started with, if any. If the
+one resend also ends the stream before the turn is taken, the error is the same.
+Two windows remain in which the single resend with `--resume` can put the prompt
+twice in the resumed history: a death after the CLI has read the prompt but
+before any line of the list above, and a death after a line outside that list
+that the CLI wrote once it had read the prompt. No tool can run in these two
+windows, since a tool use reaches the stream in an assistant line first and that
+line is taken; this is deduced, not measured.
 
 A third window would lose the prompt instead of doubling it. The order of the
 lines on `--resume` is not measured: if the CLI wrote `init` before reading the
 prompt, a death between the write of `init` and the read of the prompt would
 count as a taken turn and drop the resend.
 
-`Close` interrupts the turn in
-flight: it kills
-the `claude` process without waiting for the turn to end, and the `Respond` or
-`Compact` call returns `ErrResponderClosed` with no retry. A turn whose `result`
-line the reader has already received is rendered whole, with no error, even when
-`Close` arrives first: nothing is lost and nothing is replayed. Once the
-responder is closed, every `Respond` and `Compact` returns `ErrResponderClosed`
-without starting a process. The text of that error, like the stream-ended text,
-is in the prompt's language, English when it is unknown. Every `Close` returns
-only once the process it stopped is killed and reaped, unless it gives up on a
-spawn as described next, so a second concurrent `Close` waits for the same
-teardown too. A spawn in flight when `Close` runs is reaped as soon as it
-returns; if it has not returned after 5 seconds, `Close` gives up and returns a
-teardown timeout error, and the spawn is still reaped when it does return. That
-error is meant for logs only: the herrscher host never shows it to a user. It is
-logged at WARN for a session backend, at ERROR for a plugin-hosted backend, and
-at DEBUG for an approval check, which the default Info level does not write. A
-session that `install` replaces is killed, never left running. A stream line
-over 16 MiB (`ErrStreamLineTooLong`) or an event that no longer decodes
-(`ErrStreamDrift`) ends the turn with an error and is never retried: the CLI may
-already have acted on the turn, and resending the prompt would duplicate it.
-Once a line is complete, the reader holds at most 16 MiB of it; while the next
-line is being read, it grows up to 16 MiB too, and the 4 KiB read buffer is held
-in addition. An over-bound line is reported at most 4 KiB past the bound: at the
-first line end after the bound, when the 4 KiB read buffer fills with no line
-end, or at the end of the stream. If the context of the turn is cancelled before
-that, the turn ends with the context error and no over-bound finding is made.
-The `claude` process is killed and reaped in every case. The worst case is 40
-MiB of line buffers per session: while a line grows to its bound, the reader
-keeps its previous 8 MiB buffer alive beside the new 16 MiB one, on top of the
-consumer's full line.
+`Close` interrupts the turn in flight: it kills the `claude` process and, on
+Unix, every process still in its process group, without waiting for the turn to
+end. The `Respond` or `Compact` call then returns `ErrResponderClosed` with no
+retry. A turn whose `result` line the reader has already received is rendered
+whole, with no error, even when `Close` arrives first: nothing is lost and
+nothing is replayed. Once the responder is closed, every `Respond` and `Compact`
+returns `ErrResponderClosed` without starting a process. The text of that error,
+like the stream-ended text, is in the prompt's language, English when it is
+unknown. Every `Close` returns only once the process it stopped is killed and
+reaped, unless it gives up on a spawn as described next, so a second concurrent
+`Close` waits for the same teardown too. A spawn in flight when `Close` runs is
+reaped as soon as it returns; if it has not returned after 5 seconds, `Close`
+gives up and returns a teardown timeout error, and the spawn is still reaped
+when it does return. That error is meant for logs only: the herrscher host never
+shows it to a user. It is logged at WARN for a session backend, at ERROR for a
+plugin-hosted backend, and at DEBUG for an approval check, which the default
+Info level does not write. A session that `install` replaces is killed, never
+left running. A stream line over 16 MiB (`ErrStreamLineTooLong`) or an event
+that no longer decodes (`ErrStreamDrift`) ends the turn with an error and is
+never retried: the CLI may already have acted on the turn, and resending the
+prompt would duplicate it. Once a line is complete, the reader holds at most 16
+MiB of it; while the next line is being read, it grows up to 16 MiB too, and the
+4 KiB read buffer is held in addition. An over-bound line is reported at most 4
+KiB past the bound: at the first line end after the bound, when the 4 KiB read
+buffer fills with no line end, or at the end of the stream. If the context of
+the turn is cancelled before that, the turn ends with the context error and no
+over-bound finding is made. The `claude` process is always reaped once its
+session or turn ends. On Unix it is started as the leader of its own process
+group, and that group is killed on `Close`, when the context of a session or of
+a oneshot turn is cancelled, and after a oneshot `claude` process exits. A tool,
+MCP server or helper it spawned that is still in the group does not outlive the
+session. A descendant that calls `setsid` leaves the group, is not reached, and
+can outlive the session. On Windows only the `claude` process itself is killed,
+and its descendants can outlive it.
 
-`oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended as
-the final argument and piped on stdin. It requires a non-empty command.
+The group is signalled by its id in two ways. `Close`, `killAndReap` and the
+cancellation of the context (`cmd.Cancel`) signal it before the leader is
+reaped: the `claude` process is then still a zombie, which keeps its pid, and so
+the group id, from being reused. Only `runGroup` (the oneshot turn and the
+health probe) signals it after `Wait` has reaped the leader. From that point
+Linux does not hand out an id while a live process of the group still uses it,
+so the group is protected as long as one of its members lives. The one
+remaining risk is that the group has already emptied when the signal is sent
+and another process group takes the same id before it: that group would then
+be signalled.
+
+Output pipes are read until they close, and the wait for them is bounded by
+`groupWaitDelay`, one second, after the `claude` process exits or is cancelled.
+A oneshot turn whose process exits successfully while a descendant still holds
+its stdout open keeps the output it has read and returns no error. Such a turn
+returns about one second after the exit, then the group is killed. The health
+probe has the same one-second bound. The worst case is 40 MiB of line buffers
+per session: while a line grows to its bound, the reader keeps its previous 8
+MiB buffer alive beside the new 16 MiB one, on top of the consumer's full line.
+
+`oneshot` runs `CLAUDE_CMD` fresh for every message, with the content appended
+as the final argument and piped on stdin. It requires a non-empty command.
 
 ## Text events
 
 A `text` event that follows another `text` event in the same attempt starts with
-`"\n\n"`, and the first text of an attempt has no prefix. Consumers concatenate the
-details as they arrive and add nothing between them. A `reset` is emitted only
-before any text of the turn, so no text precedes it: without earlier text, there
-is nothing to throw away. The text that follows a `reset`, from the retried
-attempt, is the first text of that attempt and has no prefix. After an
+`"\n\n"`, and the first text of an attempt has no prefix. Consumers concatenate
+the details as they arrive and add nothing between them. A `reset` is emitted
+only before any text of the turn, so no text precedes it: without earlier text,
+there is nothing to throw away. The text that follows a `reset`, from the
+retried attempt, is the first text of that attempt and has no prefix. After an
 over-bound line, the text already emitted stays with the consumer, with no
 `reset`, and the error follows it.
 
@@ -140,34 +162,35 @@ is neutralized first, so it cannot forge or close the fence.
 
 ## Model catalog
 
-`Models` is the declared catalog, published through `Manifest.Models`. Each entry
-carries its id, label, efforts and its `Route`: `native` uses the machine's own
-vendor login, `gateway` uses the product's account. `Arg` is what goes on the
-CLI's `--model`, and `ID` is what the host persists.
+`Models` is the declared catalog, published through `Manifest.Models`. Each
+entry carries its id, label, efforts and its `Route`: `native` uses the
+machine's own vendor login, `gateway` uses the product's account. `Arg` is what
+goes on the CLI's `--model`, and `ID` is what the host persists.
 
 Each native entry carries its price in USD per million tokens (input, output,
 cache read, and the 5-minute cache write) and its context window in tokens. The
 values are the base tier of the Anthropic pricing page
-(https://platform.claude.com/docs/en/about-claude/pricing) and the model pages of
-the Anthropic docs. Haiku 4.5 is 200K tokens, every other model listed is 1M.
+(https://platform.claude.com/docs/en/about-claude/pricing) and the model pages
+of the Anthropic docs. Haiku 4.5 is 200K tokens, every other model listed is 1M.
 
 What the catalog does not model:
 
 - The 1-hour cache write. Only the 5-minute write goes in `CacheWritePrice`.
-- The Claude Haiku 5.5 long-prompt tier. A prompt over 100,000 tokens costs $0.50
-  input, $0.625 5-minute cache write, $1 1-hour cache write, $0.05 cache read and
-  $2.50 output. The contract has no tier field, so the entry carries the base
-  tier only, and a request over 100,000 tokens is under-priced by a factor of five.
+- The Claude Haiku 5.5 long-prompt tier. A prompt over 100,000 tokens costs
+  $0.50 input, $0.625 5-minute cache write, $1 1-hour cache write, $0.05 cache
+  read and $2.50 output. The contract has no tier field, so the entry carries
+  the base tier only, and a request over 100,000 tokens is under-priced by a
+  factor of five.
 - The batch discount (50%) and the US-only inference multiplier (1.1x on
   `inference_geo` requests).
 
 Gateway entries (`gw-*`) carry no price. The gateway route bills at our price,
-not Anthropic's (see the `InputPrice` contract on `ModelSpec`), and that price is
-not published in this catalog. Copying the native list price would show a price
-that is not ours, so their four price fields stay 0, which means unknown. Their
-context window is the window of the native entry with the same `Arg`, assumed to
-hold on the gateway as well. GLM 4.7, Qwen3 Coder and DeepSeek V3 have no native
-twin in this catalog, so their window stays 0.
+not Anthropic's (see the `InputPrice` contract on `ModelSpec`), and that price
+is not published in this catalog. Copying the native list price would show a
+price that is not ours, so their four price fields stay 0, which means unknown.
+Their context window is the window of the native entry with the same `Arg`,
+assumed to hold on the gateway as well. GLM 4.7, Qwen3 Coder and DeepSeek V3
+have no native twin in this catalog, so their window stays 0.
 
 Retired or superseded models are `Hidden`. A model still listed as current is
 visible, including the `[1m]` variant of Opus 5.5, which has the same window as
@@ -179,12 +202,12 @@ the core stays model-agnostic.
 ## Compaction
 
 The stream backend implements `contracts.Compactor`, and the manifest declares
-`Capabilities.Compactor`. `Compact` sends `/compact`, or
-`/compact <instruction>` when the operator gave one, as an ordinary turn on the
-persistent session. It reports a note and no context size: the usage of the
-compaction turn most likely describes the context before compaction, so the size
-after it is measured on the next turn. Its note is English, as the host reads it
-today. Its `Notice` is `compaction.done`, with no argument, and a failure is a
+`Capabilities.Compactor`. `Compact` sends `/compact`, or `/compact
+<instruction>` when the operator gave one, as an ordinary turn on the persistent
+session. It reports a note and no context size: the usage of the compaction turn
+most likely describes the context before compaction, so the size after it is
+measured on the next turn. Its note is English, as the host reads it today. Its
+`Notice` is `compaction.done`, with no argument, and a failure is a
 `compact.unavailable` notice whose `Reason` is the first non blank line of the
 cause, cut to 200 runes with `…` when longer. `Error()` keeps the full cause for
 the logs. A `Compact` interrupted by `Close`, or made after it, fails with
@@ -194,8 +217,8 @@ language is unknown.
 
 `oneshot` has no session to compact and does not implement the port. The
 manifest flag covers the whole plugin, so for a `oneshot` instance the instance
-does not implement `Compactor`. The contract asks the host to refuse a compaction
-of a backend that lacks the port.
+does not implement `Compactor`. The contract asks the host to refuse a
+compaction of a backend that lacks the port.
 
 ## History editing
 
@@ -230,16 +253,16 @@ how many runes were pruned between them, while `prune_call` replaces the result
 by a note, cuts the long strings of the call input to 200 runes, and refuses a
 `KeepTail`. A result that the head and the tail cover whole is left as it is.
 Runes are counted, never bytes, and a rune is never split. A result made of
-blocks keeps its images, tool references and every other non text block in
-place and in order: only the text blocks are rewritten, the head budget runs
-across the text blocks in order, the tail budget runs back from the last one,
-the note sits in the first text block cut, and text blocks wholly inside the
-pruned span are dropped. No entry is added or removed and no `uuid` or
-`parentUuid` moves, so the chain stays intact. The new `message.content` is
-spliced into the raw line, so the other fields keep their bytes and their key
-order; only a shortened call input is encoded again, with its keys sorted. Every
-other line is copied byte for byte. A cancelled context stops the read or the
-rewrite between two lines and leaves the transcript as it was.
+blocks keeps its images, tool references and every other non text block in place
+and in order: only the text blocks are rewritten, the head budget runs across
+the text blocks in order, the tail budget runs back from the last one, the note
+sits in the first text block cut, and text blocks wholly inside the pruned span
+are dropped. No entry is added or removed and no `uuid` or `parentUuid` moves,
+so the chain stays intact. The new `message.content` is spliced into the raw
+line, so the other fields keep their bytes and their key order; only a shortened
+call input is encoded again, with its keys sorted. Every other line is copied
+byte for byte. A cancelled context stops the read or the rewrite between two
+lines and leaves the transcript as it was.
 
 A prune never grows the history and running it twice changes nothing. A result
 that already holds a herrscher note, with a head and a tail no longer than the
@@ -289,9 +312,9 @@ live file.
 
 `Probe` checks one account without a live instance. It runs `claude auth status`
 with the account environment, the profile env merged over the host env. Logged
-out is `off`, with the remedy `herrscher account add claude <name>` for a profile
-or `claude auth login` for the native account. Logged in is `ok` with the
-latency of the check. With `Deep` it also runs one turn of one token on the
+out is `off`, with the remedy `herrscher account add claude <name>` for a
+profile or `claude auth login` for the native account. Logged in is `ok` with
+the latency of the check. With `Deep` it also runs one turn of one token on the
 cheapest native model, with no tool: a rate limit is `degraded`, refused
 credentials are `down`, a server error is `degraded`, and a missing CLI is
 `down`.
@@ -303,14 +326,30 @@ access token stored under `claudeAiOauth` in `<config>/.credentials.json`, where
 `seven_day_<family>` or in the `limits` array, to `contracts.Limit`. The
 `seven_day_<family>` keys are kept only for the families of the model catalogue
 (`Models`); other keys such as `seven_day_oauth_apps` are ignored. A response
-with no known window, an unreadable body, an absent, expired or refused token,
-a 429 or a 5xx all return an error matching `ErrLimitsUnavailable`. The token is
+with no known window, an unreadable body, an absent, expired or refused token, a
+429 or a 5xx all return an error matching `ErrLimitsUnavailable`. The token is
 never logged and never put in an error. The HTTP client has no timeout of its
 own: its deadline is the context of the caller.
 
 The endpoint is not a documented API: its shape is the one the claude CLI reads,
 and the CLI itself marks it experimental. `Models` on a result event comes from
 the `modelUsage` of the result message, one entry per model of the turn.
+
+## Security
+
+Every process this backend starts goes through `newGroupCommand` in
+`process_group.go`. Its contract is that it runs only commands the operator
+configured: the program name and the configured arguments of `CLAUDE_CMD`, of
+the stream command and of the health probe. Turn content is never the program
+name. A oneshot turn passes its content as the last argument element and on
+stdin, so the contract covers the program name and the configured arguments, not
+the values of the arguments that carry the turn.
+
+Because of this contract, gosec rule G204 (command started with variable
+arguments) is excluded for `process_group.go` only. Its callers, `runCmd`, the
+stream session and the health probe, are no longer checked by G204, so a future
+caller that builds the program name from turn content would not be flagged by
+the linter. Such a change must be refused in review.
 
 ## Build and test
 
@@ -319,8 +358,8 @@ go build ./...
 go test ./...
 ```
 
-Go 1.25, depending only on `herrscher-contracts`. `stream_live_test.go` is gated
-behind `CLAUDE_BACKEND_LIVE=1` and shells out to a real `claude`.
+Go 1.27.0, depending only on `herrscher-contracts`. `stream_live_test.go` is
+gated behind `CLAUDE_BACKEND_LIVE=1` and shells out to a real `claude`.
 
 ## Further reading
 
