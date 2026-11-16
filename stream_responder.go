@@ -55,6 +55,18 @@ func (r *streamResponder) publishSessionID(sessionID string) {
 	r.idMu.Unlock()
 }
 
+func (r *streamResponder) forgetRefusedResume(refusedID string) {
+	r.idMu.Lock()
+	forgotten := r.resumeID == refusedID
+	if forgotten {
+		r.resumeID = ""
+	}
+	r.idMu.Unlock()
+	if forgotten {
+		slog.Warn("claude refused to resume the session; starting a fresh one", "session", refusedID)
+	}
+}
+
 func (r *streamResponder) currentSessionID() string {
 	r.idMu.Lock()
 	defer r.idMu.Unlock()
@@ -104,6 +116,9 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
 	closeErr := r.dropSession(failed)
+	if failed.resumedFrom != "" {
+		r.forgetRefusedResume(failed.resumedFrom)
+	}
 	turn, err := r.restartAndSend(ctx, content, onEvent)
 	if err != nil {
 		return turnResult{}, r.closedOr(errors.Join(err, closeErr))

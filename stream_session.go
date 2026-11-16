@@ -13,14 +13,15 @@ import (
 )
 
 type streamSession struct {
-	mu       sync.Mutex
-	stateMu  sync.Mutex
-	stdin    io.WriteCloser
-	lines    chan readLine
-	done     chan struct{}
-	stopOnce sync.Once
-	cmd      *exec.Cmd
-	sessID   string
+	mu          sync.Mutex
+	stateMu     sync.Mutex
+	stdin       io.WriteCloser
+	lines       chan readLine
+	done        chan struct{}
+	stopOnce    sync.Once
+	cmd         *exec.Cmd
+	sessID      string
+	resumedFrom string
 }
 
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
@@ -63,6 +64,7 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	session := newStreamSession(stdin, stdout)
 	session.cmd = cmd
 	session.sessID = resumeID
+	session.resumedFrom = resumeID
 	return session, nil
 }
 
