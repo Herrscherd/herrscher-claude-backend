@@ -66,7 +66,7 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	return session, nil
 }
 
-func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	line, err := userLine(text)
@@ -76,7 +76,7 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if _, err = s.writeStdin(line); err != nil {
 		return turnResult{}, err
 	}
-	turn, err := readTurn(ctx, s.lines, s.done, onEvent)
+	turn, err := readTurn(ctx, s.lines, s.done, onEvent, onSessionID)
 	if turn.SessionID != "" {
 		s.sessID = turn.SessionID
 	}

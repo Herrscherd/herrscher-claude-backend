@@ -59,7 +59,7 @@ func TestBackendConfigCarriesEnvToOneShot(t *testing.T) {
 
 func readProbeAfterTurn(t *testing.T, sess *streamSession, path string) string {
 	t.Helper()
-	if _, err := sess.Send(context.Background(), "probe", nil); err != nil {
+	if _, err := sess.Send(context.Background(), "probe", nil, nil); err != nil {
 		t.Fatalf("probe turn: %v", err)
 	}
 	b, err := os.ReadFile(path)

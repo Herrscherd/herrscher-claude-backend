@@ -85,7 +85,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	if err != nil {
 		return turnResult{}, err
 	}
-	turn, err := session.Send(ctx, content, onEvent)
+	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
 	if err != nil {
 		return r.retryTurn(ctx, session, content, onEvent, turn, err)
 	}
@@ -120,7 +120,7 @@ func (r *streamResponder) restartAndSend(ctx context.Context, content string, on
 	if err != nil {
 		return turnResult{}, err
 	}
-	turn, err := session.Send(ctx, content, onEvent)
+	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
 	if err != nil {
 		return turnResult{}, errors.Join(err, r.dropSession(session))
 	}

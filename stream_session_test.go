@@ -47,7 +47,7 @@ func TestStreamSessionSend(t *testing.T) {
 
 	s := newStreamSession(stdinW, stdoutR)
 	var got []contracts.BackendEvent
-	tr, err := s.Send(context.Background(), "hello", func(e contracts.BackendEvent) { got = append(got, e) })
+	tr, err := s.Send(context.Background(), "hello", func(e contracts.BackendEvent) { got = append(got, e) }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

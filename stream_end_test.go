@@ -46,7 +46,7 @@ func TestReadTurnFailsWhenTheLineChannelCloses(t *testing.T) {
 	close(lines)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	_, err := readTurn(ctx, lines, nil, nil)
+	_, err := readTurn(ctx, lines, nil, nil, nil)
 	if !errors.Is(err, io.ErrUnexpectedEOF) {
 		t.Fatalf("readTurn on a closed line channel: err = %v, want io.ErrUnexpectedEOF", err)
 	}

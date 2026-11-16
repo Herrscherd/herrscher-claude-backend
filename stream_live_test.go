@@ -20,13 +20,13 @@ func TestStreamSessionLiveTwoTurns(t *testing.T) {
 	}
 	defer mustClose(t, s)
 
-	tr1, err := s.Send(ctx, "Reply with exactly one word: ONE", nil)
+	tr1, err := s.Send(ctx, "Reply with exactly one word: ONE", nil, nil)
 	if err != nil {
 		t.Fatalf("turn 1: %v", err)
 	}
 	t.Logf("turn1: text=%q session=%s cost=$%.4f", tr1.Text, tr1.SessionID, tr1.CostUSD)
 
-	tr2, err := s.Send(ctx, "Reply with exactly one word: TWO", nil)
+	tr2, err := s.Send(ctx, "Reply with exactly one word: TWO", nil, nil)
 	if err != nil {
 		t.Fatalf("turn 2: %v", err)
 	}

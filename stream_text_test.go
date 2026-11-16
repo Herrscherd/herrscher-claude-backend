@@ -32,7 +32,7 @@ func turnTextDetails(t *testing.T, lines ...string) []string {
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
 		}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
