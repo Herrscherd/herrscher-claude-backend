@@ -10,14 +10,15 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-func awaitResumeID(t *testing.T, r *streamResponder, want string) {
+func awaitPublished(t *testing.T, published <-chan string, want string) {
 	t.Helper()
-	deadline := time.Now().Add(returnDeadline)
-	for r.ResumeToken() != want {
-		if time.Now().After(deadline) {
-			t.Fatalf("ResumeToken() = %q while the turn is still running, want %q: the id was not published when the CLI announced it", r.ResumeToken(), want)
+	select {
+	case got := <-published:
+		if got != want {
+			t.Fatalf("published id = %q while the turn is still running, want %q", got, want)
 		}
-		time.Sleep(time.Millisecond)
+	case <-time.After(returnDeadline):
+		t.Fatalf("no id published within %s while the turn is still running, want %q: the id was not published when the CLI announced it", returnDeadline, want)
 	}
 }
 
@@ -25,15 +26,19 @@ func TestInitIDIsPublishedWhileTheTurnIsStillRunning(t *testing.T) {
 	t.Parallel()
 	pr, pw := io.Pipe()
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)
-	r.sess = newStreamSession(discardWriteCloser{}, pr)
+	session := newStreamSession(discardWriteCloser{}, pr)
+	published := make(chan string, 8)
 	turnDone := make(chan error, 1)
 	go func() {
-		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "hi"}, nil)
+		_, err := session.Send(context.Background(), "hi", nil, func(id string) {
+			r.publishSessionID(id)
+			published <- id
+		})
 		turnDone <- err
 	}()
 
 	mustWriteString(t, pw, sessionInitLine+"\n")
-	awaitResumeID(t, r, "sid-init")
+	awaitPublished(t, published, "sid-init")
 	mustClose(t, pw)
 	if err := awaitWithin(t, turnDone, "the turn to end"); err == nil {
 		t.Fatal("the turn ended without its result line: want an error")
@@ -125,19 +130,28 @@ func TestResumedSessionAnnouncingANewIDRepublishesIt(t *testing.T) {
 		return newStreamSession(discardWriteCloser{}, pr), nil
 	}
 
+	midTurn := make(chan string, 1)
 	turnDone := make(chan error, 1)
 	go func() {
-		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "again"}, nil)
+		_, err := r.Respond(context.Background(), contracts.Prompt{Content: "again"}, func(event contracts.BackendEvent) {
+			if event.Kind == "text" {
+				select {
+				case midTurn <- r.ResumeToken():
+				default:
+				}
+			}
+		})
 		turnDone <- err
 	}()
-	mustWriteString(t, pw, `{"type":"system","subtype":"init","session_id":"sid-new"}`+"\n")
-	awaitResumeID(t, r, "sid-new")
+	mustWriteString(t, pw, `{"type":"system","subtype":"init","session_id":"sid-new"}`+"\n"+
+		`{"type":"assistant","session_id":"sid-new","message":{"content":[{"type":"text","text":"partial"}]}}`+"\n")
+	awaitPublished(t, midTurn, "sid-new")
 	mustClose(t, pw)
 	if err := awaitWithin(t, turnDone, "the turn to end"); err == nil {
 		t.Fatal("the turn ended without its result line: want an error")
 	}
 	if len(resumed) != 1 || resumed[0] != "sid-old" {
-		t.Fatalf("spawned with resume ids %q, want [sid-old]", resumed)
+		t.Fatalf("spawned with resume ids %q, want [sid-old]: a turn that already took a line must not be relaunched", resumed)
 	}
 	mustClose(t, r)
 }

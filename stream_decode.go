@@ -119,6 +119,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
 		turn.APIErrMsg = p.apiError
+		turn.acted = p.acted
 		if turn.SessionID == "" {
 			turn.SessionID = p.sessionID
 		}
