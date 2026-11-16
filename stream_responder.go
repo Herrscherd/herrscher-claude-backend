@@ -29,6 +29,7 @@ type streamResponder struct {
 	dir      string
 	idMu     sync.Mutex
 	resumeID string
+	accepted bool
 	turnMu   sync.Mutex
 	stateMu  sync.Mutex
 	sess     *streamSession
@@ -67,6 +68,30 @@ func (r *streamResponder) forgetLostResume(lostID string) {
 	}
 }
 
+func (r *streamResponder) markAccepted() {
+	r.idMu.Lock()
+	r.accepted = true
+	r.idMu.Unlock()
+}
+
+func (r *streamResponder) hasAccepted() bool {
+	r.idMu.Lock()
+	defer r.idMu.Unlock()
+	return r.accepted
+}
+
+func refusedBeforeAnyLine(session *streamSession, turn turnResult) bool {
+	return turn.IsError && !turn.acted && session.resumedFrom != ""
+}
+
+func (r *streamResponder) send(ctx context.Context, session *streamSession, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
+	if turn.acted {
+		r.markAccepted()
+	}
+	return turn, err
+}
+
 func (r *streamResponder) currentSessionID() string {
 	r.idMu.Lock()
 	defer r.idMu.Unlock()
@@ -97,8 +122,8 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	if err != nil {
 		return turnResult{}, err
 	}
-	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
-	if err != nil {
+	turn, err := r.send(ctx, session, content, onEvent)
+	if err != nil || refusedBeforeAnyLine(session, turn) {
 		return r.retryTurn(ctx, session, content, onEvent, turn, err)
 	}
 	r.publishSessionID(turn.SessionID)
@@ -116,7 +141,7 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
 	closeErr := r.dropSession(failed)
-	if failed.resumedFrom != "" && !failed.accepted {
+	if failed.resumedFrom != "" && !r.hasAccepted() {
 		r.forgetLostResume(failed.resumedFrom)
 	}
 	turn, err := r.restartAndSend(ctx, content, onEvent)
@@ -135,7 +160,7 @@ func (r *streamResponder) restartAndSend(ctx context.Context, content string, on
 	if err != nil {
 		return turnResult{}, err
 	}
-	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
+	turn, err := r.send(ctx, session, content, onEvent)
 	if err != nil {
 		return turnResult{}, errors.Join(err, r.dropSession(session))
 	}

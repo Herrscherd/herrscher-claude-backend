@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	refusingResumeCLI  = `log=$1; shift; echo "$*" >> "$log"; case "$*" in *--resume*) exit 1;; esac; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
-	acceptingResumeCLI = `log=$1; shift; echo "$*" >> "$log"; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-init"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-init"}'`
+	deadBeforeAnyLineCLI = `log=$1; shift; echo "$*" >> "$log"; case "$*" in *--resume*) exit 1;; esac; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
+	acceptingResumeCLI   = `log=$1; shift; echo "$*" >> "$log"; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-init"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-init"}'`
 )
 
 func fakeCLIBase(log, script string) []string {
@@ -28,14 +28,14 @@ func spawnedArgvs(t *testing.T, log string) []string {
 	return strings.Split(strings.TrimSpace(string(data)), "\n")
 }
 
-func TestRefusedResumeFallsBackToAFreshSession(t *testing.T) {
+func TestLostResumeBeforeAnyLineStartsAFreshSession(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
-	r := newStreamResponder(context.Background(), fakeCLIBase(log, refusingResumeCLI), "", "sid-init", "", nil)
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, deadBeforeAnyLineCLI), "", "sid-init", "", nil)
 
 	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil)
 	if err != nil {
-		t.Fatalf("the turn after a refused resume: %v: a refused resume must fall back to a fresh session", err)
+		t.Fatalf("the turn after a resume lost before any line: %v: a never-accepted resume must fall back to a fresh session", err)
 	}
 	if reply != "done" {
 		t.Fatalf("reply = %q, want %q", reply, "done")
