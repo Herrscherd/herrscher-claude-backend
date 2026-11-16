@@ -21,7 +21,10 @@ func (o *oneShotResponder) Close() error { return nil }
 
 func (o *oneShotResponder) NativeSkills() bool { return true }
 
-const consecutiveSilentDeathsBeforeFallback = 2
+const (
+	consecutiveSilentDeathsBeforeFallback = 2
+	maxAttemptsPerTurn                    = 3
+)
 
 type streamResponder struct {
 	spawn        func(resumeID string) (*streamSession, error)
@@ -56,20 +59,19 @@ func (r *streamResponder) publishSessionID(sessionID string) {
 		return
 	}
 	r.resumeMu.Lock()
+	if r.resumeID != sessionID {
+		r.silentDeaths = 0
+	}
 	r.resumeID = sessionID
 	r.resumeMu.Unlock()
 }
 
-func (r *streamResponder) forgetLostResume(lostID string) {
+func (r *streamResponder) forgetResume() {
 	r.resumeMu.Lock()
-	forgotten := r.resumeID == lostID
-	if forgotten {
-		r.resumeID = ""
-	}
+	lostID := r.resumeID
+	r.resumeID = ""
 	r.resumeMu.Unlock()
-	if forgotten {
-		slog.Warn("claude resume lost before any line; starting without --resume", "session", lostID)
-	}
+	slog.Warn("claude resume lost before any line; starting without --resume", "session", lostID)
 }
 
 func (r *streamResponder) markAccepted() {
@@ -123,59 +125,79 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 	if err := ctx.Err(); err != nil {
 		return turnResult{}, err
 	}
-	session, err := r.liveSession()
-	if err != nil {
-		return turnResult{}, err
+	var deadErr error
+	for attempt := 1; ; attempt++ {
+		session, err := r.liveSession()
+		if err != nil {
+			return turnResult{}, joinDead(err, deadErr)
+		}
+		turn, err := r.send(ctx, session, content, onEvent)
+		if succeeded(session, turn, err) {
+			return r.finishTurn(turn, deadErr), nil
+		}
+		if r.isClosed() {
+			return turnResult{}, ErrResponderClosed
+		}
+		if endsTurn(ctx, turn, err) || !mayRelaunch(session, attempt) {
+			return r.giveUp(session, turn, err, deadErr)
+		}
+		deadErr = errors.Join(deadErr, r.recoverFrom(session, turn, onEvent))
 	}
-	turn, err := r.send(ctx, session, content, onEvent)
-	if err != nil || refusedBeforeAnyLine(session, turn) {
-		return r.retryTurn(ctx, session, content, onEvent, turn, err)
-	}
-	r.publishSessionID(turn.SessionID)
-	return turn, nil
 }
 
-func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, content string, onEvent func(contracts.BackendEvent), failure turnResult, cause error) (turnResult, error) {
-	if r.isClosed() {
-		return turnResult{}, ErrResponderClosed
+func succeeded(session *streamSession, turn turnResult, err error) bool {
+	return err == nil && !refusedBeforeAnyLine(session, turn)
+}
+
+func (r *streamResponder) finishTurn(turn turnResult, deadErr error) turnResult {
+	r.publishSessionID(turn.SessionID)
+	if deadErr != nil {
+		slog.Warn("closing the dead claude session", "error", deadErr)
 	}
-	if failure.acted || errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil {
-		return turnResult{}, errors.Join(cause, r.dropSession(failed))
+	return turn
+}
+
+func endsTurn(ctx context.Context, failure turnResult, cause error) bool {
+	return failure.acted || errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil
+}
+
+func mayRelaunch(failed *streamSession, attempt int) bool {
+	return attempt < maxAttemptsPerTurn && (attempt == 1 || failed.resumedFrom != "")
+}
+
+func (r *streamResponder) giveUp(session *streamSession, turn turnResult, cause, deadErr error) (turnResult, error) {
+	dropErr := r.dropSession(session)
+	if cause == nil {
+		return turn, joinDead(dropErr, deadErr)
 	}
+	return turnResult{}, r.closedOr(joinDead(cause, errors.Join(deadErr, dropErr)))
+}
+
+func joinDead(err, deadErr error) error {
+	if deadErr == nil {
+		return err
+	}
+	return errors.Join(err, deadErr)
+}
+
+func (r *streamResponder) recoverFrom(failed *streamSession, failure turnResult, onEvent func(contracts.BackendEvent)) error {
 	refused := refusedBeforeAnyLine(failed, failure)
-	if !refused {
+	if failed.resumedFrom != "" && !refused {
 		r.silentDeaths++
 	}
-	losesResume := failed.resumedFrom != "" && (refused || !r.hasAccepted() || r.silentDeaths >= consecutiveSilentDeathsBeforeFallback)
-	if onEvent != nil {
+	lost := failed.resumedFrom != "" && (refused || !r.hasAccepted() || r.silentDeaths >= consecutiveSilentDeathsBeforeFallback)
+	var closeErr error
+	if lost {
+		r.silentDeaths = 0
+		r.forgetResume()
+		closeErr = r.discardSession(failed)
+	} else {
+		closeErr = r.dropSession(failed)
+	}
+	if (lost || failed.resumedFrom == "") && onEvent != nil {
 		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
-	closeErr := r.dropSession(failed)
-	if losesResume {
-		r.silentDeaths = 0
-		r.forgetLostResume(failed.resumedFrom)
-	}
-	turn, err := r.restartAndSend(ctx, content, onEvent)
-	if err != nil {
-		return turnResult{}, r.closedOr(errors.Join(err, closeErr))
-	}
-	if closeErr != nil {
-		slog.Warn("closing the dead claude session", "error", closeErr)
-	}
-	r.publishSessionID(turn.SessionID)
-	return turn, nil
-}
-
-func (r *streamResponder) restartAndSend(ctx context.Context, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
-	session, err := r.liveSession()
-	if err != nil {
-		return turnResult{}, err
-	}
-	turn, err := r.send(ctx, session, content, onEvent)
-	if err != nil {
-		return turnResult{}, errors.Join(err, r.dropSession(session))
-	}
-	return turn, nil
+	return closeErr
 }
 
 func (r *streamResponder) ResumeToken() string {

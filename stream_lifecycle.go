@@ -72,6 +72,10 @@ func (r *streamResponder) closedOr(err error) error {
 
 func (r *streamResponder) dropSession(session *streamSession) error {
 	r.publishSessionID(session.sessID)
+	return r.discardSession(session)
+}
+
+func (r *streamResponder) discardSession(session *streamSession) error {
 	r.stateMu.Lock()
 	if r.sess == session {
 		r.sess = nil

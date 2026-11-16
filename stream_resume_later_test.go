@@ -10,7 +10,13 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
-const resumeLaterTurnsCLI = `log=$1; shift; echo "$*" >> "$log"; id=sid-new; case "$*" in *--resume*) id=sid-old;; esac; served=0; while read line; do case "$line" in *planted*) printf '%s\n' "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$id\"}"; exit 1;; *later*) if [ "$served" = 1 ]; then printf '%s\n' "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_during_execution\",\"session_id\":\"$id\",\"errors\":[\"refused\"]}"; exit 1; fi;; *refuse*) printf '%s\n' "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_during_execution\",\"session_id\":\"$id\",\"errors\":[\"refused\"]}"; exit 1;; *boom*) case "$*" in *--resume*) exit 1;; esac;; esac; printf '%s\n' "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$id\"}" "{\"type\":\"result\",\"is_error\":false,\"result\":\"ok\",\"session_id\":\"$id\"}"; served=1; done`
+const (
+	resumeLaterTurnsCLI = `log=$1; shift; echo "$*" >> "$log"; id=sid-new; case "$*" in *--resume*) id=sid-old;; esac; served=0; while read line; do case "$line" in *planted*) printf '%s\n' "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$id\"}"; exit 1;; *later*) if [ "$served" = 1 ]; then printf '%s\n' "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_during_execution\",\"session_id\":\"$id\",\"errors\":[\"refused\"]}"; exit 1; fi;; *refuse*) printf '%s\n' "{\"type\":\"result\",\"is_error\":true,\"subtype\":\"error_during_execution\",\"session_id\":\"$id\",\"errors\":[\"refused\"]}"; exit 1;; esac; printf '%s\n' "{\"type\":\"system\",\"subtype\":\"init\",\"session_id\":\"$id\"}" "{\"type\":\"result\",\"is_error\":false,\"result\":\"ok\",\"session_id\":\"$id\"}"; served=1; done`
+
+	answerThenDieCLI = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; case "$n" in 1) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}'; exit 1;; 2) exit 1;; 3) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"two","session_id":"sid-old"}'; read line; exit 1;; esac; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"three","session_id":"sid-old"}'; while read line; do printf '%s\n' '{"type":"result","is_error":false,"result":"three","session_id":"sid-old"}'; done`
+
+	midCLI = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; case "$n" in 1) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}'; exit 1;; 2) exit 1;; 3) printf '%s\n' '{"type":"result","is_error":false,"result":"two","session_id":"sid-b"}'; read line; exit 1;; esac; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-b"}' '{"type":"result","is_error":false,"result":"three","session_id":"sid-b"}'; while read line; do printf '%s\n' '{"type":"result","is_error":false,"result":"three","session_id":"sid-b"}'; done`
+)
 
 func TestResultErrorOnALaterTurnOfAResumedSessionIsATurnError(t *testing.T) {
 	t.Parallel()
@@ -34,77 +40,76 @@ func TestResultErrorOnALaterTurnOfAResumedSessionIsATurnError(t *testing.T) {
 	mustClose(t, r)
 }
 
-func TestSilentDeathsOnAnAcceptedResumeFallBackFreshOnTheSecondTurn(t *testing.T) {
+func TestSilentDeathsCountPerDeathAcrossAnsweredTurns(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
-	r := newStreamResponder(context.Background(), fakeCLIBase(log, resumeLaterTurnsCLI), "", "sid-old", "", nil)
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, answerThenDieCLI), "", "sid-old", "", nil)
 
 	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "planted"}, nil); err == nil {
 		t.Fatal("the planted turn: the CLI dies after init, want an error")
 	}
-	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "boom"}, nil); err == nil {
-		t.Fatal("the first silent death of an accepted resume: want an error, the id is kept for one more try")
-	}
 	var secondKinds []string
-	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "boom"}, func(event contracts.BackendEvent) {
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "two"}, func(event contracts.BackendEvent) {
 		secondKinds = append(secondKinds, event.Kind)
 	})
 	if err != nil {
-		t.Fatalf("the second silent death: %v: the turn must be answered by a fresh session in the same turn", err)
+		t.Fatalf("the second turn: %v: one silent death on an accepted resume is retried with the same id", err)
 	}
-	if reply != "ok" {
-		t.Fatalf("reply = %q, want %q", reply, "ok")
+	if reply != "two" {
+		t.Fatalf("second reply = %q, want %q", reply, "two")
 	}
-	if !slices.Contains(secondKinds, "reset") {
-		t.Fatalf("second silent death events = %q, want a reset announcing the lost context", secondKinds)
+	if slices.Contains(secondKinds, "reset") {
+		t.Fatalf("second turn events = %q, want no reset: the resume is kept", secondKinds)
+	}
+	var thirdKinds []string
+	reply, err = respondWithin(context.Background(), t, r, contracts.Prompt{Content: "three"}, func(event contracts.BackendEvent) {
+		thirdKinds = append(thirdKinds, event.Kind)
+	})
+	if err != nil {
+		t.Fatalf("the third turn: %v: a silent death after an answered turn is one death, the retry keeps the resume", err)
+	}
+	if reply != "three" {
+		t.Fatalf("third reply = %q, want %q", reply, "three")
+	}
+	if slices.Contains(thirdKinds, "reset") {
+		t.Fatalf("third turn events = %q, want no reset: an answered turn restarts the count of silent deaths", thirdKinds)
 	}
 	argvs := spawnedArgvs(t, log)
-	last := len(argvs) - 1
-	if strings.Contains(argvs[last], "--resume") {
-		t.Fatalf("fresh spawn args = %q, want no --resume", argvs[last])
+	if len(argvs) != 4 {
+		t.Fatalf("the CLI was spawned %d times, want 4: the planted launch, the retry of turn two, the answering launch, the retry of turn three", len(argvs))
 	}
-	for i, argv := range argvs[:last] {
+	for i, argv := range argvs {
 		if !strings.Contains(argv, "--resume sid-old") {
-			t.Fatalf("spawn %d args = %q, want --resume sid-old before the fallback", i+1, argv)
+			t.Fatalf("spawn %d args = %q, want --resume sid-old: deaths separated by an answered turn each keep the id", i+1, argv)
 		}
-	}
-	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "boom"}, nil); err != nil {
-		t.Fatalf("the third turn: %v: the fresh session must keep answering", err)
-	}
-	if n := len(spawnedArgvs(t, log)); n != len(argvs) {
-		t.Fatalf("the CLI was spawned %d times after the third turn, want %d: the fresh session answers without another launch", n, len(argvs))
 	}
 	mustClose(t, r)
 }
 
-func TestSilentDeathThenAnswerThenSilentDeathKeepsTheResume(t *testing.T) {
+func TestAnsweredTurnOnANewIDRestartsTheDeathCount(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
-	r := newStreamResponder(context.Background(), fakeCLIBase(log, resumeLaterTurnsCLI), "", "sid-old", "", nil)
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, midCLI), "", "sid-old", "", nil)
 
 	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "planted"}, nil); err == nil {
 		t.Fatal("the planted turn: the CLI dies after init, want an error")
 	}
-	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "boom"}, nil); err == nil {
-		t.Fatal("the first silent death: want an error")
+	if reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "two"}, nil); err != nil || reply != "two" {
+		t.Fatalf("the second turn: reply %q, err %v: one silent death, then a retry that answers with a new id", reply, err)
 	}
-	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "ok"}, nil)
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "three"}, nil)
 	if err != nil {
-		t.Fatalf("the answered turn: %v", err)
+		t.Fatalf("the third turn: %v: the new id had its own count, one silent death keeps it", err)
 	}
-	if reply != "ok" {
-		t.Fatalf("reply = %q, want %q", reply, "ok")
+	if reply != "three" {
+		t.Fatalf("third reply = %q, want %q", reply, "three")
 	}
-	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "boom"}, nil); err == nil {
-		t.Fatal("the second silent death: want an error, the answered turn reset the count so this is the first silent death again")
+	argvs := spawnedArgvs(t, log)
+	if len(argvs) != 4 {
+		t.Fatalf("the CLI was spawned %d times, want 4", len(argvs))
 	}
-	for i, argv := range spawnedArgvs(t, log) {
-		if !strings.Contains(argv, "--resume sid-old") {
-			t.Fatalf("spawn %d args = %q, want --resume sid-old: a turn that answered resets the silent-death count", i+1, argv)
-		}
-	}
-	if got := r.ResumeToken(); got != "sid-old" {
-		t.Fatalf("ResumeToken() = %q, want %q", got, "sid-old")
+	if !strings.Contains(argvs[3], "--resume sid-b") {
+		t.Fatalf("the launch after the new id's silent death args = %q, want --resume sid-b: a change of id restarts the count", argvs[3])
 	}
 	mustClose(t, r)
 }
