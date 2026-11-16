@@ -23,6 +23,7 @@ type turnResult struct {
 	CacheRead   int
 	CacheCreate int
 	acted       bool
+	opening     bool
 }
 
 type turnParser struct {

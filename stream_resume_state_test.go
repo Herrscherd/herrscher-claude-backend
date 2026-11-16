@@ -22,19 +22,24 @@ const (
 	refuseAllCLI = `log=$1; shift; echo "$*" >> "$log"; read line; printf '%s\n' '{"type":"result","is_error":true,"subtype":"error_during_execution","errors":["refused"]}'; exit 1`
 )
 
-func TestAcceptedResumeSurvivesSeveralDyingSessions(t *testing.T) {
+func TestAcceptedResumeKeepsItsIDOnOneSilentDeath(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
 	r := newStreamResponder(context.Background(), fakeCLIBase(log, acceptedThenDyingCLI), "", "sid-old", "", nil)
 
-	for turn, content := range []string{"one", "two", "three"} {
-		if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: content}, nil); err == nil {
-			t.Fatalf("turn %d: the CLI dies on every turn, want an error", turn+1)
-		}
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "one"}, nil); err == nil {
+		t.Fatal("the first turn: the CLI dies after init, want an error")
 	}
-	for i, argv := range spawnedArgvs(t, log) {
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "two"}, nil); err == nil {
+		t.Fatal("the second turn: the CLI dies silently, want an error")
+	}
+	argvs := spawnedArgvs(t, log)
+	if len(argvs) != 3 {
+		t.Fatalf("the CLI was spawned %d times, want 3: the accepted resume, one silent death, its retry in the same turn", len(argvs))
+	}
+	for i, argv := range argvs {
 		if !strings.Contains(argv, "--resume sid-old") {
-			t.Fatalf("spawn %d args = %q, want --resume sid-old: the CLI accepted this resume on the first turn, a later dead session must not drop it", i+1, argv)
+			t.Fatalf("spawn %d args = %q, want --resume sid-old: one silent death on an accepted resume keeps its id", i+1, argv)
 		}
 	}
 	mustClose(t, r)

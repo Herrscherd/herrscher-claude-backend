@@ -22,6 +22,7 @@ type streamSession struct {
 	cmd         *exec.Cmd
 	sessID      string
 	resumedFrom string
+	tookTurn    bool
 }
 
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
@@ -79,6 +80,10 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 		return turnResult{}, err
 	}
 	turn, err := readTurn(ctx, s.lines, s.done, onEvent, onSessionID)
+	turn.opening = !s.tookTurn
+	if turn.acted {
+		s.tookTurn = true
+	}
 	if turn.SessionID != "" {
 		s.sessID = turn.SessionID
 	}

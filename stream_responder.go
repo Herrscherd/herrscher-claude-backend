@@ -21,23 +21,26 @@ func (o *oneShotResponder) Close() error { return nil }
 
 func (o *oneShotResponder) NativeSkills() bool { return true }
 
+const consecutiveSilentDeathsBeforeFallback = 2
+
 type streamResponder struct {
-	spawn      func(resumeID string) (*streamSession, error)
-	base       []string
-	model      string
-	env        map[string]string
-	dir        string
-	resumeMu   sync.Mutex
-	resumeID   string
-	acceptedMu sync.Mutex
-	accepted   bool
-	turnMu     sync.Mutex
-	stateMu    sync.Mutex
-	sess       *streamSession
-	closed     bool
-	pending    int
-	stopped    chan struct{}
-	stopOnce   sync.Once
+	spawn        func(resumeID string) (*streamSession, error)
+	base         []string
+	model        string
+	env          map[string]string
+	dir          string
+	resumeMu     sync.Mutex
+	resumeID     string
+	acceptedMu   sync.Mutex
+	accepted     bool
+	silentDeaths int
+	turnMu       sync.Mutex
+	stateMu      sync.Mutex
+	sess         *streamSession
+	closed       bool
+	pending      int
+	stopped      chan struct{}
+	stopOnce     sync.Once
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
@@ -82,13 +85,14 @@ func (r *streamResponder) hasAccepted() bool {
 }
 
 func refusedBeforeAnyLine(session *streamSession, turn turnResult) bool {
-	return turn.IsError && !turn.acted && session.resumedFrom != ""
+	return turn.IsError && !turn.acted && turn.opening && session.resumedFrom != ""
 }
 
 func (r *streamResponder) send(ctx context.Context, session *streamSession, content string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
 	turn, err := session.Send(ctx, content, onEvent, r.publishSessionID)
 	if turn.acted {
 		r.markAccepted()
+		r.silentDeaths = 0
 	}
 	return turn, err
 }
@@ -138,11 +142,17 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 	if failure.acted || errors.Is(cause, ErrStreamDrift) || errors.Is(cause, ErrStreamLineTooLong) || ctx.Err() != nil {
 		return turnResult{}, errors.Join(cause, r.dropSession(failed))
 	}
+	refused := refusedBeforeAnyLine(failed, failure)
+	if !refused {
+		r.silentDeaths++
+	}
+	losesResume := failed.resumedFrom != "" && (refused || !r.hasAccepted() || r.silentDeaths >= consecutiveSilentDeathsBeforeFallback)
 	if onEvent != nil {
 		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
 	closeErr := r.dropSession(failed)
-	if failed.resumedFrom != "" && (refusedBeforeAnyLine(failed, failure) || !r.hasAccepted()) {
+	if losesResume {
+		r.silentDeaths = 0
 		r.forgetLostResume(failed.resumedFrom)
 	}
 	turn, err := r.restartAndSend(ctx, content, onEvent)
