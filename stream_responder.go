@@ -22,21 +22,22 @@ func (o *oneShotResponder) Close() error { return nil }
 func (o *oneShotResponder) NativeSkills() bool { return true }
 
 type streamResponder struct {
-	spawn    func(resumeID string) (*streamSession, error)
-	base     []string
-	model    string
-	env      map[string]string
-	dir      string
-	idMu     sync.Mutex
-	resumeID string
-	accepted bool
-	turnMu   sync.Mutex
-	stateMu  sync.Mutex
-	sess     *streamSession
-	closed   bool
-	pending  int
-	stopped  chan struct{}
-	stopOnce sync.Once
+	spawn      func(resumeID string) (*streamSession, error)
+	base       []string
+	model      string
+	env        map[string]string
+	dir        string
+	resumeMu   sync.Mutex
+	resumeID   string
+	acceptedMu sync.Mutex
+	accepted   bool
+	turnMu     sync.Mutex
+	stateMu    sync.Mutex
+	sess       *streamSession
+	closed     bool
+	pending    int
+	stopped    chan struct{}
+	stopOnce   sync.Once
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
@@ -51,32 +52,32 @@ func (r *streamResponder) publishSessionID(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	r.idMu.Lock()
+	r.resumeMu.Lock()
 	r.resumeID = sessionID
-	r.idMu.Unlock()
+	r.resumeMu.Unlock()
 }
 
 func (r *streamResponder) forgetLostResume(lostID string) {
-	r.idMu.Lock()
+	r.resumeMu.Lock()
 	forgotten := r.resumeID == lostID
 	if forgotten {
 		r.resumeID = ""
 	}
-	r.idMu.Unlock()
+	r.resumeMu.Unlock()
 	if forgotten {
 		slog.Warn("claude resume lost before any line; starting without --resume", "session", lostID)
 	}
 }
 
 func (r *streamResponder) markAccepted() {
-	r.idMu.Lock()
+	r.acceptedMu.Lock()
 	r.accepted = true
-	r.idMu.Unlock()
+	r.acceptedMu.Unlock()
 }
 
 func (r *streamResponder) hasAccepted() bool {
-	r.idMu.Lock()
-	defer r.idMu.Unlock()
+	r.acceptedMu.Lock()
+	defer r.acceptedMu.Unlock()
 	return r.accepted
 }
 
@@ -93,8 +94,8 @@ func (r *streamResponder) send(ctx context.Context, session *streamSession, cont
 }
 
 func (r *streamResponder) currentSessionID() string {
-	r.idMu.Lock()
-	defer r.idMu.Unlock()
+	r.resumeMu.Lock()
+	defer r.resumeMu.Unlock()
 	return r.resumeID
 }
 
@@ -141,7 +142,7 @@ func (r *streamResponder) retryTurn(ctx context.Context, failed *streamSession, 
 		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
 	closeErr := r.dropSession(failed)
-	if failed.resumedFrom != "" && !r.hasAccepted() {
+	if failed.resumedFrom != "" && (refusedBeforeAnyLine(failed, failure) || !r.hasAccepted()) {
 		r.forgetLostResume(failed.resumedFrom)
 	}
 	turn, err := r.restartAndSend(ctx, content, onEvent)
