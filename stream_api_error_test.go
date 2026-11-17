@@ -45,7 +45,7 @@ func TestReadTurnDropsAPIErrorMessageContent(t *testing.T) {
 				fmt.Sprintf(`{"type":"result","subtype":"error_during_execution","is_error":true,"result":%q,"session_id":"s"}`, syntheticAPIErrorText) + "\n"
 
 			var got []contracts.BackendEvent
-			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(flagged), nil), nil, func(e contracts.BackendEvent) { got = append(got, e) })
+			turn, err := readTurn(context.Background(), startLineReader(strings.NewReader(flagged), nil), nil, func(e contracts.BackendEvent) { got = append(got, e) }, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,7 +70,7 @@ func TestReadTurnKeepsContentOfSyntheticModelWithoutFlag(t *testing.T) {
 		if e.Kind != "result" {
 			kinds = append(kinds, e.Kind+"|"+e.Tool+"|"+e.Detail)
 		}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,7 +155,7 @@ func TestReadTurnReadsModelTextWhenAPIErrorMarkerIsUnexpected(t *testing.T) {
 				if e.Kind == "text" {
 					texts = append(texts, e.Detail)
 				}
-			})
+			}, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -178,7 +178,7 @@ func TestReadTurnKeepsModelText(t *testing.T) {
 		if e.Kind == "text" {
 			texts = append(texts, e.Detail)
 		}
-	})
+	}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

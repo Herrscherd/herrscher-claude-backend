@@ -40,7 +40,7 @@ func TestStreamSessionConsecutiveTurns(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
-			tr, err := s.Send(ctx, "hi", nil)
+			tr, err := s.Send(ctx, "hi", nil, nil)
 			if err != nil {
 				t.Fatalf("%s: %v", tc.name, err)
 			}
@@ -92,7 +92,7 @@ func TestReadTurnDoesNotHangOnDriftedResult(t *testing.T) {
 	canned := `{"type":"result","is_error":false,"result":"ok","total_cost_usd":"0.0123","session_id":"s"}` + "\n"
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned), nil), nil, nil)
+	tr, err := readTurn(ctx, startLineReader(strings.NewReader(canned), nil), nil, nil, nil)
 	if err != nil {
 		t.Fatalf("drifted result line must still terminate the turn: %v", err)
 	}

@@ -13,14 +13,16 @@ import (
 )
 
 type streamSession struct {
-	mu       sync.Mutex
-	stateMu  sync.Mutex
-	stdin    io.WriteCloser
-	lines    chan readLine
-	done     chan struct{}
-	stopOnce sync.Once
-	cmd      *exec.Cmd
-	sessID   string
+	mu          sync.Mutex
+	stateMu     sync.Mutex
+	stdin       io.WriteCloser
+	lines       chan readLine
+	done        chan struct{}
+	stopOnce    sync.Once
+	cmd         *exec.Cmd
+	sessID      string
+	resumedFrom string
+	tookTurn    bool
 }
 
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
@@ -63,10 +65,11 @@ func startStreamSession(ctx context.Context, base []string, model, resumeID, dir
 	session := newStreamSession(stdin, stdout)
 	session.cmd = cmd
 	session.sessID = resumeID
+	session.resumedFrom = resumeID
 	return session, nil
 }
 
-func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+func (s *streamSession) Send(ctx context.Context, text string, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	line, err := userLine(text)
@@ -76,7 +79,11 @@ func (s *streamSession) Send(ctx context.Context, text string, onEvent func(cont
 	if _, err = s.writeStdin(line); err != nil {
 		return turnResult{}, err
 	}
-	turn, err := readTurn(ctx, s.lines, s.done, onEvent)
+	turn, err := readTurn(ctx, s.lines, s.done, onEvent, onSessionID)
+	turn.opening = !s.tookTurn
+	if turn.acted {
+		s.tookTurn = true
+	}
 	if turn.SessionID != "" {
 		s.sessID = turn.SessionID
 	}

@@ -23,10 +23,12 @@ type turnResult struct {
 	CacheRead   int
 	CacheCreate int
 	acted       bool
+	opening     bool
 }
 
 type turnParser struct {
 	agents      map[string]bool
+	onSessionID func(string)
 	apiError    string
 	textEmitted bool
 	acted       bool
@@ -35,8 +37,9 @@ type turnParser struct {
 
 func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
 
-func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent)) (turnResult, error) {
+func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
 	parser := newTurnParser()
+	parser.onSessionID = onSessionID
 	for {
 		select {
 		case <-ctx.Done():
@@ -117,6 +120,7 @@ func (p *turnParser) parseLine(line []byte, onEvent func(contracts.BackendEvent)
 	case "result":
 		turn, done, err := parseResult(line, onEvent)
 		turn.APIErrMsg = p.apiError
+		turn.acted = p.acted
 		if turn.SessionID == "" {
 			turn.SessionID = p.sessionID
 		}
@@ -131,8 +135,13 @@ func (p *turnParser) takeTurn(sessionID json.RawMessage) {
 }
 
 func (p *turnParser) noteSessionID(raw json.RawMessage) {
-	if id := stringOrEmpty(raw); id != "" {
-		p.sessionID = id
+	sessionID := stringOrEmpty(raw)
+	if sessionID == "" || sessionID == p.sessionID {
+		return
+	}
+	p.sessionID = sessionID
+	if p.onSessionID != nil {
+		p.onSessionID(sessionID)
 	}
 }
 
