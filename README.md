@@ -48,15 +48,25 @@ prompt was written to stdin, so a line of that subtype takes the turn on a fresh
 start; that it is never written before the prompt is read is deduced. The
 `api_retry` subtype is deduced, not measured: it follows an API request, and
 that request carries the prompt. If the process dies before the turn is taken,
-the responder emits `{Kind:"reset"}`, restarts with `--resume <session id>`, and
-resends the prompt once. If it dies after a taken turn, or after that resend,
-the prompt is never resent: the turn ends with an error that wraps `io.EOF` and
-whose text, in the prompt's language, says that the stream ended before the turn
-finished, and the text already rendered stays rendered. The dead process is
-dropped, and the next turn restarts it with `--resume <session id>`, the last
-session id recorded from the stream. A session id is recorded only from a line
-that takes the turn, or from the `result` line, and it is recorded even on a
-turn that then fails. The id of any other line is not recorded, a hook line
+the responder relaunches it, and the deaths are counted per death, not per turn.
+A silent death of a resumed session whose id this process has seen accepted
+keeps the id and relaunches with `--resume <session id>`. A second silent death
+on that same id forgets the id, emits `{Kind:"reset"}`, and a fresh session
+answers the same turn. A resumed id that this process has never seen accepted is
+forgotten at its first silent death, with the same `reset` and fresh fallback. A
+fresh session that dies before any line is relaunched once, without `--resume`,
+with the `reset` event, since no line was written. A `result` error before any
+line on the first turn of a resumed session is a refusal: the id is forgotten,
+and a fresh session answers the same turn with the `reset` event. A turn makes
+at most three launches, so the prompt is written at most three times. If the
+last launch also ends the stream before the turn is taken, the turn ends with an
+error that wraps `io.EOF` and whose text, in the prompt's language, says that the
+stream ended before the turn finished, and the text already rendered stays
+rendered. The next turn restarts from the last session id that was published,
+with `--resume <session id>`. An id is published when a line that takes the turn
+carries it, when a turn succeeds, or when a session is dropped after a counted
+silent death. The id of a lost resume is never published: the responder forgets
+it. The id of any other line is not recorded, a hook line
 included: the CLI 2.1.322 writes a `session_id` on its `hook_started` lines,
 measured by a run killed before any prompt was written, and whether that session
 is already persisted when the hook runs is deduced, not measured, so resuming it
@@ -67,9 +77,9 @@ hook line. The difference is that `init` is written once the CLI has the prompt
 (deduced, not measured), while a hook line is written before. How the CLI
 answers a `--resume` on an id it has not persisted is not measured. A session
 that has recorded none restarts with the id it was started with, if any. If the
-one resend also ends the stream before the turn is taken, the error is the same.
-Two windows remain in which the single resend with `--resume` can put the prompt
-twice in the resumed history: a death after the CLI has read the prompt but
+relaunches also end the stream before the turn is taken, the error is the same.
+Two windows remain in which a relaunch with `--resume` can put the prompt twice
+in the resumed history: a death after the CLI has read the prompt but
 before any line of the list above, and a death after a line outside that list
 that the CLI wrote once it had read the prompt. No tool can run in these two
 windows, since a tool use reaches the stream in an assistant line first and that
@@ -77,8 +87,7 @@ line is taken; this is deduced, not measured.
 
 A third window would lose the prompt instead of doubling it. The order of the
 lines on `--resume` is not measured: if the CLI wrote `init` before reading the
-prompt, a death between the write of `init` and the read of the prompt would
-count as a taken turn and drop the resend.
+prompt, a death between the write of `init` and the read of the prompt would count as a taken turn and drop the relaunch.
 
 `Close` interrupts the turn in flight: it kills the `claude` process and, on
 Unix, every process still in its process group, without waiting for the turn to
