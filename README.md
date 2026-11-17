@@ -64,8 +64,9 @@ error that wraps `io.EOF` and whose text, in the prompt's language, says that th
 stream ended before the turn finished, and the text already rendered stays
 rendered. The next turn restarts from the last session id that was published,
 with `--resume <session id>`. An id is published when a line that takes the turn
-carries it, when a turn succeeds, or when a session is dropped after a counted
-silent death. The id of a lost resume is never published: the responder forgets
+carries it, when a turn succeeds, when a turn ends in error (the session is then
+dropped, and its id is published with it), when a session is dropped after a
+counted silent death, or when a history prune drops the session. The id of a lost resume is never published: the responder forgets
 it. The id of any other line is not recorded, a hook line
 included: the CLI 2.1.322 writes a `session_id` on its `hook_started` lines,
 measured by a run killed before any prompt was written, and whether that session

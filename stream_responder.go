@@ -58,12 +58,17 @@ func (r *streamResponder) publishSessionID(sessionID string) {
 	if sessionID == "" {
 		return
 	}
-	r.resumeMu.Lock()
-	if r.resumeID != sessionID {
+	if r.setResumeID(sessionID) {
 		r.silentDeaths = 0
 	}
+}
+
+func (r *streamResponder) setResumeID(sessionID string) (changed bool) {
+	r.resumeMu.Lock()
+	defer r.resumeMu.Unlock()
+	changed = r.resumeID != sessionID
 	r.resumeID = sessionID
-	r.resumeMu.Unlock()
+	return changed
 }
 
 func (r *streamResponder) forgetResume() {
