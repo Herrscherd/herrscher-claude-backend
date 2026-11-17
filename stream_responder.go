@@ -63,10 +63,10 @@ func (r *streamResponder) publishSessionID(sessionID string) {
 	}
 }
 
-func (r *streamResponder) setResumeID(sessionID string) (changed bool) {
+func (r *streamResponder) setResumeID(sessionID string) bool {
 	r.resumeMu.Lock()
 	defer r.resumeMu.Unlock()
-	changed = r.resumeID != sessionID
+	changed := r.resumeID != sessionID
 	r.resumeID = sessionID
 	return changed
 }
