@@ -126,7 +126,7 @@ func TestFreshSessionDeathEmitsTheResetWithoutAResumeLostNotice(t *testing.T) {
 	mustClose(t, r)
 }
 
-func TestSilentDeathAfterAnAcceptedResumeEmitsNeitherNoticeNorReset(t *testing.T) {
+func TestSilentDeathAfterAnAcceptedResumeEmitsOneResetAndNoNotice(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
 	r := newStreamResponder(context.Background(), fakeCLIBase(log, resumeLostAfterAcceptedTurnCLI), "", "sid-old", "", nil)
@@ -138,8 +138,8 @@ func TestSilentDeathAfterAnAcceptedResumeEmitsNeitherNoticeNorReset(t *testing.T
 	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, recordEvents(&events)); err != nil {
 		t.Fatalf("second turn, one silent death of an accepted resume is relaunched: %v", err)
 	}
-	if kinds := lifecycleKinds(events); len(kinds) != 0 {
-		t.Fatalf("lifecycle events = %q, want none: an accepted resume that dies once resumes silently", kinds)
+	if want := []string{"reset"}; !slices.Equal(lifecycleKinds(events), want) {
+		t.Fatalf("lifecycle events = %q, want %q: an accepted resume that dies once is relaunched with a reset and no notice", lifecycleKinds(events), want)
 	}
 	mustClose(t, r)
 }

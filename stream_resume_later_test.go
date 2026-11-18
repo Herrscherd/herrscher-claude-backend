@@ -58,8 +58,8 @@ func TestSilentDeathsCountPerDeathAcrossAnsweredTurns(t *testing.T) {
 	if reply != "two" {
 		t.Fatalf("second reply = %q, want %q", reply, "two")
 	}
-	if slices.Contains(secondKinds, "reset") {
-		t.Fatalf("second turn events = %q, want no reset: the resume is kept", secondKinds)
+	if !slices.Contains(secondKinds, "reset") || slices.Contains(secondKinds, contracts.BackendKindNotice) {
+		t.Fatalf("second turn events = %q, want a reset and no notice: the resume is kept, its relaunch starts over", secondKinds)
 	}
 	var thirdKinds []string
 	reply, err = respondWithin(context.Background(), t, r, contracts.Prompt{Content: "three"}, func(event contracts.BackendEvent) {
@@ -71,8 +71,8 @@ func TestSilentDeathsCountPerDeathAcrossAnsweredTurns(t *testing.T) {
 	if reply != "three" {
 		t.Fatalf("third reply = %q, want %q", reply, "three")
 	}
-	if slices.Contains(thirdKinds, "reset") {
-		t.Fatalf("third turn events = %q, want no reset: an answered turn restarts the count of silent deaths", thirdKinds)
+	if !slices.Contains(thirdKinds, "reset") || slices.Contains(thirdKinds, contracts.BackendKindNotice) {
+		t.Fatalf("third turn events = %q, want a reset and no notice: an answered turn restarts the count of silent deaths", thirdKinds)
 	}
 	argvs := spawnedArgvs(t, log)
 	if len(argvs) != 4 {

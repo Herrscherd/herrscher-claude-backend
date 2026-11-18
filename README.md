@@ -60,8 +60,8 @@ the `reset` event and no notice, since no resume was lost. A `result` error
 before any line on the first turn of a resumed session is a refusal: the id is
 forgotten, and a fresh session answers the same turn with the notice and the
 `reset` event. A refusal is the same whether or not an earlier turn was
-accepted. An accepted resume that dies once is relaunched silently, with
-neither. A turn makes at most three launches, so the prompt is written at most
+accepted. An accepted resume that dies once is relaunched with a reset event,
+no notice. A turn makes at most three launches, so the prompt is written at most
 three times. If the last launch also ends the stream before the turn is taken,
 the turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
 language, says that the stream ended before the turn finished, and the text

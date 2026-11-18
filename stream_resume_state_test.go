@@ -48,8 +48,8 @@ func TestAcceptedResumeKeepsItsIDOnOneSilentDeath(t *testing.T) {
 	if reply != "again" {
 		t.Fatalf("reply = %q, want %q", reply, "again")
 	}
-	if slices.Contains(kinds, "reset") {
-		t.Fatalf("events = %q, want no reset: one silent death keeps the resume", kinds)
+	if !slices.Contains(kinds, "reset") || slices.Contains(kinds, contracts.BackendKindNotice) {
+		t.Fatalf("events = %q, want a reset and no notice: one silent death keeps the id, but the relaunched process starts over", kinds)
 	}
 	argvs := spawnedArgvs(t, log)
 	if len(argvs) != 3 {
