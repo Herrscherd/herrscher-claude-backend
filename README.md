@@ -51,41 +51,44 @@ that request carries the prompt. If the process dies before the turn is taken,
 the responder relaunches it, and the deaths are counted per death, not per turn.
 A silent death of a resumed session whose id this process has seen accepted
 keeps the id and relaunches with `--resume <session id>`. A second silent death
-on that same id forgets the id, emits `{Kind:"reset"}`, and a fresh session
-answers the same turn. A resumed id that this process has never seen accepted is
-forgotten at its first silent death, with the same `reset` and fresh fallback. A
-fresh session that dies before any line is relaunched once, without `--resume`,
-with the `reset` event, since no line was written. A `result` error before any
-line on the first turn of a resumed session is a refusal: the id is forgotten,
-and a fresh session answers the same turn with the `reset` event. A turn makes
-at most three launches, so the prompt is written at most three times. If the
-last launch also ends the stream before the turn is taken, the turn ends with an
-error that wraps `io.EOF` and whose text, in the prompt's language, says that the
-stream ended before the turn finished, and the text already rendered stays
-rendered. The next turn restarts from the last session id that was published,
-with `--resume <session id>`. An id is published when a line that takes the turn
-carries it, when a turn succeeds, when a turn ends in error (the session is then
-dropped, and its id is published with it), when a session is dropped after a
-counted silent death, or when a history prune drops the session. The id of a
-lost resume is never published: the responder forgets it. The id of any other
-line is not recorded, a hook line included: the CLI 2.1.322 writes a
-`session_id` on its `hook_started` lines, measured by a run killed before any
-prompt was written, and whether that session is already persisted when the hook
-runs is deduced, not measured, so resuming it could fail. The id of an `init`
-line is recorded, since that line is written once the prompt has been given
-(deduced, not measured); that the session is already persisted when it is
-written is deduced, not measured, the same as for a hook line. The difference is
-that `init` is written once the CLI has the prompt (deduced, not measured),
-while a hook line is written before. How the CLI answers a `--resume` on an id
-it has not persisted is not measured. A session that has recorded none restarts
-with the id it was started with, if any. If the relaunches also end the stream
-before the turn is taken, the error is the same. Two windows remain in which a
-relaunch with `--resume` can put the prompt twice in the resumed history: a
-death after the CLI has read the prompt but before any line of the list above,
-and a death after a line outside that list that the CLI wrote once it had read
-the prompt. No tool can run in these two windows, since a tool use reaches the
-stream in an assistant line first and that line is taken; this is deduced, not
-measured.
+on that same id forgets the id, emits `{Kind:"notice"}` carrying
+`CodeResumeLost`, then `{Kind:"reset"}`, and a fresh session answers the same
+turn. A resumed id that this process has never seen accepted is forgotten at its
+first silent death, with the same notice, `reset` and fresh fallback. A fresh
+session that dies before any line is relaunched once, without `--resume`, with
+the `reset` event and no notice, since no resume was lost. A `result` error
+before any line on the first turn of a resumed session is a refusal: the id is
+forgotten, and a fresh session answers the same turn with the notice and the
+`reset` event. A refusal is the same whether or not an earlier turn was
+accepted. An accepted resume that dies once is relaunched silently, with
+neither. A turn makes at most three launches, so the prompt is written at most
+three times. If the last launch also ends the stream before the turn is taken,
+the turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
+language, says that the stream ended before the turn finished, and the text
+already rendered stays rendered. The next turn restarts from the last session id
+that was published, with `--resume <session id>`. An id is published when a line
+that takes the turn carries it, when a turn succeeds, when a turn ends in error
+(the session is then dropped, and its id is published with it), when a session
+is dropped after a counted silent death, or when a history prune drops the
+session. The id of a lost resume is never published: the responder forgets it.
+The id of any other line is not recorded, a hook line included: the CLI 2.1.322
+writes a `session_id` on its `hook_started` lines, measured by a run killed
+before any prompt was written, and whether that session is already persisted
+when the hook runs is deduced, not measured, so resuming it could fail. The id
+of an `init` line is recorded, since that line is written once the prompt has
+been given (deduced, not measured); that the session is already persisted when
+it is written is deduced, not measured, the same as for a hook line. The
+difference is that `init` is written once the CLI has the prompt (deduced, not
+measured), while a hook line is written before. How the CLI answers a `--resume`
+on an id it has not persisted is not measured. A session that has recorded none
+restarts with the id it was started with, if any. If the relaunches also end the
+stream before the turn is taken, the error is the same. Two windows remain in
+which a relaunch with `--resume` can put the prompt twice in the resumed
+history: a death after the CLI has read the prompt but before any line of the
+list above, and a death after a line outside that list that the CLI wrote once
+it had read the prompt. No tool can run in these two windows, since a tool use
+reaches the stream in an assistant line first and that line is taken; this is
+deduced, not measured.
 
 A third window would lose the prompt instead of doubling it. The order of the
 lines on `--resume` is not measured: if the CLI wrote `init` before reading the

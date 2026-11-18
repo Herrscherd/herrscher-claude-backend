@@ -199,10 +199,22 @@ func (r *streamResponder) recoverFrom(failed *streamSession, failure turnResult,
 	} else {
 		closeErr = r.dropSession(failed)
 	}
-	if (lost || failed.resumedFrom == "") && onEvent != nil {
-		onEvent(contracts.BackendEvent{Kind: "reset"})
+	if onEvent != nil {
+		if lost {
+			onEvent(resumeLostNotice())
+		}
+		if lost || failed.resumedFrom == "" {
+			onEvent(contracts.BackendEvent{Kind: "reset"})
+		}
 	}
 	return closeErr
+}
+
+func resumeLostNotice() contracts.BackendEvent {
+	return contracts.BackendEvent{
+		Kind:   contracts.BackendKindNotice,
+		Notice: &contracts.Notice{Code: contracts.CodeResumeLost},
+	}
 }
 
 func (r *streamResponder) ResumeToken() string {
