@@ -46,7 +46,7 @@ func TestAcceptedFlagDoesNotTurnANewResumeIDRefusalIntoATurnError(t *testing.T) 
 func assertSpawnResumes(t *testing.T, argvs, wantResume []string) {
 	t.Helper()
 	if len(argvs) != len(wantResume) {
-		t.Fatalf("the CLI was spawned %d times, want %d: sid-a twice, a fresh launch, sid-b refused, a fresh launch", len(argvs), len(wantResume))
+		t.Fatalf("the CLI was spawned %d times, want %d", len(argvs), len(wantResume))
 	}
 	for i, want := range wantResume {
 		if want == "" && strings.Contains(argvs[i], "--resume") {
