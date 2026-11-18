@@ -203,9 +203,7 @@ func (r *streamResponder) recoverFrom(failed *streamSession, failure turnResult,
 		if lost {
 			onEvent(resumeLostNotice())
 		}
-		if lost || failed.resumedFrom == "" {
-			onEvent(contracts.BackendEvent{Kind: "reset"})
-		}
+		onEvent(contracts.BackendEvent{Kind: "reset"})
 	}
 	return closeErr
 }
