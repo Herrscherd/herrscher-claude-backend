@@ -15,6 +15,8 @@ const (
 	refusedAfterAcceptedCLI      = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; case "$n" in 1) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"first","session_id":"sid-old"}'; read line; exit 1;; 2) printf '%s\n' '{"type":"result","is_error":true,"subtype":"error_during_execution","session_id":"sid-old","errors":["No conversation found with session ID: sid-old"]}'; exit 1;; esac; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"fresh","session_id":"sid-new"}'`
 )
 
+const refusedOnLaterTurnCLI = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; case "$n" in 1) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":true,"subtype":"error_during_execution","session_id":"sid-old","errors":["turn failed"]}'; exit 1;; 2) printf '%s\n' '{"type":"result","is_error":true,"subtype":"error_during_execution","session_id":"sid-old","errors":["No conversation found with session ID: sid-old"]}'; exit 1;; esac; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"fresh","session_id":"sid-new"}'`
+
 func recordEvents(events *[]contracts.BackendEvent) func(contracts.BackendEvent) {
 	return func(event contracts.BackendEvent) {
 		*events = append(*events, event)
@@ -55,6 +57,24 @@ func requireLifecycleKinds(t *testing.T, events []contracts.BackendEvent, want [
 			t.Fatalf("notice = %+v, want CodeResumeLost without arguments", notice)
 		}
 	}
+}
+
+func TestRefusalOnTheFirstLaunchOfALaterTurnEmitsTheNoticeBeforeTheReset(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "spawns.log")
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, refusedOnLaterTurnCLI), "", "sid-old", "", nil)
+
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); err == nil {
+		t.Fatal("the first turn: the CLI takes the turn and then fails it, want an error")
+	}
+	var events []contracts.BackendEvent
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, recordEvents(&events))
+	if err != nil || reply != "fresh" {
+		t.Fatalf("reply %q, err %v: a refusal on the first launch of a later turn must answer with a fresh session", reply, err)
+	}
+	requireLostResumeEvents(t, events)
+	assertSpawnResumes(t, spawnedArgvs(t, log), []string{"--resume sid-old", "--resume sid-old", ""})
+	mustClose(t, r)
 }
 
 func TestRefusalBeforeAnyAcceptedTurnEmitsTheResumeLostNoticeBeforeTheReset(t *testing.T) {
