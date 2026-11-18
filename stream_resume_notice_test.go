@@ -33,8 +33,18 @@ func lifecycleKinds(events []contracts.BackendEvent) []string {
 
 func requireLostResumeEvents(t *testing.T, events []contracts.BackendEvent) {
 	t.Helper()
-	if want := []string{contracts.BackendKindNotice, "reset"}; !slices.Equal(lifecycleKinds(events), want) {
-		t.Fatalf("lifecycle events = %q, want %q: a lost resume gives one notice, then the reset", lifecycleKinds(events), want)
+	requireLifecycleKinds(t, events, []string{contracts.BackendKindNotice, "reset"}, "a lost resume gives one notice, then the reset")
+}
+
+func requireLostAfterRelaunchEvents(t *testing.T, events []contracts.BackendEvent) {
+	t.Helper()
+	requireLifecycleKinds(t, events, []string{"reset", contracts.BackendKindNotice, "reset"}, "each relaunch gives a reset, and the lost resume adds one notice before its reset")
+}
+
+func requireLifecycleKinds(t *testing.T, events []contracts.BackendEvent, want []string, why string) {
+	t.Helper()
+	if !slices.Equal(lifecycleKinds(events), want) {
+		t.Fatalf("lifecycle events = %q, want %q: %s", lifecycleKinds(events), want, why)
 	}
 	for i := range events {
 		if events[i].Kind != contracts.BackendKindNotice {
@@ -74,7 +84,7 @@ func TestRefusalAfterAnAcceptedTurnEmitsTheResumeLostNoticeBeforeTheReset(t *tes
 	if err != nil || reply != "fresh" {
 		t.Fatalf("reply %q, err %v: a refusal of the id after an accepted turn must answer with a fresh session", reply, err)
 	}
-	requireLostResumeEvents(t, events)
+	requireLostAfterRelaunchEvents(t, events)
 	assertSpawnResumes(t, spawnedArgvs(t, log), []string{"--resume sid-old", "--resume sid-old", ""})
 	mustClose(t, r)
 }
@@ -106,7 +116,7 @@ func TestTwoSilentDeathsAfterAnAcceptedTurnEmitTheResumeLostNoticeBeforeTheReset
 	if err != nil || reply != "done" {
 		t.Fatalf("reply %q, err %v: two silent deaths on the accepted id must fall back to a fresh session", reply, err)
 	}
-	requireLostResumeEvents(t, events)
+	requireLostAfterRelaunchEvents(t, events)
 	mustClose(t, r)
 }
 
