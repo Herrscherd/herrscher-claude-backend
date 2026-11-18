@@ -34,6 +34,7 @@ func TestLiveSessionThatEndedItsTurnInErrorIsStoppedAndRelaunchedWithResume(t *t
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
 	r := newStreamResponder(context.Background(), fakeCLIBase(log, errorTurnStaysAliveCLI), "", "", "", nil)
+	t.Cleanup(func() { mustClose(t, r) })
 
 	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); err == nil {
 		t.Fatal("the first turn: the CLI answers an error result, want an error")
@@ -48,5 +49,4 @@ func TestLiveSessionThatEndedItsTurnInErrorIsStoppedAndRelaunchedWithResume(t *t
 	}
 	requireLifecycleKinds(t, events, nil, "a live CLI that ended its turn in error is still stopped, and the relaunch is not a silent death")
 	assertSpawnResumes(t, spawnedArgvs(t, log), []string{"", "--resume sid-old"})
-	mustClose(t, r)
 }

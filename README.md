@@ -70,9 +70,9 @@ and keeps the session id that was published. The next turn relaunches with
 `--resume <session id>` when an id was published, and as a fresh launch when
 none was. That relaunch emits no `reset` event and counts no death. The cost is
 assumed: after each application error, even when the CLI was healthy, the next
-turn pays one extra launch. A turn makes at most three launches, so the prompt is written
-at most three times. If the last launch also ends the stream before the turn is
-taken,
+turn pays one extra launch. A turn makes at most three launches, so the prompt
+is written at most three times. If the last launch also ends the stream before
+the turn is taken,
 the turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
 language, says that the stream ended before the turn finished, and the text
 already rendered stays rendered. The next turn restarts from the last session id
