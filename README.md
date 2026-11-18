@@ -50,18 +50,21 @@ start; that it is never written before the prompt is read is deduced. The
 that request carries the prompt. If the process dies before the turn is taken,
 the responder relaunches it, and the deaths are counted per death, not per turn.
 A silent death of a resumed session whose id this process has seen accepted
-keeps the id and relaunches with `--resume <session id>`. A second silent death
-on that same id forgets the id, emits `{Kind:"notice"}` carrying
-`CodeResumeLost`, then `{Kind:"reset"}`, and a fresh session answers the same
-turn. A resumed id that this process has never seen accepted is forgotten at its
-first silent death, with the same notice, `reset` and fresh fallback. A fresh
-session that dies before any line is relaunched once, without `--resume`, with
-the `reset` event and no notice, since no resume was lost. A `result` error
-before any line on the first turn of a resumed session is a refusal: the id is
-forgotten, and a fresh session answers the same turn with the notice and the
-`reset` event. A refusal is the same whether or not an earlier turn was
-accepted. An accepted resume that dies once is relaunched with a reset event,
-no notice. A turn makes at most three launches, so the prompt is written at most
+emits `{Kind:"reset"}` and keeps the id, relaunching with `--resume <session
+id>`. A second silent death on that same id forgets the id and emits
+`{Kind:"notice"}` carrying `CodeResumeLost`, then `{Kind:"reset"}`: the sequence
+is reset, notice, reset, and a fresh session answers the same turn. A resumed id
+that this process has never seen accepted is forgotten at its first silent
+death, with the same notice, `reset` and fresh fallback. A fresh session that
+dies before any line is relaunched once, without `--resume`, with the `reset`
+event and no notice, since no resume was lost. A `result` error before any line
+on the first turn of a resumed session is a refusal: the id is forgotten, and a
+fresh session answers the same turn with the notice and the `reset` event. A
+refusal gives that same notice and `reset` whether or not an earlier turn was
+accepted; when the accepted turn ended in a silent death, the `reset` of that
+death comes first, so the sequence is reset, notice, reset. An accepted resume
+that dies once is relaunched with a reset event, no notice. A turn makes at most
+three launches, so the prompt is written at most
 three times. If the last launch also ends the stream before the turn is taken,
 the turn ends with an error that wraps `io.EOF` and whose text, in the prompt's
 language, says that the stream ended before the turn finished, and the text
