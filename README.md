@@ -64,7 +64,10 @@ answers the same turn with the notice and the `reset` event. A refusal gives
 that same notice and `reset`. When the refused turn had already relaunched after
 a silent death, that death's `reset` comes first, so the sequence is reset,
 notice, reset. An accepted resume that dies once is relaunched with a reset
-event, no notice. A turn makes at most three launches, so the prompt is written
+event, no notice. A turn that ends in `result` error drops its session, once the
+turn is over: the next turn relaunches with `--resume <session id>`, with no
+`reset` event and no death counted, since the process ended its turn and did
+not die. A turn makes at most three launches, so the prompt is written
 at most three times. If the last launch also ends the stream before the turn is
 taken,
 the turn ends with an error that wraps `io.EOF` and whose text, in the prompt's

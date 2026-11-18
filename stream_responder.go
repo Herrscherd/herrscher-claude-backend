@@ -138,7 +138,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 		}
 		turn, err := r.send(ctx, session, content, onEvent)
 		if succeeded(session, turn, err) {
-			return r.finishTurn(turn, deadErr), nil
+			return r.finishTurn(session, turn, deadErr), nil
 		}
 		if r.isClosed() {
 			return turnResult{}, ErrResponderClosed
@@ -154,10 +154,15 @@ func succeeded(session *streamSession, turn turnResult, err error) bool {
 	return err == nil && !refusedBeforeAnyLine(session, turn)
 }
 
-func (r *streamResponder) finishTurn(turn turnResult, deadErr error) turnResult {
+func (r *streamResponder) finishTurn(session *streamSession, turn turnResult, deadErr error) turnResult {
 	r.publishSessionID(turn.SessionID)
 	if deadErr != nil {
 		slog.Warn("closing the dead claude session", "error", deadErr)
+	}
+	if turn.IsError {
+		if err := r.dropSession(session); err != nil {
+			slog.Warn("closing the claude session that ended its turn in error", "error", err)
+		}
 	}
 	return turn
 }
