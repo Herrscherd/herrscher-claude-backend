@@ -12,6 +12,7 @@ import (
 const (
 	resumeNeverAcceptedCLI       = `log=$1; shift; echo "$*" >> "$log"; case "$*" in *--resume*) read line; exit 1;; esac; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
 	silentDeathsAfterAcceptedCLI = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; if [ "$n" -eq 1 ]; then printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"first","session_id":"sid-old"}'; read line; exit 1; fi; if [ "$n" -eq 2 ]; then exit 1; fi; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
+	refusedAfterAcceptedCLI      = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; case "$n" in 1) printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"first","session_id":"sid-old"}'; read line; exit 1;; 2) printf '%s\n' '{"type":"result","is_error":true,"subtype":"error_during_execution","session_id":"sid-old","errors":["No conversation found with session ID: sid-old"]}'; exit 1;; esac; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"fresh","session_id":"sid-new"}'`
 )
 
 func recordEvents(events *[]contracts.BackendEvent) func(contracts.BackendEvent) {
@@ -22,9 +23,9 @@ func recordEvents(events *[]contracts.BackendEvent) func(contracts.BackendEvent)
 
 func lifecycleKinds(events []contracts.BackendEvent) []string {
 	var kinds []string
-	for _, event := range events {
-		if event.Kind == contracts.BackendKindNotice || event.Kind == "reset" {
-			kinds = append(kinds, event.Kind)
+	for i := range events {
+		if events[i].Kind == contracts.BackendKindNotice || events[i].Kind == "reset" {
+			kinds = append(kinds, events[i].Kind)
 		}
 	}
 	return kinds
@@ -35,27 +36,46 @@ func requireLostResumeEvents(t *testing.T, events []contracts.BackendEvent) {
 	if want := []string{contracts.BackendKindNotice, "reset"}; !slices.Equal(lifecycleKinds(events), want) {
 		t.Fatalf("lifecycle events = %q, want %q: a lost resume gives one notice, then the reset", lifecycleKinds(events), want)
 	}
-	for _, event := range events {
-		if event.Kind != contracts.BackendKindNotice {
+	for i := range events {
+		if events[i].Kind != contracts.BackendKindNotice {
 			continue
 		}
-		if event.Notice == nil || event.Notice.Code != contracts.CodeResumeLost || len(event.Notice.Args) != 0 {
-			t.Fatalf("notice = %+v, want CodeResumeLost without arguments", event.Notice)
+		notice := events[i].Notice
+		if notice == nil || notice.Code != contracts.CodeResumeLost || len(notice.Args) != 0 {
+			t.Fatalf("notice = %+v, want CodeResumeLost without arguments", notice)
 		}
 	}
 }
 
-func TestRefusedResumeEmitsTheResumeLostNoticeBeforeTheReset(t *testing.T) {
+func TestRefusalBeforeAnyAcceptedTurnEmitsTheResumeLostNoticeBeforeTheReset(t *testing.T) {
 	t.Parallel()
 	log := filepath.Join(t.TempDir(), "spawns.log")
-	r := newStreamResponder(context.Background(), fakeCLIBase(log, deadBeforeAnyLineCLI), "", "sid-init", "", nil)
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, realRefusalCLI), "", "sid-old", "", nil)
 
 	var events []contracts.BackendEvent
 	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, recordEvents(&events))
-	if err != nil || reply != "done" {
+	if err != nil || reply != "fresh" {
 		t.Fatalf("reply %q, err %v: a refused resume must answer with a fresh session", reply, err)
 	}
 	requireLostResumeEvents(t, events)
+	mustClose(t, r)
+}
+
+func TestRefusalAfterAnAcceptedTurnEmitsTheResumeLostNoticeBeforeTheReset(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "spawns.log")
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, refusedAfterAcceptedCLI), "", "sid-old", "", nil)
+
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first"}, nil); err != nil {
+		t.Fatalf("first turn, the resume is accepted: %v", err)
+	}
+	var events []contracts.BackendEvent
+	reply, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second"}, recordEvents(&events))
+	if err != nil || reply != "fresh" {
+		t.Fatalf("reply %q, err %v: a refusal of the id after an accepted turn must answer with a fresh session", reply, err)
+	}
+	requireLostResumeEvents(t, events)
+	assertSpawnResumes(t, spawnedArgvs(t, log), []string{"--resume sid-old", "--resume sid-old", ""})
 	mustClose(t, r)
 }
 
