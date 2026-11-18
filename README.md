@@ -51,13 +51,15 @@ that request carries the prompt. If the process dies before the turn is taken,
 the responder relaunches it, and the deaths are counted per death, not per turn.
 A silent death of a resumed session whose id this process has seen accepted
 keeps the id and relaunches with `--resume <session id>`. A second silent death
-on that same id forgets the id, emits `{Kind:"reset"}`, and a fresh session
-answers the same turn. A resumed id that this process has never seen accepted is
-forgotten at its first silent death, with the same `reset` and fresh fallback. A
-fresh session that dies before any line is relaunched once, without `--resume`,
-with the `reset` event, since no line was written. A `result` error before any
-line on the first turn of a resumed session is a refusal: the id is forgotten,
-and a fresh session answers the same turn with the `reset` event. A turn makes
+on that same id forgets the id, emits `{Kind:"notice"}` carrying `CodeResumeLost`,
+then `{Kind:"reset"}`, and a fresh session answers the same turn. A resumed id
+that this process has never seen accepted is forgotten at its first silent
+death, with the same notice, `reset` and fresh fallback. A fresh session that
+dies before any line is relaunched once, without `--resume`, with the `reset`
+event and no notice, since no resume was lost. A `result` error before any line
+on the first turn of a resumed session is a refusal: the id is forgotten, and a
+fresh session answers the same turn with the notice and the `reset` event. An
+accepted resume that dies once is relaunched silently, with neither. A turn makes
 at most three launches, so the prompt is written at most three times. If the
 last launch also ends the stream before the turn is taken, the turn ends with an
 error that wraps `io.EOF` and whose text, in the prompt's language, says that the
