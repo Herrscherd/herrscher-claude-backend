@@ -109,13 +109,17 @@ func requirePrivateDir(dir string) error {
 }
 
 func approvalSocketDir(base, fallback string, limit int) (string, error) {
+	absolute, err := filepath.Abs(base)
+	if err != nil {
+		return "", fmt.Errorf("approval socket under %s: %w", base, err)
+	}
 	switch {
-	case fitsApprovalSocket(base, limit):
-		return base, nil
+	case fitsApprovalSocket(absolute, limit):
+		return absolute, nil
 	case fallback != "" && fitsApprovalSocket(fallback, limit):
 		return fallback, nil
 	}
-	return "", fmt.Errorf("approval socket under %s: %w", base, ErrApprovalSocketPathTooLong)
+	return "", fmt.Errorf("approval socket under %s: %w", absolute, ErrApprovalSocketPathTooLong)
 }
 
 func fitsApprovalSocket(dir string, limit int) bool {
@@ -210,7 +214,14 @@ func (r *approvalRelay) env(base map[string]string) map[string]string {
 func (r *approvalRelay) close() error {
 	r.cancel()
 	<-r.done
-	return errors.Join(r.serveErr, os.RemoveAll(r.dir))
+	return errors.Join(withoutOwnStop(r.serveErr), os.RemoveAll(r.dir))
+}
+
+func withoutOwnStop(err error) error {
+	if errors.Is(err, context.Canceled) {
+		return nil
+	}
+	return err
 }
 
 func reportApprovalError(err error) {

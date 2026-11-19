@@ -230,7 +230,10 @@ refusal.
 The socket file must exist before the claude process starts with it. The socket
 path must fit the socket limit of the system: 108 bytes on Linux and Windows, 104
 on the other Unix systems. The path is the `herrscher-approval-` directory and
-`approval.sock`, which add 44 bytes to `TMPDIR`. When `TMPDIR` is too long for
+`approval.sock`, which add 44 bytes to `TMPDIR`. A relative `TMPDIR` is first made
+absolute against the working directory of the backend, so the path that the claude
+process receives in `HERRSCHER_APPROVAL_SOCKET` never depends on the directory the
+claude process runs in. When the absolute `TMPDIR` is too long for
 that limit, the socket directory is created under `/tmp` instead, with the same
 mode 0700, and the socket lives there. On Windows there is no fallback, so a
 `TMPDIR` too long for the limit fails the turn. If even `/tmp` cannot hold the
@@ -238,7 +241,8 @@ path, the turn fails before any claude process is launched, with a
 message in its language (`approval.path_too_long` in the catalog) that asks for a
 shorter `TMPDIR`, and the sentinel `ErrApprovalSocketPathTooLong` stays wrapped
 under it. A directory that cannot be created under `TMPDIR`, or under `/tmp` after the
-fallback, gives `approval.dir_failed`, which names that directory. Any other
+fallback, gives `approval.dir_failed`, which names that directory between double
+quotes, with control characters escaped so that the message stays on one line. Any other
 failure to open the socket, such as a socket that does not appear in time, gives
 `approval.open_failed`, with the original error wrapped under it.
 In every case, and when the socket file does not appear within 5 seconds, the

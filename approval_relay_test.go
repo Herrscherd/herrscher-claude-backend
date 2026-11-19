@@ -22,7 +22,7 @@ printf 'ok'
 
 func openTestRelay(tb testing.TB) *approvalRelay {
 	tb.Helper()
-	relay, err := openApprovalRelay(tb.Context())
+	relay, err := openApprovalRelay(context.WithoutCancel(tb.Context()))
 	if err != nil {
 		tb.Fatalf("openApprovalRelay: %v", err)
 	}
@@ -315,7 +315,7 @@ func TestSpawnEnvDropsInheritedSocketWithoutRelay(t *testing.T) {
 }
 
 func TestApprovalRelayOpensOnFirstRequest(t *testing.T) {
-	r := newStreamResponder(t.Context(), []string{"sh", "-c", "true"}, "", "", t.TempDir(), nil)
+	r := newStreamResponder(context.WithoutCancel(t.Context()), []string{"sh", "-c", "true"}, "", "", t.TempDir(), nil)
 	t.Cleanup(func() {
 		if err := r.Close(); err != nil {
 			t.Errorf("Close: %v", err)

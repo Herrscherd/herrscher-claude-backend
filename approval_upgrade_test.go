@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,7 +44,7 @@ func longTempRoot(tb testing.TB) string {
 
 func absentTempRoot(tb testing.TB) string {
 	tb.Helper()
-	root := "herrscher-absent-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	root := filepath.Join(shortTempRoot(tb), "absent")
 	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
 		tb.Fatalf("absent temp root %s exists or cannot be checked: %v", root, err)
 	}
@@ -66,7 +67,7 @@ func removeFiles(tb testing.TB, paths ...string) {
 func TestFailedLaunchLeavesLaterAskerTurnUsable(t *testing.T) {
 	env := approvalEnv(t)
 	cli := filepath.Join(t.TempDir(), "fake-cli")
-	r := newStreamResponder(t.Context(), []string{cli}, "", "", t.TempDir(), env)
+	r := newStreamResponder(context.WithoutCancel(t.Context()), []string{cli}, "", "", t.TempDir(), env)
 	t.Cleanup(func() { mustClose(t, r) })
 
 	if _, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "launch without an asker"}, nil); err == nil {
@@ -169,7 +170,10 @@ func TestRelayOpenFailureKeepsCLIUnlaunched(t *testing.T) {
 
 func shortTempRoot(tb testing.TB) string {
 	tb.Helper()
-	root := "herrscher-root-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	if runtime.GOOS == "windows" {
+		tb.Skip("the approval socket root lives under /tmp, which does not exist on Windows")
+	}
+	root := "/tmp/h" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	if err := os.Mkdir(root, 0o700); err != nil {
 		tb.Fatalf("create short temp root: %v", err)
 	}
@@ -185,7 +189,7 @@ func TestRelayForConcurrentCallers(t *testing.T) {
 	root := shortTempRoot(t)
 	workDir := t.TempDir()
 	t.Setenv("TMPDIR", root)
-	r := newStreamResponder(t.Context(), []string{"sh", "-c", "true"}, "", "", workDir, nil)
+	r := newStreamResponder(context.WithoutCancel(t.Context()), []string{"sh", "-c", "true"}, "", "", workDir, nil)
 	t.Cleanup(func() { mustClose(t, r) })
 
 	const callers = 8
@@ -288,7 +292,7 @@ func TestResumeIDWithDashIsRefusedOnUpgrade(t *testing.T) {
 
 func TestInvalidResumeIDIsNeverPassed(t *testing.T) {
 	env := approvalEnv(t)
-	r := newStreamResponder(t.Context(), []string{"sh", "-c", approvalTurnScript}, "", "--foo", t.TempDir(), env)
+	r := newStreamResponder(context.WithoutCancel(t.Context()), []string{"sh", "-c", approvalTurnScript}, "", "--foo", t.TempDir(), env)
 	t.Cleanup(func() { mustClose(t, r) })
 	releaseTurn(t, env, 1)
 	if outcome := awaitTurn(t, startTurn(t.Context(), r, "run without an asker")); outcome.err != nil {
