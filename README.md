@@ -212,7 +212,10 @@ reach the daemon during that turn. A session whose id is missing or cannot be
 passed to `--resume` is refused with `ErrApprovalUnreachable`, and its bare
 process keeps running. A session id is passed to `--resume` only when it is
 non-empty, does not start with `-`, and contains only ASCII letters, digits, `-`
-and `_`. Start a new session to get a socket in that case.
+and `_`. Start a new session to get a socket in that case. An id that fails this
+rule is never passed to `--resume` on any launch: the backend drops it, emits the
+same resume-lost notice as a refused resume, and starts the claude process without
+`--resume`, so the history is lost and the notice says so.
 
 A session that has a socket keeps it. A turn without an asker on such a session
 runs with the socket still open. A request that reaches the socket while no
@@ -224,12 +227,19 @@ The socket file must exist before the claude process starts with it. The socket
 path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the bind
 fail. In that case, or when the socket file does not appear within 5 seconds, the
 turn fails before any claude process is launched with the variable, so no tool
-runs without a channel. If the listener stops after the file exists, nothing
-listens on the socket, the tool hook cannot connect, and the hook denies. That
-refusal is guaranteed by the herrscher side, not by this repository, and the
-backend does not probe connections. Before each turn with an asker, the backend
-checks that the listener still runs. If it does not, the backend opens a new
-socket and relaunches the bound process on it with `--resume`, as above.
+runs without a channel. When the socket cannot be opened, the turn fails with a
+message in its language (`approval.open_failed` in the catalog) that names a
+too-long `TMPDIR` as the likely cause, and the original error stays wrapped under
+it. If the listener stops after the file exists, nothing listens on the socket,
+the tool hook cannot connect, and the hook denies. That refusal is guaranteed by
+the herrscher side, not by this repository, and the backend does not probe
+connections. Before each turn with an asker, the backend checks that the listener
+still runs. If it does not, the backend opens a new socket and relaunches the
+bound process on it with `--resume`, as above. The same check runs whenever a
+claude process is launched, including a turn without an asker: a stopped relay is
+replaced before the process starts, so the process never points at a dead socket.
+If that replacement cannot open a socket, the launch fails with the same message
+and no process starts.
 
 If claude refuses `--resume` when the backend relaunches a session, the backend
 starts again without `--resume`, emits a resume-lost notice, and the session

@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -52,9 +53,19 @@ func (r *streamResponder) approvalRelayFor(ctx context.Context) (*approvalRelay,
 	}
 	fresh, err := openApprovalRelay(ctx)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", errApprovalOpen, err)
 	}
 	return r.installRelay(fresh, installed)
+}
+
+func (r *streamResponder) launchRelay(ctx context.Context) (*approvalRelay, error) {
+	r.stateMu.Lock()
+	relay := r.approvals
+	r.stateMu.Unlock()
+	if relay == nil || relay.serving() {
+		return relay, nil
+	}
+	return r.approvalRelayFor(ctx)
 }
 
 func (r *streamResponder) installedRelay() (*approvalRelay, error) {
@@ -90,17 +101,23 @@ func (r *streamResponder) installRelay(fresh, stale *approvalRelay) (*approvalRe
 }
 
 func (r *streamResponder) spawnSession(ctx context.Context, resumeID string) (*streamSession, error) {
-	r.stateMu.Lock()
-	relay := r.approvals
-	r.stateMu.Unlock()
+	relay, err := r.launchRelay(ctx)
+	if err != nil {
+		return nil, err
+	}
 	env := r.env
 	if relay != nil {
 		env = relay.env(r.env)
 	}
-	session, err := startStreamSession(ctx, r.base, r.model, resumeID, r.dir, env)
+	usable := usableResumeID(resumeID)
+	session, err := startStreamSession(ctx, r.base, r.model, usable, r.dir, env)
 	if err != nil {
 		return nil, err
 	}
 	session.relay = relay
+	if usable != resumeID {
+		r.discardResumeID(resumeID)
+		session.discardedResume = resumeID
+	}
 	return session, nil
 }

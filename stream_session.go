@@ -14,28 +14,25 @@ import (
 )
 
 type streamSession struct {
-	mu          sync.Mutex
-	stateMu     sync.Mutex
-	stdin       io.WriteCloser
-	lines       chan readLine
-	done        chan struct{}
-	stopOnce    sync.Once
-	cmd         *exec.Cmd
-	sessID      string
-	resumedFrom string
-	tookTurn    bool
-	relay       *approvalRelay
+	mu              sync.Mutex
+	stateMu         sync.Mutex
+	stdin           io.WriteCloser
+	lines           chan readLine
+	done            chan struct{}
+	stopOnce        sync.Once
+	cmd             *exec.Cmd
+	sessID          string
+	resumedFrom     string
+	discardedResume string
+	tookTurn        bool
+	relay           *approvalRelay
 }
 
 func validResumeID(sessionID string) bool {
-	return sessionID != "" && !strings.HasPrefix(sessionID, "-") && !strings.ContainsFunc(sessionID, isForeignResumeRune)
+	return sessionID != "" && !strings.HasPrefix(sessionID, "-") && strings.TrimFunc(sessionID, isResumeIDRune) == ""
 }
 
-func isForeignResumeRune(r rune) bool {
-	return !isResumeRune(r)
-}
-
-func isResumeRune(r rune) bool {
+func isResumeIDRune(r rune) bool {
 	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
 }
 

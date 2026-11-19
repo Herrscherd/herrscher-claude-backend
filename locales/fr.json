@@ -108,5 +108,10 @@
     "id": "approval.mismatch",
     "description": "Motif d'une approbation d'outil refusée parce que la réponse ne porte pas l'identifiant de sa demande",
     "other": "la réponse d'approbation ne correspond pas à sa demande"
+  },
+  {
+    "id": "approval.open_failed",
+    "description": "Un tour refusé parce que sa socket d'approbation n'a pas pu s'ouvrir, souvent à cause d'un TMPDIR trop long pour la limite d'un chemin de socket",
+    "other": "la socket d'approbation n'a pas pu s'ouvrir ; un TMPDIR trop long en est la cause probable, les chemins de socket Unix étant limités à 108 octets"
   }
 ]

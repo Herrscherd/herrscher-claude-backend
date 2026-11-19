@@ -21,7 +21,7 @@ func allMessageKeys() []string {
 	return []string{
 		keySettingCmd, keySettingModel, keySettingStream, keySettingDir, keySettingKind, keySettingEnv,
 		keyGatewayPairIncomplete,
-		keyApprovalUnreachable, keyApprovalNoTurn, keyApprovalMismatch,
+		keyApprovalUnreachable, keyApprovalNoTurn, keyApprovalMismatch, keyApprovalOpenFailed,
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
 		keyTurnFailed, keyTurnStreamEnded, keyTurnResponderClosed,
 		keyUsageNoLogin, keyUsageExpired, keyUsageRefused, keyUsageUnknown, keyUsageLoginFile,

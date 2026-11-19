@@ -80,6 +80,15 @@ func (r *streamResponder) forgetResume() {
 	slog.Warn("claude resume lost before any line; starting without --resume", "session", lostID)
 }
 
+func (r *streamResponder) discardResumeID(discarded string) {
+	r.resumeMu.Lock()
+	if r.resumeID == discarded {
+		r.resumeID = ""
+	}
+	r.resumeMu.Unlock()
+	slog.Warn("claude resume id is not usable; starting without --resume", "session", discarded)
+}
+
 func (r *streamResponder) markAccepted() {
 	r.acceptedMu.Lock()
 	r.accepted = true
@@ -142,6 +151,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 		if err != nil {
 			return turnResult{}, joinDead(err, deadErr)
 		}
+		announceDiscardedResume(session, onEvent)
 		turn, err := r.send(ctx, session, content, onEvent)
 		if succeeded(session, turn, err) {
 			return r.finishTurn(session, turn, deadErr), nil
@@ -223,6 +233,16 @@ func resumeLostNotice() contracts.BackendEvent {
 	return contracts.BackendEvent{
 		Kind:   contracts.BackendKindNotice,
 		Notice: &contracts.Notice{Code: contracts.CodeResumeLost},
+	}
+}
+
+func announceDiscardedResume(session *streamSession, onEvent func(contracts.BackendEvent)) {
+	if session.discardedResume == "" {
+		return
+	}
+	session.discardedResume = ""
+	if onEvent != nil {
+		onEvent(resumeLostNotice())
 	}
 }
 

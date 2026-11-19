@@ -108,5 +108,10 @@
     "id": "approval.mismatch",
     "description": "The reason of a tool approval denied because the answer does not carry the ID of its request",
     "other": "the approval answer does not match its request"
+  },
+  {
+    "id": "approval.open_failed",
+    "description": "A turn refused because its approval socket could not be opened, usually because TMPDIR is too long for the socket path limit",
+    "other": "the approval socket could not be opened; a TMPDIR that is too long is the likely cause, since Unix socket paths are limited to 108 bytes"
   }
 ]

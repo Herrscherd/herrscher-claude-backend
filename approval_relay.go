@@ -26,6 +26,8 @@ const (
 
 var errApprovalSocketUnbound = errors.New("approval socket is not listening")
 
+var errApprovalOpen = errors.New("approval socket could not be opened")
+
 type approvalRelay struct {
 	dir      string
 	path     string
