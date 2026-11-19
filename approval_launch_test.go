@@ -86,3 +86,18 @@ func TestAskerlessLaunchReplacesStoppedRelay(t *testing.T) {
 		t.Fatal("session launched after the relay stopped is not bound to the new relay")
 	}
 }
+
+func TestOneShotOpenFailureIsReportedInRequestLanguage(t *testing.T) {
+	t.Setenv("TMPDIR", longTempRoot(t))
+	b := mustBackend(t, Config{Kind: "oneshot", Cmd: "printf %s"})
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+
+	_, err := respondWithin(ctx, t, b, contracts.Prompt{Content: "run the tool", Language: i18n.French}, nil)
+	if !errors.Is(err, errApprovalOpen) {
+		t.Fatalf("oneshot err = %v, want the open failure to keep errApprovalOpen", err)
+	}
+	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
+	if err.Error() != want {
+		t.Fatalf("oneshot err text = %q, want the French message %q", err.Error(), want)
+	}
+}

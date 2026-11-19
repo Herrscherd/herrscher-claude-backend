@@ -182,7 +182,7 @@ func runOneShot(ctx context.Context, cmdStr string, env map[string]string, promp
 	}
 	relay, err := openApprovalRelay(ctx)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("%w: %w", errApprovalOpen, err)
 	}
 	defer closeRelayLogged(relay)
 	endTurn := relay.beginTurn(ctx, asker, prompt.Language)

@@ -9,6 +9,8 @@ import (
 	contracts "github.com/Herrscherd/herrscher-contracts"
 )
 
+const keepaliveFreshCLI = `log=$1; shift; echo "$*" >> "$log"; while read line; do printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'; done`
+
 const (
 	resumeNeverAcceptedCLI       = `log=$1; shift; echo "$*" >> "$log"; case "$*" in *--resume*) read line; exit 1;; esac; read line; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
 	silentDeathsAfterAcceptedCLI = `log=$1; shift; echo "$*" >> "$log"; n=$(wc -l < "$log"); read line; if [ "$n" -eq 1 ]; then printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-old"}' '{"type":"result","is_error":false,"result":"first","session_id":"sid-old"}'; read line; exit 1; fi; if [ "$n" -eq 2 ]; then exit 1; fi; printf '%s\n' '{"type":"system","subtype":"init","session_id":"sid-new"}' '{"type":"result","is_error":false,"result":"done","session_id":"sid-new"}'`
@@ -171,5 +173,22 @@ func TestSilentDeathAfterAnAcceptedResumeEmitsOneResetAndNoNotice(t *testing.T) 
 	if want := []string{"reset"}; !slices.Equal(lifecycleKinds(events), want) {
 		t.Fatalf("lifecycle events = %q, want %q: an accepted resume that dies once is relaunched with a reset and no notice", lifecycleKinds(events), want)
 	}
+	mustClose(t, r)
+}
+
+func TestDiscardedResumeNoticeWaitsForATurnWithAListener(t *testing.T) {
+	t.Parallel()
+	log := filepath.Join(t.TempDir(), "spawns.log")
+	r := newStreamResponder(context.Background(), fakeCLIBase(log, keepaliveFreshCLI), "", "--foo", "", nil)
+
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "first, no listener"}, nil); err != nil {
+		t.Fatalf("first turn without a listener: %v", err)
+	}
+	var events []contracts.BackendEvent
+	if _, err := respondWithin(context.Background(), t, r, contracts.Prompt{Content: "second, with a listener"}, recordEvents(&events)); err != nil {
+		t.Fatalf("second turn with a listener: %v", err)
+	}
+	requireLifecycleKinds(t, events, []string{contracts.BackendKindNotice}, "the resume-lost notice waits for the first turn that can receive it")
+	assertSpawnResumes(t, spawnedArgvs(t, log), []string{""})
 	mustClose(t, r)
 }

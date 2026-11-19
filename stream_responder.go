@@ -13,8 +13,9 @@ type oneShotResponder struct {
 	run func(ctx context.Context, p contracts.Prompt) (string, error)
 }
 
-func (o *oneShotResponder) Respond(ctx context.Context, p contracts.Prompt, _ func(contracts.BackendEvent)) (string, error) {
-	return o.run(ctx, p)
+func (o *oneShotResponder) Respond(ctx context.Context, prompt contracts.Prompt, _ func(contracts.BackendEvent)) (string, error) {
+	text, err := o.run(ctx, prompt)
+	return text, localizeTurnEnd(prompt.Language, err)
 }
 
 func (o *oneShotResponder) Close() error { return nil }
@@ -237,13 +238,11 @@ func resumeLostNotice() contracts.BackendEvent {
 }
 
 func announceDiscardedResume(session *streamSession, onEvent func(contracts.BackendEvent)) {
-	if session.discardedResume == "" {
+	if session.discardedResume == "" || onEvent == nil {
 		return
 	}
+	onEvent(resumeLostNotice())
 	session.discardedResume = ""
-	if onEvent != nil {
-		onEvent(resumeLostNotice())
-	}
 }
 
 func (r *streamResponder) ResumeToken() string {

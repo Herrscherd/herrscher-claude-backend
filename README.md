@@ -221,7 +221,11 @@ A session that has a socket keeps it. A turn without an asker on such a session
 runs with the socket still open. A request that reaches the socket while no
 asker turn runs is denied, which fails closed. `Compact` calls sent without an
 asker therefore succeed on a bound session, and any approval request they raise
-is refused.
+is refused. If a turn without an asker finds the relay stopped and the
+replacement cannot open a socket, the turn fails with `approval.open_failed` and
+no process starts. A bound session does not launch without a channel, because a
+bound session stays bound, and a visible failure is preferred to a silent
+refusal.
 
 The socket file must exist before the claude process starts with it. The socket
 path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the bind
@@ -236,10 +240,11 @@ the herrscher side, not by this repository, and the backend does not probe
 connections. Before each turn with an asker, the backend checks that the listener
 still runs. If it does not, the backend opens a new socket and relaunches the
 bound process on it with `--resume`, as above. The same check runs whenever a
-claude process is launched, including a turn without an asker: a stopped relay is
-replaced before the process starts, so the process never points at a dead socket.
-If that replacement cannot open a socket, the launch fails with the same message
-and no process starts.
+claude process is launched, including a turn without an asker: the relay is
+checked at launch, and a stopped relay is replaced before the process starts. If
+the relay stops afterwards, nothing listens, and the next turn replaces it. If
+that replacement cannot open a socket, the launch fails with the same message and
+no process starts.
 
 If claude refuses `--resume` when the backend relaunches a session, the backend
 starts again without `--resume`, emits a resume-lost notice, and the session
