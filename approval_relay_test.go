@@ -81,7 +81,7 @@ func TestRelayDeniesMismatchedAnswerID(t *testing.T) {
 	asker := func(_ context.Context, _ contracts.ApprovalRequest) contracts.ApprovalAnswer {
 		return contracts.ApprovalAnswer{ID: "someone-else", Decision: contracts.DecisionAllow}
 	}
-	endTurn := relay.beginTurn(t.Context(), asker)
+	endTurn := relay.beginTurn(t.Context(), asker, i18n.English)
 	defer endTurn()
 
 	answer := relay.answer(t.Context(), contracts.ApprovalRequest{ID: "req-5", Tool: "Bash"})
@@ -96,7 +96,7 @@ func TestRelayForwardsAnswerOfActiveTurn(t *testing.T) {
 	asker := func(_ context.Context, req contracts.ApprovalRequest) contracts.ApprovalAnswer {
 		return contracts.ApprovalAnswer{ID: req.ID, Decision: contracts.DecisionAllow, Reason: "approved"}
 	}
-	endTurn := relay.beginTurn(t.Context(), asker)
+	endTurn := relay.beginTurn(t.Context(), asker, i18n.English)
 	answer := relay.answer(t.Context(), contracts.ApprovalRequest{ID: "req-6", Tool: "Bash"})
 	endTurn()
 
@@ -110,10 +110,10 @@ func TestRelayClearsTurnAfterEnd(t *testing.T) {
 	asker := func(_ context.Context, req contracts.ApprovalRequest) contracts.ApprovalAnswer {
 		return contracts.ApprovalAnswer{ID: req.ID, Decision: contracts.DecisionAllow}
 	}
-	endTurn := relay.beginTurn(t.Context(), asker)
+	endTurn := relay.beginTurn(t.Context(), asker, i18n.English)
 	endTurn()
 
-	if relay.currentTurn() != nil {
+	if turn, _ := relay.current(); turn != nil {
 		t.Fatal("turn still set after its end")
 	}
 	answer := relay.answer(t.Context(), contracts.ApprovalRequest{ID: "req-7"})
@@ -242,11 +242,43 @@ func TestApprovalRelayOpensOnFirstRequest(t *testing.T) {
 			t.Errorf("Close: %v", err)
 		}
 	})
-	relay, err := r.approvalRelayFor(t.Context(), i18n.English)
+	relay, err := r.approvalRelayFor(t.Context())
 	if err != nil {
 		t.Fatalf("approvalRelayFor on a fresh responder: %v", err)
 	}
 	if relay == nil || r.approvals != relay {
 		t.Fatal("first approval request did not store its relay on the responder")
+	}
+}
+
+func TestRelayDeniesMismatchInTurnLanguage(t *testing.T) {
+	relay := openTestRelay(t)
+	asker := func(_ context.Context, _ contracts.ApprovalRequest) contracts.ApprovalAnswer {
+		return contracts.ApprovalAnswer{ID: "someone-else", Decision: contracts.DecisionAllow}
+	}
+	endTurn := relay.beginTurn(t.Context(), asker, i18n.French)
+	answer := relay.answer(t.Context(), contracts.ApprovalRequest{ID: "req-fr", Tool: "Bash"})
+	endTurn()
+
+	want := newMessages().localized(i18n.French, keyApprovalMismatch)
+	if want == newMessages().english(keyApprovalMismatch) {
+		t.Fatal("the French mismatch reason is the English one")
+	}
+	if answer.Decision != contracts.DecisionDeny || answer.ID != "req-fr" || answer.Reason != want {
+		t.Fatalf("answer = %+v, want deny for req-fr with %q", answer, want)
+	}
+}
+
+func TestRelayKeepsTurnLanguageOutsideTurn(t *testing.T) {
+	relay := openTestRelay(t)
+	asker := func(_ context.Context, req contracts.ApprovalRequest) contracts.ApprovalAnswer {
+		return contracts.ApprovalAnswer{ID: req.ID, Decision: contracts.DecisionAllow}
+	}
+	relay.beginTurn(t.Context(), asker, i18n.French)()
+
+	answer := relay.answer(t.Context(), contracts.ApprovalRequest{ID: "req-fr-2", Tool: "Bash"})
+	want := newMessages().localized(i18n.French, keyApprovalNoTurn)
+	if answer.Decision != contracts.DecisionDeny || answer.ID != "req-fr-2" || answer.Reason != want {
+		t.Fatalf("answer after a French turn = %+v, want deny for req-fr-2 with %q", answer, want)
 	}
 }

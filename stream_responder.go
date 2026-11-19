@@ -45,13 +45,13 @@ type streamResponder struct {
 	stopped      chan struct{}
 	stopOnce     sync.Once
 	approvals    *approvalRelay
-	launchedBare bool
+	launch       approvalLaunch
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
 	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env, stopped: make(chan struct{})}
 	responder.spawn = func(id string) (*streamSession, error) {
-		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.launchEnv())
+		return responder.spawnSession(ctx, id)
 	}
 	return responder
 }

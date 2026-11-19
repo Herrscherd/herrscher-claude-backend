@@ -201,13 +201,28 @@ such a turn, or when the request does not carry the ID of the question being
 asked, the socket answers with a denial that gives the reason. This path does
 not send the session token.
 
-A session launched by a turn without an asker has no approval socket. Its
-environment does not carry `HERRSCHER_APPROVAL_SOCKET`, and a later turn with an
-asker on that session is refused with `ErrApprovalUnreachable`, so the tool hook
-never runs without a channel to the daemon. Start a new session to get one.
+A session launched by a turn without an asker starts without an approval socket,
+so its environment does not carry `HERRSCHER_APPROVAL_SOCKET`. When a turn with
+an asker arrives on such an idle session, the backend closes the bare claude
+process, opens the socket, and relaunches the process with `--resume` on the
+session id, so the tool hook can reach the daemon during that turn. A session
+with no session id to resume cannot be upgraded: its turn is refused with
+`ErrApprovalUnreachable`, and the bare process keeps running. Start a new session
+to get a socket in that case.
+
+The socket is confirmed bound before the claude process starts with it. The
+socket path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the
+bind fail. In that case, or when the listener does not come up within 5 seconds,
+the turn fails before any claude process is launched with the variable, so no
+tool runs without a channel. A listener that stops after the bind is confirmed
+leaves the hook without an answer, and the hook denies.
 
 The one-shot backend follows the same rules for each run: the socket exists only
 for a run that carries an asker, and it is removed when the run ends.
+
+A `herrscher-approval-*` directory (mode 0700) left behind by a SIGKILL holds
+only a dead socket and the lock file. No other process reuses it, it disappears
+with `TMPDIR`, and the backend never removes directories it did not create.
 
 ## Model catalog
 

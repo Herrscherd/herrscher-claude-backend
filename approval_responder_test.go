@@ -16,12 +16,13 @@ import (
 
 const approvalTestWait = 10 * time.Second
 
-const approvalTurnScript = `n=0
+const approvalTurnScript = `printf '%s' "$*" > "$ARGS"
+n=0
 while read -r _; do
 	n=$((n+1))
 	printf '%s' "${HERRSCHER_APPROVAL_SOCKET-unset}" > "$RECORD"
 	while [ ! -f "$GATE$n" ]; do sleep 0.01; done
-	printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}' '{"type":"result","is_error":false,"result":"ok","session_id":"s1"}'
+	printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}' '{"type":"result","is_error":false,"result":"ok","session_id":"'"$SESSION"'"}'
 done`
 
 type turnOutcome struct {
@@ -32,7 +33,12 @@ type turnOutcome struct {
 func approvalEnv(t *testing.T) map[string]string {
 	t.Helper()
 	dir := t.TempDir()
-	return map[string]string{"RECORD": filepath.Join(dir, "record"), "GATE": filepath.Join(dir, "gate")}
+	return map[string]string{
+		"RECORD":  filepath.Join(dir, "record"),
+		"GATE":    filepath.Join(dir, "gate"),
+		"ARGS":    filepath.Join(dir, "args"),
+		"SESSION": "s1",
+	}
 }
 
 func newApprovalResponder(t *testing.T, env map[string]string) *streamResponder {
@@ -167,18 +173,26 @@ func TestApprovalAskerContextEndsWithTurn(t *testing.T) {
 
 	done := startTurn(ctx, r, "run the tool")
 	path := awaitRecord(t, env["RECORD"])
-	hook := make(chan error, 1)
+	type hookResult struct {
+		answer contracts.ApprovalAnswer
+		err    error
+	}
+	hook := make(chan hookResult, 1)
 	go func() {
 		askCtx, cancel := context.WithTimeout(context.Background(), approvalTestWait)
 		defer cancel()
-		_, err := approvalsock.Ask(askCtx, path, contracts.ApprovalRequest{ID: "req-3", Tool: "Bash"})
-		hook <- err
+		answer, err := approvalsock.Ask(askCtx, path, contracts.ApprovalRequest{ID: "req-3", Tool: "Bash"})
+		hook <- hookResult{answer: answer, err: err}
 	}()
 	awaitWithin(t, captured, "the asker")
 	releaseTurn(t, env, 1)
 	awaitTurn(t, done)
-	if err := awaitWithin(t, hook, "the hook answer"); err != nil {
-		t.Fatalf("hook: %v", err)
+	res := awaitWithin(t, hook, "the hook answer")
+	if res.err != nil {
+		t.Fatalf("hook: %v", res.err)
+	}
+	if res.answer.Decision != contracts.DecisionDeny || res.answer.ID != "req-3" {
+		t.Fatalf("hook answer after the turn ended = %+v, want deny keeping req-3", res.answer)
 	}
 }
 
@@ -197,26 +211,6 @@ func TestApprovalNoAskerLaunchesWithoutSocketVariable(t *testing.T) {
 	}
 	if r.approvals != nil {
 		t.Fatal("a turn without asker opened an approval relay")
-	}
-}
-
-func TestApprovalTurnRefusedWhenSessionLaunchedWithoutSocket(t *testing.T) {
-	env := approvalEnv(t)
-	r := newApprovalResponder(t, env)
-	releaseTurn(t, env, 1)
-	first := startTurn(t.Context(), r, "first, without an asker")
-	awaitRecord(t, env["RECORD"])
-	if outcome := awaitTurn(t, first); outcome.err != nil {
-		t.Fatalf("first turn: %v", outcome.err)
-	}
-
-	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
-	outcome := awaitTurn(t, startTurn(ctx, r, "second, with an asker"))
-	if !errors.Is(outcome.err, ErrApprovalUnreachable) {
-		t.Fatalf("second turn err = %v, want ErrApprovalUnreachable", outcome.err)
-	}
-	if r.approvals != nil {
-		t.Fatal("a refused turn opened an approval relay on a bare session")
 	}
 }
 

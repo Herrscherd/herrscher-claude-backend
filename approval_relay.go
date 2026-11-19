@@ -13,6 +13,7 @@ import (
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
 	"github.com/Herrscherd/herrscher-contracts/approvalsock"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 const (
@@ -32,10 +33,12 @@ type approvalRelay struct {
 	served chan error
 	mu     sync.Mutex
 	turn   *approvalTurn
+	lang   i18n.Language
 }
 
 type approvalTurn struct {
 	asker contracts.ApprovalAsker
+	lang  i18n.Language
 }
 
 func openApprovalRelay(ctx context.Context) (*approvalRelay, error) {
@@ -52,6 +55,7 @@ func openApprovalRelay(ctx context.Context) (*approvalRelay, error) {
 		path:   filepath.Join(dir, approvalSocketName),
 		cancel: cancel,
 		served: make(chan error, 1),
+		lang:   i18n.English,
 	}
 	go func() {
 		relay.served <- approvalsock.Serve(serveCtx, relay.path, relay.answer, approvalsock.WithErrorHandler(reportApprovalError))
@@ -89,11 +93,12 @@ func (r *approvalRelay) awaitBound() error {
 	return errApprovalSocketUnbound
 }
 
-func (r *approvalRelay) beginTurn(ctx context.Context, asker contracts.ApprovalAsker) func() {
+func (r *approvalRelay) beginTurn(ctx context.Context, asker contracts.ApprovalAsker, lang i18n.Language) func() {
 	turnCtx, cancel := context.WithCancel(ctx)
-	turn := &approvalTurn{asker: boundedAsker(turnCtx, asker)}
+	turn := &approvalTurn{asker: boundedAsker(turnCtx, asker), lang: lang}
 	r.mu.Lock()
 	r.turn = turn
+	r.lang = lang
 	r.mu.Unlock()
 	return func() {
 		r.endTurn(turn)
@@ -109,20 +114,20 @@ func (r *approvalRelay) endTurn(turn *approvalTurn) {
 	}
 }
 
-func (r *approvalRelay) currentTurn() *approvalTurn {
+func (r *approvalRelay) current() (*approvalTurn, i18n.Language) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.turn
+	return r.turn, r.lang
 }
 
 func (r *approvalRelay) answer(ctx context.Context, req contracts.ApprovalRequest) contracts.ApprovalAnswer {
-	turn := r.currentTurn()
+	turn, lang := r.current()
 	if turn == nil {
-		return denial(req.ID, newMessages().english(keyApprovalNoTurn))
+		return denial(req.ID, newMessages().localized(lang, keyApprovalNoTurn))
 	}
 	answer := turn.asker(ctx, req)
 	if answer.ID != req.ID {
-		return denial(req.ID, newMessages().english(keyApprovalMismatch))
+		return denial(req.ID, newMessages().localized(turn.lang, keyApprovalMismatch))
 	}
 	return answer
 }
@@ -168,7 +173,7 @@ func runOneShot(ctx context.Context, cmdStr string, env map[string]string, promp
 		return "", err
 	}
 	defer closeRelayLogged(relay)
-	endTurn := relay.beginTurn(ctx, asker)
+	endTurn := relay.beginTurn(ctx, asker, prompt.Language)
 	defer endTurn()
 	return runCmd(ctx, cmdStr, relay.env(env), prompt)
 }

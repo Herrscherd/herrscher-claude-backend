@@ -11,23 +11,23 @@ import (
 
 const returnDeadline = 10 * time.Second
 
-func returnWithin[T any](t *testing.T, what string, call func() T) T {
-	t.Helper()
+func returnWithin[T any](tb testing.TB, what string, call func() T) T {
+	tb.Helper()
 	done := make(chan T, 1)
 	go func() { done <- call() }()
 	select {
 	case res := <-done:
 		return res
 	case <-time.After(returnDeadline):
-		t.Fatalf("%s did not return within 10 seconds", what)
+		tb.Fatalf("%s did not return within 10 seconds", what)
 		var zero T
 		return zero
 	}
 }
 
-func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	return returnWithin(t, what, func() T { return <-ch })
+func awaitWithin[T any](tb testing.TB, ch <-chan T, what string) T {
+	tb.Helper()
+	return returnWithin(tb, what, func() T { return <-ch })
 }
 
 func closeWithin(t *testing.T, sess *streamSession) error {
