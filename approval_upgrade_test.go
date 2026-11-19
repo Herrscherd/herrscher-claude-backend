@@ -167,8 +167,22 @@ func TestRelayOpenFailureKeepsCLIUnlaunched(t *testing.T) {
 	}
 }
 
+func shortTempRoot(tb testing.TB) string {
+	tb.Helper()
+	root := "herrscher-root-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	if err := os.Mkdir(root, 0o700); err != nil {
+		tb.Fatalf("create short temp root: %v", err)
+	}
+	tb.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			tb.Errorf("remove short temp root: %v", err)
+		}
+	})
+	return root
+}
+
 func TestRelayForConcurrentCallers(t *testing.T) {
-	root := t.TempDir()
+	root := shortTempRoot(t)
 	workDir := t.TempDir()
 	t.Setenv("TMPDIR", root)
 	r := newStreamResponder(t.Context(), []string{"sh", "-c", "true"}, "", "", workDir, nil)
