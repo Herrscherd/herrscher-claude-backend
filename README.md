@@ -185,6 +185,80 @@ setting, and not an environment variable.
 `<memory data-only="true">` fence. Any `<memory>` tag the recalled text carries
 is neutralized first, so it cannot forge or close the fence.
 
+## Tool approvals
+
+When a turn carries an approval asker in its context, the backend opens a
+private Unix socket and exports its path as `HERRSCHER_APPROVAL_SOCKET` to the
+claude process. A tool hook can then ask the host for a decision by sending the
+request to that socket, and the answer comes from the asker of the running turn.
+
+The socket lives in a directory created with mode 0700 and is served by
+`approvalsock`, which accepts only the owner's connections. The socket is created
+once per session and reused across the turns and relaunches of that session, for
+as long as its listener runs.
+
+A request is answered only while a turn that carries an asker is running. Outside
+such a turn, or when the request does not carry the ID of the question being
+asked, the socket answers with a denial that gives the reason. This path does
+not send the session token.
+
+A session launched by a turn without an asker starts without an approval socket,
+so its environment does not carry `HERRSCHER_APPROVAL_SOCKET`. When a turn with
+an asker arrives on such an idle session, the backend opens the socket first. If
+that fails, the turn fails and the bare claude process keeps running, so later
+turns without an asker reuse it. If the socket opens, the backend closes the bare
+process and relaunches it with `--resume` on the session id, so the tool hook can
+reach the daemon during that turn. A session whose id is missing or cannot be
+passed to `--resume` is refused with `ErrApprovalUnreachable`, and its bare
+process keeps running. A session id is passed to `--resume` only when it is
+non-empty, does not start with `-`, and contains only ASCII letters, digits, `-`
+and `_`. Start a new session to get a socket in that case. An id that fails this
+rule is never passed to `--resume` on any launch: the backend drops it, emits the
+same resume-lost notice as a refused resume, and starts the claude process without
+`--resume`, so the history is lost and the notice says so.
+
+A session that has a socket keeps it. A turn without an asker on such a session
+runs with the socket still open. A request that reaches the socket while no
+asker turn runs is denied, which fails closed. `Compact` calls sent without an
+asker therefore succeed on a bound session, and any approval request they raise
+is refused. If a turn without an asker finds the relay stopped and the
+replacement cannot open a socket, the turn fails with `approval.open_failed` and
+no process starts. A bound session does not launch without a channel, because a
+bound session stays bound, and a visible failure is preferred to a silent
+refusal.
+
+The socket file must exist before the claude process starts with it. The socket
+path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the bind
+fail. In that case, or when the socket file does not appear within 5 seconds,
+the turn fails before any claude process is launched with the variable, so no
+tool runs without a channel. When the socket cannot be opened, the turn fails
+with a message in its language (`approval.open_failed` in the catalog) that
+names a too-long `TMPDIR` as the likely cause, and the original error stays
+wrapped under it. If the listener stops after the file exists, nothing listens
+on the socket, the tool hook cannot connect, and the hook denies. That refusal
+is guaranteed by the herrscher side, not by this repository, and the backend
+does not probe connections. Before each turn with an asker, the backend checks
+that the listener still runs. If it does not, the backend opens a new socket
+and relaunches the bound process on it with `--resume`, as above. The same
+check runs whenever a claude process is launched, including a turn without an
+asker: the relay is checked at launch, and a stopped relay is replaced before
+the process starts. If the relay stops afterwards, nothing listens, and the
+next turn with an asker, or the next launch, replaces it. If that replacement
+cannot open a socket, the launch fails with the same message and no process
+starts.
+
+If claude refuses `--resume` when the backend relaunches a session, the backend
+starts again without `--resume`, emits a resume-lost notice, and the session
+history is lost. The same fallback applies to every relaunch, not only to the
+upgrade described above.
+
+The one-shot backend follows the same rules for each run: the socket exists only
+for a run that carries an asker, and it is removed when the run ends.
+
+A `herrscher-approval-*` directory (mode 0700) left behind by a SIGKILL holds
+only a dead socket and the lock file. No other process reuses it, it disappears
+with `TMPDIR`, and the backend never removes directories it did not create.
+
 ## Model catalog
 
 `Models` is the declared catalog, published through `Manifest.Models`. Each

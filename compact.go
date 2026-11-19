@@ -40,6 +40,11 @@ func (e *compactUnavailableError) Notice() contracts.Notice {
 func (r *streamResponder) Compact(ctx context.Context, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
 	r.turnMu.Lock()
 	defer r.turnMu.Unlock()
+	endTurn, err := r.beginApprovalTurn(ctx, req.Session.Language)
+	if err != nil {
+		return contracts.CompactResult{}, &compactUnavailableError{cause: localizeTurnEnd(req.Session.Language, err)}
+	}
+	defer endTurn()
 	turn, err := r.runTurn(ctx, compactMessage(req.Instruction), onEvent)
 	if err != nil {
 		return contracts.CompactResult{}, &compactUnavailableError{cause: localizeTurnEnd(req.Session.Language, err)}

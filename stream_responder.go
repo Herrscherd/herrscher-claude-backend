@@ -13,8 +13,9 @@ type oneShotResponder struct {
 	run func(ctx context.Context, p contracts.Prompt) (string, error)
 }
 
-func (o *oneShotResponder) Respond(ctx context.Context, p contracts.Prompt, _ func(contracts.BackendEvent)) (string, error) {
-	return o.run(ctx, p)
+func (o *oneShotResponder) Respond(ctx context.Context, prompt contracts.Prompt, _ func(contracts.BackendEvent)) (string, error) {
+	text, err := o.run(ctx, prompt)
+	return text, localizeTurnEnd(prompt.Language, err)
 }
 
 func (o *oneShotResponder) Close() error { return nil }
@@ -44,12 +45,13 @@ type streamResponder struct {
 	pending      int
 	stopped      chan struct{}
 	stopOnce     sync.Once
+	approvals    *approvalRelay
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
 	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env, stopped: make(chan struct{})}
 	responder.spawn = func(id string) (*streamSession, error) {
-		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.env)
+		return responder.spawnSession(ctx, id)
 	}
 	return responder
 }
@@ -77,6 +79,15 @@ func (r *streamResponder) forgetResume() {
 	r.resumeID = ""
 	r.resumeMu.Unlock()
 	slog.Warn("claude resume lost before any line; starting without --resume", "session", lostID)
+}
+
+func (r *streamResponder) discardResumeID(discarded string) {
+	r.resumeMu.Lock()
+	if r.resumeID == discarded {
+		r.resumeID = ""
+	}
+	r.resumeMu.Unlock()
+	slog.Warn("claude resume id is not usable; starting without --resume", "session", discarded)
 }
 
 func (r *streamResponder) markAccepted() {
@@ -113,6 +124,11 @@ func (r *streamResponder) currentSessionID() string {
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.turnMu.Lock()
 	defer r.turnMu.Unlock()
+	endTurn, err := r.beginApprovalTurn(ctx, prompt.Language)
+	if err != nil {
+		return "", localizeTurnEnd(prompt.Language, err)
+	}
+	defer endTurn()
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
 		return "", localizeTurnEnd(prompt.Language, err)
@@ -136,6 +152,7 @@ func (r *streamResponder) runTurn(ctx context.Context, content string, onEvent f
 		if err != nil {
 			return turnResult{}, joinDead(err, deadErr)
 		}
+		announceDiscardedResume(session, onEvent)
 		turn, err := r.send(ctx, session, content, onEvent)
 		if succeeded(session, turn, err) {
 			return r.finishTurn(session, turn, deadErr), nil
@@ -218,6 +235,14 @@ func resumeLostNotice() contracts.BackendEvent {
 		Kind:   contracts.BackendKindNotice,
 		Notice: &contracts.Notice{Code: contracts.CodeResumeLost},
 	}
+}
+
+func announceDiscardedResume(session *streamSession, onEvent func(contracts.BackendEvent)) {
+	if session.discardedResume == "" || onEvent == nil {
+		return
+	}
+	onEvent(resumeLostNotice())
+	session.discardedResume = ""
 }
 
 func (r *streamResponder) ResumeToken() string {

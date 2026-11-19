@@ -93,5 +93,25 @@
     "id": "usage.login_file_malformed",
     "description": "The Claude credentials file is not readable JSON",
     "other": "claude credentials file is malformed"
+  },
+  {
+    "id": "approval.unreachable",
+    "description": "A turn refused because its session was launched without an approval socket, so the tool hook cannot reach the daemon",
+    "other": "this session was started without an approval channel, so the tool approval cannot reach the daemon; start a new session"
+  },
+  {
+    "id": "approval.no_turn",
+    "description": "The reason of a tool approval denied because no turn is waiting for it",
+    "other": "no turn is waiting for this approval"
+  },
+  {
+    "id": "approval.mismatch",
+    "description": "The reason of a tool approval denied because the answer does not carry the ID of its request",
+    "other": "the approval answer does not match its request"
+  },
+  {
+    "id": "approval.open_failed",
+    "description": "A turn refused because its approval socket could not be opened, usually because TMPDIR is too long for the socket path limit",
+    "other": "the approval socket could not be opened; a TMPDIR that is too long is the likely cause, since Unix socket paths are limited to 108 bytes"
   }
 ]

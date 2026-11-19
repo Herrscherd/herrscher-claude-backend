@@ -11,28 +11,28 @@ import (
 
 const returnDeadline = 10 * time.Second
 
-func returnWithin[T any](t *testing.T, what string, call func() T) T {
-	t.Helper()
+func returnWithin[T any](tb testing.TB, what string, call func() T) T {
+	tb.Helper()
 	done := make(chan T, 1)
 	go func() { done <- call() }()
 	select {
 	case res := <-done:
 		return res
 	case <-time.After(returnDeadline):
-		t.Fatalf("%s did not return within 10 seconds", what)
+		tb.Fatalf("%s did not return within 10 seconds", what)
 		var zero T
 		return zero
 	}
 }
 
-func awaitWithin[T any](t *testing.T, ch <-chan T, what string) T {
-	t.Helper()
-	return returnWithin(t, what, func() T { return <-ch })
+func awaitWithin[T any](tb testing.TB, ch <-chan T, what string) T {
+	tb.Helper()
+	return returnWithin(tb, what, func() T { return <-ch })
 }
 
-func closeWithin(t *testing.T, sess *streamSession) error {
-	t.Helper()
-	return returnWithin(t, "Close", sess.Close)
+func closeWithin(tb testing.TB, sess *streamSession) error {
+	tb.Helper()
+	return returnWithin(tb, "Close", sess.Close)
 }
 
 type pruneResult struct {
@@ -40,49 +40,49 @@ type pruneResult struct {
 	err     error
 }
 
-func pruneWithin(t *testing.T, r *streamResponder, edits []contracts.HistoryEdit) (contracts.PruneOutcome, error) {
-	t.Helper()
-	res := returnWithin(t, "PruneHistory", func() pruneResult {
-		outcome, err := r.PruneHistory(t.Context(), edits)
+func pruneWithin(tb testing.TB, r *streamResponder, edits []contracts.HistoryEdit) (contracts.PruneOutcome, error) {
+	tb.Helper()
+	res := returnWithin(tb, "PruneHistory", func() pruneResult {
+		outcome, err := r.PruneHistory(tb.Context(), edits)
 		return pruneResult{outcome: outcome, err: err}
 	})
 	return res.outcome, res.err
 }
 
-func mustWriteString(t *testing.T, writer io.Writer, text string) {
-	t.Helper()
+func mustWriteString(tb testing.TB, writer io.Writer, text string) {
+	tb.Helper()
 	if _, err := io.WriteString(writer, text); err != nil {
-		t.Errorf("write: %v", err)
+		tb.Errorf("write: %v", err)
 	}
 }
 
-func mustClose(t *testing.T, closer io.Closer) {
-	t.Helper()
-	if err := returnWithin(t, "close", closer.Close); err != nil {
-		t.Errorf("close: %v", err)
+func mustClose(tb testing.TB, closer io.Closer) {
+	tb.Helper()
+	if err := returnWithin(tb, "close", closer.Close); err != nil {
+		tb.Errorf("close: %v", err)
 	}
 }
 
-func respondWithin(ctx context.Context, t *testing.T, b contracts.Backend, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
-	t.Helper()
+func respondWithin(ctx context.Context, tb testing.TB, b contracts.Backend, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
+	tb.Helper()
 	type respondResult struct {
 		text string
 		err  error
 	}
-	res := returnWithin(t, "Respond", func() respondResult {
+	res := returnWithin(tb, "Respond", func() respondResult {
 		text, err := b.Respond(ctx, prompt, onEvent)
 		return respondResult{text: text, err: err}
 	})
 	return res.text, res.err
 }
 
-func compactWithin(ctx context.Context, t *testing.T, r *streamResponder, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
-	t.Helper()
+func compactWithin(ctx context.Context, tb testing.TB, r *streamResponder, req contracts.CompactRequest, onEvent func(contracts.BackendEvent)) (contracts.CompactResult, error) {
+	tb.Helper()
 	type compactResult struct {
 		result contracts.CompactResult
 		err    error
 	}
-	res := returnWithin(t, "Compact", func() compactResult {
+	res := returnWithin(tb, "Compact", func() compactResult {
 		result, err := r.Compact(ctx, req, onEvent)
 		return compactResult{result: result, err: err}
 	})
