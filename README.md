@@ -185,6 +185,30 @@ setting, and not an environment variable.
 `<memory data-only="true">` fence. Any `<memory>` tag the recalled text carries
 is neutralized first, so it cannot forge or close the fence.
 
+## Tool approvals
+
+When a turn carries an approval asker in its context, the backend opens a
+private Unix socket and exports its path as `HERRSCHER_APPROVAL_SOCKET` to the
+claude process. A tool hook can then ask the host for a decision by sending the
+request to that socket, and the answer comes from the asker of the running turn.
+
+The socket lives in a directory created with mode 0700 and is served by
+`approvalsock`, which accepts only the owner's connections. The socket is bound
+once per session and reused across the turns and relaunches of that session.
+
+A request is answered only while a turn that carries an asker is running. Outside
+such a turn, or when the request does not carry the ID of the question being
+asked, the socket answers with a denial that gives the reason. This path does
+not send the session token.
+
+A session launched by a turn without an asker has no approval socket. Its
+environment does not carry `HERRSCHER_APPROVAL_SOCKET`, and a later turn with an
+asker on that session is refused with `ErrApprovalUnreachable`, so the tool hook
+never runs without a channel to the daemon. Start a new session to get one.
+
+The one-shot backend follows the same rules for each run: the socket exists only
+for a run that carries an asker, and it is removed when the run ends.
+
 ## Model catalog
 
 `Models` is the declared catalog, published through `Manifest.Models`. Each

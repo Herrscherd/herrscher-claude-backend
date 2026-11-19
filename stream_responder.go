@@ -44,12 +44,14 @@ type streamResponder struct {
 	pending      int
 	stopped      chan struct{}
 	stopOnce     sync.Once
+	approvals    *approvalRelay
+	launchedBare bool
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {
 	responder := &streamResponder{base: base, model: model, resumeID: resumeID, dir: dir, env: env, stopped: make(chan struct{})}
 	responder.spawn = func(id string) (*streamSession, error) {
-		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.env)
+		return startStreamSession(ctx, responder.base, responder.model, id, responder.dir, responder.launchEnv())
 	}
 	return responder
 }
@@ -113,6 +115,11 @@ func (r *streamResponder) currentSessionID() string {
 func (r *streamResponder) Respond(ctx context.Context, prompt contracts.Prompt, onEvent func(contracts.BackendEvent)) (string, error) {
 	r.turnMu.Lock()
 	defer r.turnMu.Unlock()
+	endTurn, err := r.beginApprovalTurn(ctx, prompt.Language)
+	if err != nil {
+		return "", localizeTurnEnd(prompt.Language, err)
+	}
+	defer endTurn()
 	turn, err := r.runTurn(ctx, turnContent(prompt), onEvent)
 	if err != nil {
 		return "", localizeTurnEnd(prompt.Language, err)

@@ -112,13 +112,19 @@ func (r *streamResponder) Close() error {
 	if session != nil {
 		r.pending++
 	}
+	relay := r.approvals
+	r.approvals = nil
 	r.settleLocked()
 	r.stateMu.Unlock()
 	var closeErr error
 	if session != nil {
 		closeErr = r.reap(session)
 	}
-	return errors.Join(closeErr, r.awaitStopped())
+	var relayErr error
+	if relay != nil {
+		relayErr = relay.close()
+	}
+	return errors.Join(closeErr, relayErr, r.awaitStopped())
 }
 
 func (r *streamResponder) awaitStopped() error {

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/approvalsock"
 	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
@@ -65,8 +66,19 @@ func checkGatewayPair(env map[string]string) error {
 
 const legacyAnthropicAuthVar = "ANTHROPIC_AUTH_TOKEN"
 
+func withoutApprovalSocket(base []string) []string {
+	prefix := approvalsock.EnvApprovalSocket + "="
+	kept := make([]string, 0, len(base))
+	for _, entry := range base {
+		if !strings.HasPrefix(entry, prefix) {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
 func spawnEnv(base []string, env map[string]string) []string {
-	merged := contracts.MergeEnv(base, env)
+	merged := contracts.MergeEnv(withoutApprovalSocket(base), env)
 	if env[contracts.EnvAnthropicBaseURL] == "" {
 		return merged
 	}
@@ -94,7 +106,7 @@ func NewBackend(ctx context.Context, cfg Config) (contracts.Backend, error) {
 		}
 		cmdStr, env := cfg.Cmd, cfg.Env
 		return &oneShotResponder{run: func(ctx context.Context, p contracts.Prompt) (string, error) {
-			return runCmd(ctx, cmdStr, env, p)
+			return runOneShot(ctx, cmdStr, env, p)
 		}}, nil
 	default:
 		return newStreamResponder(ctx, streamBase(strings.Fields(cfg.Cmd)), cfg.Model, cfg.ResumeID, cfg.Dir, cfg.Env), nil

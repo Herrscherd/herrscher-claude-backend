@@ -93,5 +93,20 @@
     "id": "usage.login_file_malformed",
     "description": "Le fichier d'identifiants de Claude n'est pas un JSON lisible",
     "other": "le fichier d'identifiants de Claude est illisible"
+  },
+  {
+    "id": "approval.unreachable",
+    "description": "Un tour refusé parce que sa session a été lancée sans socket d'approbation, donc le crochet d'outil ne peut pas joindre le démon",
+    "other": "cette session a été lancée sans canal d'approbation, donc l'approbation de l'outil ne peut pas joindre le démon. Ouvre une nouvelle session."
+  },
+  {
+    "id": "approval.no_turn",
+    "description": "Motif d'une approbation d'outil refusée parce qu'aucun tour n'attend cette approbation",
+    "other": "aucun tour n'attend cette approbation"
+  },
+  {
+    "id": "approval.mismatch",
+    "description": "Motif d'une approbation d'outil refusée parce que la réponse ne porte pas l'identifiant de sa demande",
+    "other": "la réponse d'approbation ne correspond pas à sa demande"
   }
 ]
