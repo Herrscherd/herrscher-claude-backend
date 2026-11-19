@@ -3,6 +3,8 @@ package claude
 import (
 	"context"
 	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -99,5 +101,36 @@ func TestOneShotOpenFailureIsReportedInRequestLanguage(t *testing.T) {
 	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
 	if err.Error() != want {
 		t.Fatalf("oneshot err text = %q, want the French message %q", err.Error(), want)
+	}
+}
+
+func TestAskerlessLaunchOnBoundSessionFailsWhenRelayCannotReopen(t *testing.T) {
+	env := approvalEnv(t)
+	r := newApprovalResponder(t, env)
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(ctx, r, "first, with an asker")); outcome.err != nil {
+		t.Fatalf("first turn: %v", outcome.err)
+	}
+	old := r.approvals
+	if old == nil {
+		t.Fatal("first turn did not bind the session to a relay")
+	}
+	if err := returnWithin(t, "close the relay", old.close); err != nil {
+		t.Fatalf("close relay: %v", err)
+	}
+	if err := returnWithin(t, "drop the bound session", func() error { return r.dropSession(r.currentSession()) }); err != nil {
+		t.Fatalf("drop bound session: %v", err)
+	}
+	removeFiles(t, env["RECORD"], env["ARGS"])
+	t.Setenv("TMPDIR", longTempRoot(t))
+
+	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "second, without an asker", Language: i18n.French}, nil)
+	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
+	if err == nil || err.Error() != want {
+		t.Fatalf("asker-less turn err = %v, want the French message %q", err, want)
+	}
+	if _, statErr := os.Stat(env["ARGS"]); !errors.Is(statErr, fs.ErrNotExist) {
+		t.Fatalf("the CLI was launched although the relay could not reopen (args file stat: %v)", statErr)
 	}
 }

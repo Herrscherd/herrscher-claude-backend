@@ -242,7 +242,7 @@ still runs. If it does not, the backend opens a new socket and relaunches the
 bound process on it with `--resume`, as above. The same check runs whenever a
 claude process is launched, including a turn without an asker: the relay is
 checked at launch, and a stopped relay is replaced before the process starts. If
-the relay stops afterwards, nothing listens, and the next turn replaces it. If
+the relay stops afterwards, nothing listens, and the next turn with an asker, or the next launch, replaces it. If
 that replacement cannot open a socket, the launch fails with the same message and
 no process starts.
 
