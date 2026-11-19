@@ -30,7 +30,7 @@ func allMessageKeys() []string {
 
 func paramsFor(key string) map[string]any {
 	if key == keyApprovalDirFailed {
-		return map[string]any{"Dir": "/tmp"}
+		return approvalDirParams("/tmp")
 	}
 	return nil
 }

@@ -43,7 +43,7 @@ func longTempRoot(tb testing.TB) string {
 
 func absentTempRoot(tb testing.TB) string {
 	tb.Helper()
-	root := filepath.Join(os.TempDir(), "herrscher-absent-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	root := "herrscher-absent-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
 		tb.Fatalf("absent temp root %s exists or cannot be checked: %v", root, err)
 	}
@@ -51,7 +51,7 @@ func absentTempRoot(tb testing.TB) string {
 }
 
 func dirFailedMessage(lang i18n.Language, dir string) string {
-	return newMessages().localizedWith(lang, keyApprovalDirFailed, map[string]any{"Dir": dir})
+	return newMessages().localizedWith(lang, keyApprovalDirFailed, approvalDirParams(dir))
 }
 
 func removeFiles(tb testing.TB, paths ...string) {

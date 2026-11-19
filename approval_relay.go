@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -41,6 +42,10 @@ func (e *approvalDirError) Error() string {
 
 func (e *approvalDirError) Unwrap() error {
 	return e.err
+}
+
+func approvalDirParams(dir string) map[string]any {
+	return map[string]any{"Dir": strconv.Quote(dir)}
 }
 
 // ErrApprovalSocketPathTooLong matches a turn refused because the approval socket path exceeds the socket limit of the platform, even under the fallback directory.
