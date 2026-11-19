@@ -30,6 +30,19 @@ var errApprovalSocketUnbound = errors.New("approval socket is not listening")
 
 var errApprovalOpen = errors.New("approval socket could not be opened")
 
+type approvalDirError struct {
+	dir string
+	err error
+}
+
+func (e *approvalDirError) Error() string {
+	return fmt.Sprintf("approval directory under %s: %v", e.dir, e.err)
+}
+
+func (e *approvalDirError) Unwrap() error {
+	return e.err
+}
+
 // ErrApprovalSocketPathTooLong matches a turn refused because the approval socket path exceeds the socket limit of the platform, even under the fallback directory.
 var ErrApprovalSocketPathTooLong = errors.New("approval socket path is longer than the socket limit")
 
@@ -56,7 +69,7 @@ func openApprovalRelay(ctx context.Context) (*approvalRelay, error) {
 	}
 	dir, err := os.MkdirTemp(base, approvalDirPattern)
 	if err != nil {
-		return nil, fmt.Errorf("approval directory: %w", err)
+		return nil, &approvalDirError{dir: base, err: err}
 	}
 	if err = requirePrivateDir(dir); err != nil {
 		return nil, errors.Join(err, os.RemoveAll(dir))

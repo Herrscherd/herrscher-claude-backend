@@ -228,17 +228,19 @@ bound session stays bound, and a visible failure is preferred to a silent
 refusal.
 
 The socket file must exist before the claude process starts with it. The socket
-path must fit the socket limit of the system: 108 bytes on Linux, 104 on the
-other Unix systems, and no limit is checked on Windows. The path is the
-`herrscher-approval-` directory and `approval.sock`, which add 44 bytes to
-`TMPDIR`. When `TMPDIR` is too long for that limit, the socket directory is
-created under `/tmp` instead, with the same mode 0700, and the socket lives
-there. If even `/tmp` cannot hold the path, which is the case on Windows where no
-fallback exists, the turn fails before any claude process is launched, with a
+path must fit the socket limit of the system: 108 bytes on Linux and Windows, 104
+on the other Unix systems. The path is the `herrscher-approval-` directory and
+`approval.sock`, which add 44 bytes to `TMPDIR`. When `TMPDIR` is too long for
+that limit, the socket directory is created under `/tmp` instead, with the same
+mode 0700, and the socket lives there. On Windows there is no fallback, so a
+`TMPDIR` too long for the limit fails the turn. If even `/tmp` cannot hold the
+path, the turn fails before any claude process is launched, with a
 message in its language (`approval.path_too_long` in the catalog) that asks for a
 shorter `TMPDIR`, and the sentinel `ErrApprovalSocketPathTooLong` stays wrapped
-under it. Any other failure to open the socket, such as a missing or unwritable
-`TMPDIR`, gives `approval.open_failed`, with the original error wrapped under it.
+under it. A directory that cannot be created under `TMPDIR`, or under `/tmp` after the
+fallback, gives `approval.dir_failed`, which names that directory. Any other
+failure to open the socket, such as a socket that does not appear in time, gives
+`approval.open_failed`, with the original error wrapped under it.
 In every case, and when the socket file does not appear within 5 seconds, the
 turn fails before any claude process is launched with the variable, so no tool
 runs without a channel. If the listener stops after the file exists, nothing listens

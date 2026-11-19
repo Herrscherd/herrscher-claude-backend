@@ -25,6 +25,9 @@ func localizeTurnEnd(lang i18n.Language, err error) error {
 	case errors.Is(err, ErrApprovalSocketPathTooLong):
 		return newCatalogError(lang, keyApprovalPathTooLong, err)
 	case errors.Is(err, errApprovalOpen):
+		if dirErr, ok := errors.AsType[*approvalDirError](err); ok {
+			return newCatalogErrorWith(lang, keyApprovalDirFailed, map[string]any{"Dir": dirErr.dir}, err)
+		}
 		return newCatalogError(lang, keyApprovalOpenFailed, err)
 	}
 	return err

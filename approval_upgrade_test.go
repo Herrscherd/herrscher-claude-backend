@@ -6,11 +6,14 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 func writeFakeCLI(tb testing.TB, path string) {
@@ -38,7 +41,18 @@ func longTempRoot(tb testing.TB) string {
 	return deep
 }
 
-const missingTempRoot = "/herrscher-missing-tmpdir"
+func absentTempRoot(tb testing.TB) string {
+	tb.Helper()
+	root := filepath.Join(os.TempDir(), "herrscher-absent-"+strconv.FormatInt(time.Now().UnixNano(), 36))
+	if _, err := os.Stat(root); !errors.Is(err, fs.ErrNotExist) {
+		tb.Fatalf("absent temp root %s exists or cannot be checked: %v", root, err)
+	}
+	return root
+}
+
+func dirFailedMessage(lang i18n.Language, dir string) string {
+	return newMessages().localizedWith(lang, keyApprovalDirFailed, map[string]any{"Dir": dir})
+}
 
 func removeFiles(tb testing.TB, paths ...string) {
 	tb.Helper()
@@ -140,7 +154,7 @@ func TestBareSessionWithoutResumeIDRefusesAskerTurn(t *testing.T) {
 
 func TestRelayOpenFailureKeepsCLIUnlaunched(t *testing.T) {
 	env := approvalEnv(t)
-	t.Setenv("TMPDIR", missingTempRoot)
+	t.Setenv("TMPDIR", absentTempRoot(t))
 	r := newApprovalResponder(t, env)
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
@@ -218,7 +232,7 @@ func TestRelayOpenFailureLeavesBareSessionAlive(t *testing.T) {
 	}
 	removeFiles(t, env["ARGS"])
 
-	t.Setenv("TMPDIR", missingTempRoot)
+	t.Setenv("TMPDIR", absentTempRoot(t))
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 	if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "second, with an asker"}, nil); !errors.Is(err, errApprovalOpen) {
 		t.Fatalf("turn err = %v, want errApprovalOpen", err)

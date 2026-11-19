@@ -32,7 +32,8 @@ func TestDiscardedResumeIDEmitsNoticeWithoutResume(t *testing.T) {
 
 func TestRelayOpenFailureIsReportedInTurnLanguage(t *testing.T) {
 	env := approvalEnv(t)
-	t.Setenv("TMPDIR", missingTempRoot)
+	dir := absentTempRoot(t)
+	t.Setenv("TMPDIR", dir)
 	r := newApprovalResponder(t, env)
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
@@ -40,15 +41,15 @@ func TestRelayOpenFailureIsReportedInTurnLanguage(t *testing.T) {
 	if !errors.Is(err, errApprovalOpen) {
 		t.Fatalf("turn err = %v, want the open failure to keep errApprovalOpen", err)
 	}
-	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
-	if want == newMessages().english(keyApprovalOpenFailed) {
-		t.Fatal("the French open-failure message is missing from the catalog")
+	want := dirFailedMessage(i18n.French, dir)
+	if want == dirFailedMessage(i18n.English, dir) {
+		t.Fatal("the French directory-failure message is missing from the catalog")
 	}
 	if err.Error() != want {
 		t.Fatalf("turn err text = %q, want the French message %q", err.Error(), want)
 	}
-	if !strings.Contains(want, "TMPDIR") {
-		t.Fatalf("French open-failure message %q does not name TMPDIR", want)
+	if !strings.Contains(err.Error(), dir) {
+		t.Fatalf("French directory-failure message %q does not name the directory tried %q", err.Error(), dir)
 	}
 }
 
@@ -90,7 +91,8 @@ func TestAskerlessLaunchReplacesStoppedRelay(t *testing.T) {
 }
 
 func TestOneShotOpenFailureIsReportedInRequestLanguage(t *testing.T) {
-	t.Setenv("TMPDIR", missingTempRoot)
+	dir := absentTempRoot(t)
+	t.Setenv("TMPDIR", dir)
 	b := mustBackend(t, Config{Kind: "oneshot", Cmd: "printf %s"})
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
@@ -98,7 +100,7 @@ func TestOneShotOpenFailureIsReportedInRequestLanguage(t *testing.T) {
 	if !errors.Is(err, errApprovalOpen) {
 		t.Fatalf("oneshot err = %v, want the open failure to keep errApprovalOpen", err)
 	}
-	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
+	want := dirFailedMessage(i18n.French, dir)
 	if err.Error() != want {
 		t.Fatalf("oneshot err text = %q, want the French message %q", err.Error(), want)
 	}
@@ -123,10 +125,11 @@ func TestAskerlessLaunchOnBoundSessionFailsWhenRelayCannotReopen(t *testing.T) {
 		t.Fatalf("drop bound session: %v", err)
 	}
 	removeFiles(t, env["RECORD"], env["ARGS"])
-	t.Setenv("TMPDIR", missingTempRoot)
+	dir := absentTempRoot(t)
+	t.Setenv("TMPDIR", dir)
 
 	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "second, without an asker", Language: i18n.French}, nil)
-	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
+	want := dirFailedMessage(i18n.French, dir)
 	if err == nil || err.Error() != want {
 		t.Fatalf("asker-less turn err = %v, want the French message %q", err, want)
 	}
