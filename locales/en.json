@@ -111,7 +111,12 @@
   },
   {
     "id": "approval.open_failed",
-    "description": "A turn refused because its approval socket could not be opened, usually because TMPDIR is too long for the socket path limit",
-    "other": "the approval socket could not be opened; a TMPDIR that is too long is the likely cause, since Unix socket paths are limited to 108 bytes"
+    "description": "A turn refused because its approval socket could not be opened, for example because TMPDIR does not exist or cannot be written to",
+    "other": "the approval socket could not be opened; check that TMPDIR is an existing directory the backend can write to"
+  },
+  {
+    "id": "approval.path_too_long",
+    "description": "A turn refused because the approval socket path exceeds the socket limit of the system, even under the fallback directory; the message names TMPDIR as the cause",
+    "other": "the approval socket path is longer than this system's socket limit; set TMPDIR to a shorter directory"
   }
 ]

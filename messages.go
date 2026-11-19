@@ -24,6 +24,7 @@ const (
 	keyApprovalNoTurn        = "approval.no_turn"
 	keyApprovalMismatch      = "approval.mismatch"
 	keyApprovalOpenFailed    = "approval.open_failed"
+	keyApprovalPathTooLong   = "approval.path_too_long"
 	keyModelsRefused         = "models.refused"
 	keyModelsPagination      = "models.pagination"
 	keyModelsTooMany         = "models.too_many_pages"

@@ -32,13 +32,13 @@ func TestDiscardedResumeIDEmitsNoticeWithoutResume(t *testing.T) {
 
 func TestRelayOpenFailureIsReportedInTurnLanguage(t *testing.T) {
 	env := approvalEnv(t)
-	t.Setenv("TMPDIR", longTempRoot(t))
+	t.Setenv("TMPDIR", missingTempRoot)
 	r := newApprovalResponder(t, env)
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
 	_, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "run the tool", Language: i18n.French}, nil)
-	if !errors.Is(err, errApprovalSocketUnbound) {
-		t.Fatalf("turn err = %v, want the open failure to keep errApprovalSocketUnbound", err)
+	if !errors.Is(err, errApprovalOpen) {
+		t.Fatalf("turn err = %v, want the open failure to keep errApprovalOpen", err)
 	}
 	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)
 	if want == newMessages().english(keyApprovalOpenFailed) {
@@ -90,7 +90,7 @@ func TestAskerlessLaunchReplacesStoppedRelay(t *testing.T) {
 }
 
 func TestOneShotOpenFailureIsReportedInRequestLanguage(t *testing.T) {
-	t.Setenv("TMPDIR", longTempRoot(t))
+	t.Setenv("TMPDIR", missingTempRoot)
 	b := mustBackend(t, Config{Kind: "oneshot", Cmd: "printf %s"})
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
@@ -123,7 +123,7 @@ func TestAskerlessLaunchOnBoundSessionFailsWhenRelayCannotReopen(t *testing.T) {
 		t.Fatalf("drop bound session: %v", err)
 	}
 	removeFiles(t, env["RECORD"], env["ARGS"])
-	t.Setenv("TMPDIR", longTempRoot(t))
+	t.Setenv("TMPDIR", missingTempRoot)
 
 	_, err := respondWithin(t.Context(), t, r, contracts.Prompt{Content: "second, without an asker", Language: i18n.French}, nil)
 	want := newMessages().localized(i18n.French, keyApprovalOpenFailed)

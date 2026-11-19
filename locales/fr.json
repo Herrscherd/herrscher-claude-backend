@@ -111,7 +111,12 @@
   },
   {
     "id": "approval.open_failed",
-    "description": "Un tour refusé parce que sa socket d'approbation n'a pas pu s'ouvrir, souvent à cause d'un TMPDIR trop long pour la limite d'un chemin de socket",
-    "other": "la socket d'approbation n'a pas pu s'ouvrir ; un TMPDIR trop long en est la cause probable, les chemins de socket Unix étant limités à 108 octets"
+    "description": "Un tour refusé parce que sa socket d'approbation n'a pas pu s'ouvrir, par exemple parce que TMPDIR n'existe pas ou n'est pas accessible en écriture",
+    "other": "la socket d'approbation n'a pas pu s'ouvrir ; vérifie que TMPDIR est un dossier existant accessible en écriture"
+  },
+  {
+    "id": "approval.path_too_long",
+    "description": "Un tour refusé parce que le chemin de la socket d'approbation dépasse la limite de socket du système, même sous le dossier de repli ; le message désigne TMPDIR comme cause",
+    "other": "le chemin de la socket d'approbation dépasse la limite de socket de ce système ; définis TMPDIR sur un dossier plus court"
   }
 ]

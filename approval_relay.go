@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,16 +18,20 @@ import (
 )
 
 const (
-	approvalDirPattern   = "herrscher-approval-"
-	approvalSocketName   = "approval.sock"
-	privateDirMode       = 0o700
-	approvalBindPoll     = 5 * time.Millisecond
-	approvalBindDeadline = 5 * time.Second
+	approvalDirPattern      = "herrscher-approval-"
+	approvalSocketName      = "approval.sock"
+	maxApprovalDirSuffixLen = 10
+	privateDirMode          = 0o700
+	approvalBindPoll        = 5 * time.Millisecond
+	approvalBindDeadline    = 5 * time.Second
 )
 
 var errApprovalSocketUnbound = errors.New("approval socket is not listening")
 
 var errApprovalOpen = errors.New("approval socket could not be opened")
+
+// ErrApprovalSocketPathTooLong matches a turn refused because the approval socket path exceeds the socket limit of the platform, even under the fallback directory.
+var ErrApprovalSocketPathTooLong = errors.New("approval socket path is longer than the socket limit")
 
 type approvalRelay struct {
 	dir      string
@@ -45,7 +50,11 @@ type approvalTurn struct {
 }
 
 func openApprovalRelay(ctx context.Context) (*approvalRelay, error) {
-	dir, err := os.MkdirTemp("", approvalDirPattern)
+	base, err := approvalSocketDir(os.TempDir(), approvalFallbackDir, approvalSocketPathLimit)
+	if err != nil {
+		return nil, err
+	}
+	dir, err := os.MkdirTemp(base, approvalDirPattern)
 	if err != nil {
 		return nil, fmt.Errorf("approval directory: %w", err)
 	}
@@ -79,6 +88,21 @@ func requirePrivateDir(dir string) error {
 		return fmt.Errorf("approval directory mode %04o: %w", uint32(perm), approvalsock.ErrInsecureDirectory)
 	}
 	return nil
+}
+
+func approvalSocketDir(base, fallback string, limit int) (string, error) {
+	switch {
+	case fitsApprovalSocket(base, limit):
+		return base, nil
+	case fallback != "" && fitsApprovalSocket(fallback, limit):
+		return fallback, nil
+	}
+	return "", fmt.Errorf("approval socket under %s: %w", base, ErrApprovalSocketPathTooLong)
+}
+
+func fitsApprovalSocket(dir string, limit int) bool {
+	longestPath := filepath.Join(dir, approvalDirPattern+strings.Repeat("0", maxApprovalDirSuffixLen), approvalSocketName)
+	return len(longestPath) < limit
 }
 
 func (r *approvalRelay) awaitBound() error {

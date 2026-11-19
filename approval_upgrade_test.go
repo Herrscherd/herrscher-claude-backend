@@ -38,6 +38,8 @@ func longTempRoot(tb testing.TB) string {
 	return deep
 }
 
+const missingTempRoot = "/herrscher-missing-tmpdir"
+
 func removeFiles(tb testing.TB, paths ...string) {
 	tb.Helper()
 	for _, path := range paths {
@@ -138,13 +140,13 @@ func TestBareSessionWithoutResumeIDRefusesAskerTurn(t *testing.T) {
 
 func TestRelayOpenFailureKeepsCLIUnlaunched(t *testing.T) {
 	env := approvalEnv(t)
-	t.Setenv("TMPDIR", longTempRoot(t))
+	t.Setenv("TMPDIR", missingTempRoot)
 	r := newApprovalResponder(t, env)
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
 
 	_, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "run the tool"}, nil)
-	if !errors.Is(err, errApprovalSocketUnbound) {
-		t.Fatalf("turn err = %v, want errApprovalSocketUnbound", err)
+	if !errors.Is(err, errApprovalOpen) {
+		t.Fatalf("turn err = %v, want errApprovalOpen", err)
 	}
 	if _, statErr := os.Stat(env["RECORD"]); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Fatalf("CLI launched although its socket never bound: stat err = %v", statErr)
@@ -216,10 +218,10 @@ func TestRelayOpenFailureLeavesBareSessionAlive(t *testing.T) {
 	}
 	removeFiles(t, env["ARGS"])
 
-	t.Setenv("TMPDIR", longTempRoot(t))
+	t.Setenv("TMPDIR", missingTempRoot)
 	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
-	if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "second, with an asker"}, nil); !errors.Is(err, errApprovalSocketUnbound) {
-		t.Fatalf("turn err = %v, want errApprovalSocketUnbound", err)
+	if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "second, with an asker"}, nil); !errors.Is(err, errApprovalOpen) {
+		t.Fatalf("turn err = %v, want errApprovalOpen", err)
 	}
 	if r.currentSession() != bare {
 		t.Fatal("failed relay open replaced the bare session")

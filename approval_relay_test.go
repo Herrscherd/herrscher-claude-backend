@@ -3,9 +3,11 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -131,6 +133,83 @@ func TestRelayEnvCopiesBaseWithoutMutation(t *testing.T) {
 	}
 	if _, touched := base[approvalsock.EnvApprovalSocket]; touched {
 		t.Fatal("env mutated the base map")
+	}
+}
+
+func TestApprovalSocketDirChoosesBase(t *testing.T) {
+	t.Parallel()
+	fits := "/" + strings.Repeat("d", 62)
+	tooLong := "/" + strings.Repeat("d", 63)
+	cases := []struct {
+		name     string
+		base     string
+		fallback string
+		limit    int
+		want     string
+		wantErr  bool
+	}{
+		{name: "base fits the limit", base: fits, fallback: "/tmp", limit: 108, want: fits},
+		{name: "base at the limit falls back", base: tooLong, fallback: "/tmp", limit: 108, want: "/tmp"},
+		{name: "104 limit falls back earlier", base: fits, fallback: "/tmp", limit: 104, want: "/tmp"},
+		{name: "no fallback on this platform", base: tooLong, fallback: "", limit: 108, wantErr: true},
+		{name: "fallback too long as well", base: tooLong, fallback: tooLong, limit: 108, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := approvalSocketDir(tc.base, tc.fallback, tc.limit)
+			if tc.wantErr {
+				if !errors.Is(err, ErrApprovalSocketPathTooLong) {
+					t.Fatalf("approvalSocketDir err = %v, want ErrApprovalSocketPathTooLong", err)
+				}
+				return
+			}
+			if err != nil || got != tc.want {
+				t.Fatalf("approvalSocketDir = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestApprovalSocketPathTooLongIsLocalized(t *testing.T) {
+	t.Parallel()
+	_, err := approvalSocketDir("/"+strings.Repeat("d", 120), "", 108)
+	if !errors.Is(err, ErrApprovalSocketPathTooLong) {
+		t.Fatalf("approvalSocketDir err = %v, want ErrApprovalSocketPathTooLong", err)
+	}
+	if want := newMessages().localized(i18n.French, keyApprovalPathTooLong); want == newMessages().english(keyApprovalPathTooLong) {
+		t.Fatal("the French path-too-long message is missing from the catalog")
+	}
+	for _, lang := range []i18n.Language{i18n.English, i18n.French} {
+		got := localizeTurnEnd(lang, fmt.Errorf("%w: %w", errApprovalOpen, err))
+		want := newMessages().localized(lang, keyApprovalPathTooLong)
+		if got.Error() != want {
+			t.Fatalf("%s turn err = %q, want %q", lang, got.Error(), want)
+		}
+		if !errors.Is(got, ErrApprovalSocketPathTooLong) {
+			t.Fatalf("%s turn err %v lost ErrApprovalSocketPathTooLong", lang, got)
+		}
+		if !strings.Contains(want, "TMPDIR") {
+			t.Fatalf("%s path-too-long message %q does not name TMPDIR", lang, want)
+		}
+	}
+}
+
+func TestRelayOpensUnderFallbackWhenTMPDIRIsLong(t *testing.T) {
+	if approvalFallbackDir == "" {
+		t.Skip("this platform has no fallback directory")
+	}
+	t.Setenv("TMPDIR", longTempRoot(t))
+	relay := openTestRelay(t)
+	if !strings.HasPrefix(relay.path, approvalFallbackDir+string(filepath.Separator)) {
+		t.Fatalf("socket %q is not under the fallback %s", relay.path, approvalFallbackDir)
+	}
+	endTurn := relay.beginTurn(t.Context(), allowingAsker(), i18n.English)
+	defer endTurn()
+
+	answer := askHook(t, relay.path, "req-long-tmpdir")
+	if !answer.Allowed() || answer.ID != "req-long-tmpdir" {
+		t.Fatalf("answer = %+v, want the asker's allow through the fallback socket", answer)
 	}
 }
 
