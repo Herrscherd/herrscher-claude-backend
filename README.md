@@ -193,8 +193,9 @@ claude process. A tool hook can then ask the host for a decision by sending the
 request to that socket, and the answer comes from the asker of the running turn.
 
 The socket lives in a directory created with mode 0700 and is served by
-`approvalsock`, which accepts only the owner's connections. The socket is bound
-once per session and reused across the turns and relaunches of that session.
+`approvalsock`, which accepts only the owner's connections. The socket is created
+once per session and reused across the turns and relaunches of that session, for
+as long as its listener runs.
 
 A request is answered only while a turn that carries an asker is running. Outside
 such a turn, or when the request does not carry the ID of the question being
@@ -203,19 +204,37 @@ not send the session token.
 
 A session launched by a turn without an asker starts without an approval socket,
 so its environment does not carry `HERRSCHER_APPROVAL_SOCKET`. When a turn with
-an asker arrives on such an idle session, the backend closes the bare claude
-process, opens the socket, and relaunches the process with `--resume` on the
-session id, so the tool hook can reach the daemon during that turn. A session
-with no session id to resume cannot be upgraded: its turn is refused with
-`ErrApprovalUnreachable`, and the bare process keeps running. Start a new session
-to get a socket in that case.
+an asker arrives on such an idle session, the backend opens the socket first. If
+that fails, the turn fails and the bare claude process keeps running, so later
+turns without an asker reuse it. If the socket opens, the backend closes the bare
+process and relaunches it with `--resume` on the session id, so the tool hook can
+reach the daemon during that turn. A session whose id is missing or cannot be
+passed to `--resume` is refused with `ErrApprovalUnreachable`, and its bare
+process keeps running. A session id is passed to `--resume` only when it is
+non-empty, does not start with `-`, and contains only ASCII letters, digits, `-`
+and `_`. Start a new session to get a socket in that case.
 
-The socket is confirmed bound before the claude process starts with it. The
-socket path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the
-bind fail. In that case, or when the listener does not come up within 5 seconds,
-the turn fails before any claude process is launched with the variable, so no
-tool runs without a channel. A listener that stops after the bind is confirmed
-leaves the hook without an answer, and the hook denies.
+A session that has a socket keeps it. A turn without an asker on such a session
+runs with the socket still open. A request that reaches the socket while no
+asker turn runs is denied, which fails closed. `Compact` calls sent without an
+asker therefore succeed on a bound session, and any approval request they raise
+is refused.
+
+The socket file must exist before the claude process starts with it. The socket
+path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the bind
+fail. In that case, or when the socket file does not appear within 5 seconds, the
+turn fails before any claude process is launched with the variable, so no tool
+runs without a channel. If the listener stops after the file exists, nothing
+listens on the socket, the tool hook cannot connect, and the hook denies. That
+refusal is guaranteed by the herrscher side, not by this repository, and the
+backend does not probe connections. Before each turn with an asker, the backend
+checks that the listener still runs. If it does not, the backend opens a new
+socket and relaunches the bound process on it with `--resume`, as above.
+
+If claude refuses `--resume` when the backend relaunches a session, the backend
+starts again without `--resume`, emits a resume-lost notice, and the session
+history is lost. The same fallback applies to every relaunch, not only to the
+upgrade described above.
 
 The one-shot backend follows the same rules for each run: the socket exists only
 for a run that carries an asker, and it is removed when the run ends.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"sync"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -23,6 +24,26 @@ type streamSession struct {
 	sessID      string
 	resumedFrom string
 	tookTurn    bool
+	relay       *approvalRelay
+}
+
+func validResumeID(sessionID string) bool {
+	return sessionID != "" && !strings.HasPrefix(sessionID, "-") && !strings.ContainsFunc(sessionID, isForeignResumeRune)
+}
+
+func isForeignResumeRune(r rune) bool {
+	return !isResumeRune(r)
+}
+
+func isResumeRune(r rune) bool {
+	return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_'
+}
+
+func usableResumeID(sessionID string) string {
+	if validResumeID(sessionID) {
+		return sessionID
+	}
+	return ""
 }
 
 func newStreamSession(stdin io.WriteCloser, out io.Reader) *streamSession {
@@ -46,6 +67,7 @@ func streamArgv(base []string, model, resumeID string) []string {
 }
 
 func startStreamSession(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) (*streamSession, error) {
+	resumeID = usableResumeID(resumeID)
 	argv := streamArgv(base, model, resumeID)
 	cmd := newGroupCommand(ctx, argv[0], argv[1:]...)
 	cmd.Dir = dir

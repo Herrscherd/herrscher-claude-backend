@@ -38,11 +38,11 @@ func longTempRoot(tb testing.TB) string {
 	return deep
 }
 
-func removeFiles(t *testing.T, paths ...string) {
-	t.Helper()
+func removeFiles(tb testing.TB, paths ...string) {
+	tb.Helper()
 	for _, path := range paths {
 		if err := os.Remove(path); err != nil {
-			t.Fatalf("remove %s: %v", path, err)
+			tb.Fatalf("remove %s: %v", path, err)
 		}
 	}
 }
@@ -109,8 +109,8 @@ func TestBareSessionUpgradesWithResumeOnAskerTurn(t *testing.T) {
 	if outcome := awaitTurn(t, done); outcome.err != nil {
 		t.Fatalf("second turn: %v", outcome.err)
 	}
-	if got := r.launchState(); got != launchBound {
-		t.Fatalf("launch state after the upgrade = %v, want bound", got)
+	if !sessionBound(r) {
+		t.Fatal("session after the upgrade is not bound to the relay")
 	}
 }
 
@@ -131,8 +131,8 @@ func TestBareSessionWithoutResumeIDRefusesAskerTurn(t *testing.T) {
 	if r.currentSession() == nil {
 		t.Fatal("refused turn closed the bare session")
 	}
-	if got := r.launchState(); got != launchBare {
-		t.Fatalf("launch state after the refusal = %v, want bare", got)
+	if sessionBound(r) {
+		t.Fatal("refused turn bound the bare session")
 	}
 }
 
@@ -195,5 +195,141 @@ func TestRelayForConcurrentCallers(t *testing.T) {
 	}
 	if len(entries) != 1 {
 		t.Fatalf("surplus relays left %d approval directories, want 1", len(entries))
+	}
+}
+
+func sessionBound(r *streamResponder) bool {
+	sess := r.currentSession()
+	return sess != nil && sess.relay != nil
+}
+
+func TestRelayOpenFailureLeavesBareSessionAlive(t *testing.T) {
+	env := approvalEnv(t)
+	r := newApprovalResponder(t, env)
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(t.Context(), r, "first, without an asker")); outcome.err != nil {
+		t.Fatalf("first turn: %v", outcome.err)
+	}
+	bare := r.currentSession()
+	if bare == nil || sessionBound(r) {
+		t.Fatal("first turn did not leave a bare session")
+	}
+	removeFiles(t, env["ARGS"])
+
+	t.Setenv("TMPDIR", longTempRoot(t))
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+	if _, err := respondWithin(ctx, t, r, contracts.Prompt{Content: "second, with an asker"}, nil); !errors.Is(err, errApprovalSocketUnbound) {
+		t.Fatalf("turn err = %v, want errApprovalSocketUnbound", err)
+	}
+	if r.currentSession() != bare {
+		t.Fatal("failed relay open replaced the bare session")
+	}
+
+	releaseTurn(t, env, 2)
+	if outcome := awaitTurn(t, startTurn(t.Context(), r, "third, without an asker")); outcome.err != nil {
+		t.Fatalf("third turn: %v", outcome.err)
+	}
+	if _, err := os.Stat(env["ARGS"]); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("bare session was relaunched: stat ARGS err = %v", err)
+	}
+	if r.currentSession() != bare {
+		t.Fatal("next turn without an asker replaced the bare session")
+	}
+}
+
+func TestResumeIDWithDashIsRefusedOnUpgrade(t *testing.T) {
+	env := approvalEnv(t)
+	env["SESSION"] = "--foo"
+	r := newApprovalResponder(t, env)
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(t.Context(), r, "first, without an asker")); outcome.err != nil {
+		t.Fatalf("first turn: %v", outcome.err)
+	}
+
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+	outcome := awaitTurn(t, startTurn(ctx, r, "second, with an asker"))
+	if !errors.Is(outcome.err, ErrApprovalUnreachable) {
+		t.Fatalf("second turn err = %v, want ErrApprovalUnreachable", outcome.err)
+	}
+	if r.currentSession() == nil || sessionBound(r) {
+		t.Fatal("refused upgrade touched the bare session")
+	}
+}
+
+func TestInvalidResumeIDIsNeverPassed(t *testing.T) {
+	env := approvalEnv(t)
+	r := newStreamResponder(t.Context(), []string{"sh", "-c", approvalTurnScript}, "", "--foo", t.TempDir(), env)
+	t.Cleanup(func() { mustClose(t, r) })
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(t.Context(), r, "run without an asker")); outcome.err != nil {
+		t.Fatalf("turn: %v", outcome.err)
+	}
+	data, err := os.ReadFile(env["ARGS"])
+	if err != nil {
+		t.Fatalf("read CLI args: %v", err)
+	}
+	if strings.Contains(string(data), "--resume") || strings.Contains(string(data), "--foo") {
+		t.Fatalf("CLI args = %q, want no --resume for an invalid id", data)
+	}
+}
+
+func TestCompactWithoutAskerOnBoundSessionDeniesRequests(t *testing.T) {
+	env := approvalEnv(t)
+	r := newApprovalResponder(t, env)
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(ctx, r, "first, with an asker")); outcome.err != nil {
+		t.Fatalf("first turn: %v", outcome.err)
+	}
+	if !sessionBound(r) {
+		t.Fatal("asker turn did not bind the session")
+	}
+	removeFiles(t, env["RECORD"])
+
+	done := startCompact(t.Context(), r)
+	path := awaitRecord(t, env["RECORD"])
+	answer := askHook(t, path, "compact-req")
+	if answer.Decision != contracts.DecisionDeny || answer.ID != "compact-req" {
+		t.Fatalf("hook answer during a compaction without asker = %+v, want deny keeping compact-req", answer)
+	}
+	releaseTurn(t, env, 2)
+	if err := awaitWithin(t, done, "the compaction"); err != nil {
+		t.Fatalf("compact without asker on a bound session: %v", err)
+	}
+}
+
+func TestClosedRelayIsReplacedOnNextAskerTurn(t *testing.T) {
+	env := approvalEnv(t)
+	r := newApprovalResponder(t, env)
+	ctx := contracts.WithApprovalAsker(t.Context(), allowingAsker())
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, startTurn(ctx, r, "first, with an asker")); outcome.err != nil {
+		t.Fatalf("first turn: %v", outcome.err)
+	}
+	firstPath := awaitRecord(t, env["RECORD"])
+	old := r.approvals
+	if err := returnWithin(t, "close the relay", old.close); err != nil {
+		t.Fatalf("close relay: %v", err)
+	}
+	removeFiles(t, env["RECORD"], env["ARGS"], env["GATE"]+"1")
+
+	done := startTurn(ctx, r, "second, after the relay stopped")
+	secondPath := awaitRecord(t, env["RECORD"])
+	if secondPath == firstPath {
+		t.Fatal("stopped relay was not replaced")
+	}
+	if args := awaitRecord(t, env["ARGS"]); !strings.Contains(args, "--resume s1") {
+		t.Fatalf("relaunched CLI args = %q, want --resume s1", args)
+	}
+	answer := askHook(t, secondPath, "req-replaced")
+	if !answer.Allowed() || answer.ID != "req-replaced" {
+		t.Fatalf("hook answer on the replacement relay = %+v, want allow for req-replaced", answer)
+	}
+	releaseTurn(t, env, 1)
+	if outcome := awaitTurn(t, done); outcome.err != nil {
+		t.Fatalf("second turn: %v", outcome.err)
+	}
+	if r.approvals == old || r.approvals == nil {
+		t.Fatal("responder still holds the stopped relay")
 	}
 }

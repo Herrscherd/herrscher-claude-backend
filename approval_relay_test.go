@@ -18,15 +18,15 @@ while [ ! -f "$GATE" ]; do sleep 0.01; done
 printf 'ok'
 `
 
-func openTestRelay(t *testing.T) *approvalRelay {
-	t.Helper()
-	relay, err := openApprovalRelay(t.Context())
+func openTestRelay(tb testing.TB) *approvalRelay {
+	tb.Helper()
+	relay, err := openApprovalRelay(tb.Context())
 	if err != nil {
-		t.Fatalf("openApprovalRelay: %v", err)
+		tb.Fatalf("openApprovalRelay: %v", err)
 	}
-	t.Cleanup(func() {
-		if err := returnWithin(t, "close", relay.close); err != nil {
-			t.Errorf("close relay: %v", err)
+	tb.Cleanup(func() {
+		if err := returnWithin(tb, "close", relay.close); err != nil {
+			tb.Errorf("close relay: %v", err)
 		}
 	})
 	return relay
@@ -148,18 +148,18 @@ func TestRelayCloseRemovesDirectory(t *testing.T) {
 	}
 }
 
-func oneShotScript(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "fake-cli.sh")
+func oneShotScript(tb testing.TB) string {
+	tb.Helper()
+	path := filepath.Join(tb.TempDir(), "fake-cli.sh")
 	if err := os.WriteFile(path, []byte(oneShotApprovalScript), 0o600); err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return "sh " + path
 }
 
-func oneShotEnv(t *testing.T) map[string]string {
-	t.Helper()
-	dir := t.TempDir()
+func oneShotEnv(tb testing.TB) map[string]string {
+	tb.Helper()
+	dir := tb.TempDir()
 	return map[string]string{"RECORD": filepath.Join(dir, "record"), "GATE": filepath.Join(dir, "gate")}
 }
 

@@ -30,9 +30,9 @@ type turnOutcome struct {
 	err  error
 }
 
-func approvalEnv(t *testing.T) map[string]string {
-	t.Helper()
-	dir := t.TempDir()
+func approvalEnv(tb testing.TB) map[string]string {
+	tb.Helper()
+	dir := tb.TempDir()
 	return map[string]string{
 		"RECORD":  filepath.Join(dir, "record"),
 		"GATE":    filepath.Join(dir, "gate"),
@@ -41,12 +41,12 @@ func approvalEnv(t *testing.T) map[string]string {
 	}
 }
 
-func newApprovalResponder(t *testing.T, env map[string]string) *streamResponder {
-	t.Helper()
-	r := newStreamResponder(t.Context(), []string{"sh", "-c", approvalTurnScript}, "", "", t.TempDir(), env)
-	t.Cleanup(func() {
-		if err := returnWithin(t, "Close", r.Close); err != nil {
-			t.Errorf("Close: %v", err)
+func newApprovalResponder(tb testing.TB, env map[string]string) *streamResponder {
+	tb.Helper()
+	r := newStreamResponder(tb.Context(), []string{"sh", "-c", approvalTurnScript}, "", "", tb.TempDir(), env)
+	tb.Cleanup(func() {
+		if err := returnWithin(tb, "Close", r.Close); err != nil {
+			tb.Errorf("Close: %v", err)
 		}
 	})
 	return r
@@ -61,16 +61,16 @@ func startTurn(ctx context.Context, r *streamResponder, text string) <-chan turn
 	return done
 }
 
-func releaseTurn(t *testing.T, env map[string]string, turn int) {
-	t.Helper()
+func releaseTurn(tb testing.TB, env map[string]string, turn int) {
+	tb.Helper()
 	if err := os.WriteFile(env["GATE"]+strconv.Itoa(turn), nil, 0o600); err != nil {
-		t.Fatalf("release turn %d: %v", turn, err)
+		tb.Fatalf("release turn %d: %v", turn, err)
 	}
 }
 
-func awaitRecord(t *testing.T, path string) string {
-	t.Helper()
-	return returnWithin(t, "the CLI to record its environment", func() string {
+func awaitRecord(tb testing.TB, path string) string {
+	tb.Helper()
+	return returnWithin(tb, "the CLI to record its environment", func() string {
 		for {
 			if data, err := os.ReadFile(path); err == nil && len(data) > 0 {
 				return string(data)
@@ -80,18 +80,18 @@ func awaitRecord(t *testing.T, path string) string {
 	})
 }
 
-func awaitTurn(t *testing.T, done <-chan turnOutcome) turnOutcome {
-	t.Helper()
-	return awaitWithin(t, done, "the turn")
+func awaitTurn(tb testing.TB, done <-chan turnOutcome) turnOutcome {
+	tb.Helper()
+	return awaitWithin(tb, done, "the turn")
 }
 
-func askHook(t *testing.T, path, id string) contracts.ApprovalAnswer {
-	t.Helper()
+func askHook(tb testing.TB, path, id string) contracts.ApprovalAnswer {
+	tb.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), approvalTestWait)
 	defer cancel()
 	answer, err := approvalsock.Ask(ctx, path, contracts.ApprovalRequest{ID: id, Tool: "Bash", Subject: "ls"})
 	if err != nil {
-		t.Fatalf("Ask %s: %v", id, err)
+		tb.Fatalf("Ask %s: %v", id, err)
 	}
 	return answer
 }

@@ -45,7 +45,6 @@ type streamResponder struct {
 	stopped      chan struct{}
 	stopOnce     sync.Once
 	approvals    *approvalRelay
-	launch       approvalLaunch
 }
 
 func newStreamResponder(ctx context.Context, base []string, model, resumeID, dir string, env map[string]string) *streamResponder {

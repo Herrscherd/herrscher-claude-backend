@@ -27,13 +27,14 @@ const (
 var errApprovalSocketUnbound = errors.New("approval socket is not listening")
 
 type approvalRelay struct {
-	dir    string
-	path   string
-	cancel context.CancelFunc
-	served chan error
-	mu     sync.Mutex
-	turn   *approvalTurn
-	lang   i18n.Language
+	dir      string
+	path     string
+	cancel   context.CancelFunc
+	done     chan struct{}
+	serveErr error
+	mu       sync.Mutex
+	turn     *approvalTurn
+	lang     i18n.Language
 }
 
 type approvalTurn struct {
@@ -54,11 +55,12 @@ func openApprovalRelay(ctx context.Context) (*approvalRelay, error) {
 		dir:    dir,
 		path:   filepath.Join(dir, approvalSocketName),
 		cancel: cancel,
-		served: make(chan error, 1),
+		done:   make(chan struct{}),
 		lang:   i18n.English,
 	}
 	go func() {
-		relay.served <- approvalsock.Serve(serveCtx, relay.path, relay.answer, approvalsock.WithErrorHandler(reportApprovalError))
+		relay.serveErr = approvalsock.Serve(serveCtx, relay.path, relay.answer, approvalsock.WithErrorHandler(reportApprovalError))
+		close(relay.done)
 	}()
 	if err = relay.awaitBound(); err != nil {
 		return nil, errors.Join(err, relay.close())
@@ -84,13 +86,21 @@ func (r *approvalRelay) awaitBound() error {
 			return nil
 		}
 		select {
-		case err := <-r.served:
-			r.served <- err
-			return errors.Join(errApprovalSocketUnbound, err)
+		case <-r.done:
+			return errors.Join(errApprovalSocketUnbound, r.serveErr)
 		case <-time.After(approvalBindPoll):
 		}
 	}
 	return errApprovalSocketUnbound
+}
+
+func (r *approvalRelay) serving() bool {
+	select {
+	case <-r.done:
+		return false
+	default:
+		return true
+	}
 }
 
 func (r *approvalRelay) beginTurn(ctx context.Context, asker contracts.ApprovalAsker, lang i18n.Language) func() {
@@ -155,8 +165,8 @@ func (r *approvalRelay) env(base map[string]string) map[string]string {
 
 func (r *approvalRelay) close() error {
 	r.cancel()
-	serveErr := <-r.served
-	return errors.Join(serveErr, os.RemoveAll(r.dir))
+	<-r.done
+	return errors.Join(r.serveErr, os.RemoveAll(r.dir))
 }
 
 func reportApprovalError(err error) {
