@@ -228,13 +228,26 @@ bound session stays bound, and a visible failure is preferred to a silent
 refusal.
 
 The socket file must exist before the claude process starts with it. The socket
-path must fit the Unix limit of 108 bytes, so a long `TMPDIR` makes the bind
-fail. In that case, or when the socket file does not appear within 5 seconds,
-the turn fails before any claude process is launched with the variable, so no
-tool runs without a channel. When the socket cannot be opened, the turn fails
-with a message in its language (`approval.open_failed` in the catalog) that
-names a too-long `TMPDIR` as the likely cause, and the original error stays
-wrapped under it. If the listener stops after the file exists, nothing listens
+path must fit the socket limit of the system: 108 bytes on Linux and Windows, 104
+on the other Unix systems. The path is the `herrscher-approval-` directory and
+`approval.sock`, which add 44 bytes to `TMPDIR`. A relative `TMPDIR` is first made
+absolute against the working directory of the backend, so the path that the claude
+process receives in `HERRSCHER_APPROVAL_SOCKET` never depends on the directory the
+claude process runs in. When the absolute `TMPDIR` is too long for
+that limit, the socket directory is created under `/tmp` instead, with the same
+mode 0700, and the socket lives there. On Windows there is no fallback, so a
+`TMPDIR` too long for the limit fails the turn. A relative `TMPDIR` whose working directory has been deleted cannot be made absolute, so it gives the same `approval.dir_failed` error as an unusable directory. If even `/tmp` cannot hold the
+path, the turn fails before any claude process is launched, with a
+message in its language (`approval.path_too_long` in the catalog) that asks for a
+shorter `TMPDIR`, and the sentinel `ErrApprovalSocketPathTooLong` stays wrapped
+under it. A directory that cannot be created under `TMPDIR`, or under `/tmp` after the
+fallback, gives `approval.dir_failed`, which names that directory between double
+quotes, with control characters escaped so that the message stays on one line. Any other
+failure to open the socket, such as a socket that does not appear in time, gives
+`approval.open_failed`, with the original error wrapped under it.
+In every case, and when the socket file does not appear within 5 seconds, the
+turn fails before any claude process is launched with the variable, so no tool
+runs without a channel. If the listener stops after the file exists, nothing listens
 on the socket, the tool hook cannot connect, and the hook denies. That refusal
 is guaranteed by the herrscher side, not by this repository, and the backend
 does not probe connections. Before each turn with an asker, the backend checks
@@ -257,7 +270,8 @@ for a run that carries an asker, and it is removed when the run ends.
 
 A `herrscher-approval-*` directory (mode 0700) left behind by a SIGKILL holds
 only a dead socket and the lock file. No other process reuses it, it disappears
-with `TMPDIR`, and the backend never removes directories it did not create.
+with `TMPDIR` (or with `/tmp` when the socket fell back there), and the backend
+never removes directories it did not create.
 
 ## Model catalog
 

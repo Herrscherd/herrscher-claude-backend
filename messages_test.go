@@ -21,16 +21,23 @@ func allMessageKeys() []string {
 	return []string{
 		keySettingCmd, keySettingModel, keySettingStream, keySettingDir, keySettingKind, keySettingEnv,
 		keyGatewayPairIncomplete,
-		keyApprovalUnreachable, keyApprovalNoTurn, keyApprovalMismatch, keyApprovalOpenFailed,
+		keyApprovalUnreachable, keyApprovalNoTurn, keyApprovalMismatch, keyApprovalOpenFailed, keyApprovalPathTooLong, keyApprovalDirFailed,
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
 		keyTurnFailed, keyTurnStreamEnded, keyTurnResponderClosed,
 		keyUsageNoLogin, keyUsageExpired, keyUsageRefused, keyUsageUnknown, keyUsageLoginFile,
 	}
 }
 
+func paramsFor(key string) map[string]any {
+	if key == keyApprovalDirFailed {
+		return approvalDirParams("/tmp")
+	}
+	return nil
+}
+
 func mustRender(t *testing.T, lang i18n.Language, key string) string {
 	t.Helper()
-	text, err := newMessages().render(lang, key)
+	text, err := newMessages().renderWith(lang, key, paramsFor(key))
 	if err != nil {
 		t.Fatalf("%s in %s: %v", key, lang, err)
 	}
@@ -66,6 +73,7 @@ func TestCatalogDeclaresEveryKeyInEveryLanguage(t *testing.T) {
 	for _, key := range allMessageKeys() {
 		declared[key] = nil
 	}
+	declared[keyApprovalDirFailed] = []string{"Dir"}
 	i18ntest.CheckDeclared(t, declared, sources)
 }
 
@@ -163,7 +171,7 @@ func TestEmbeddedCatalogLoads(t *testing.T) {
 	messages := newMessages()
 	for _, lang := range []i18n.Language{i18n.English, i18n.French} {
 		for _, key := range allMessageKeys() {
-			if _, err := messages.render(lang, key); err != nil {
+			if _, err := messages.renderWith(lang, key, paramsFor(key)); err != nil {
 				t.Fatalf("%s in %s: %v", key, lang, err)
 			}
 		}

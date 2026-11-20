@@ -43,7 +43,7 @@ func approvalEnv(tb testing.TB) map[string]string {
 
 func newApprovalResponder(tb testing.TB, env map[string]string) *streamResponder {
 	tb.Helper()
-	r := newStreamResponder(tb.Context(), []string{"sh", "-c", approvalTurnScript}, "", "", tb.TempDir(), env)
+	r := newStreamResponder(context.WithoutCancel(tb.Context()), []string{"sh", "-c", approvalTurnScript}, "", "", tb.TempDir(), env)
 	tb.Cleanup(func() {
 		if err := returnWithin(tb, "Close", r.Close); err != nil {
 			tb.Errorf("Close: %v", err)
