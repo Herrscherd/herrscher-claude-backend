@@ -223,19 +223,25 @@ type multiUnwrapper interface {
 }
 
 func withoutOwnStop(err error) error {
-	if joined, ok := errors.AsType[multiUnwrapper](err); ok {
-		var kept []error
-		for _, part := range joined.Unwrap() {
-			if rest := withoutOwnStop(part); rest != nil {
-				kept = append(kept, rest)
-			}
-		}
-		return errors.Join(kept...)
-	}
-	if errors.Is(err, context.Canceled) {
+	if err != nil && onlyOwnStop(err) {
 		return nil
 	}
 	return err
+}
+
+func onlyOwnStop(err error) bool {
+	if joined, ok := errors.AsType[multiUnwrapper](err); ok {
+		for _, part := range joined.Unwrap() {
+			if !onlyOwnStop(part) {
+				return false
+			}
+		}
+		return true
+	}
+	if inner := errors.Unwrap(err); inner != nil {
+		return onlyOwnStop(inner)
+	}
+	return errors.Is(err, context.Canceled)
 }
 
 func reportApprovalError(err error) {
