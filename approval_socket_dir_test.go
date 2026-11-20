@@ -3,15 +3,19 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/Herrscherd/herrscher-contracts/i18n"
 )
 
 func TestApprovalSocketDirAbsolutizesRelativeBase(t *testing.T) {
 	t.Parallel()
-	got, err := approvalSocketDir("relative-base", "", approvalSocketPathLimit)
+	const roomy = 4096
+	got, err := approvalSocketDir("relative-base", "", roomy)
 	if err != nil {
 		t.Fatalf("approvalSocketDir: %v", err)
 	}
@@ -55,6 +59,30 @@ func TestRelativeAbsentTMPDIRReportsAbsoluteDirectory(t *testing.T) {
 	}
 	if _, statErr := os.Stat(absent); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("absent root no longer absent after the conversion: %v", statErr)
+	}
+}
+
+func TestDeletedWorkDirIsReportedAsDirFailed(t *testing.T) {
+	gone := filepath.Join(t.TempDir(), "gone")
+	if err := os.Mkdir(gone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(gone)
+	if err := os.Remove(gone); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("TMPDIR", "relative-base")
+	_, err := openApprovalRelay(context.WithoutCancel(t.Context()))
+	if _, ok := errors.AsType[*approvalDirError](err); !ok {
+		t.Fatalf("err = %v, want an approvalDirError", err)
+	}
+	cause := fmt.Errorf("%w: %w", errApprovalOpen, err)
+	for _, lang := range []i18n.Language{i18n.English, i18n.French} {
+		got := localizeTurnEnd(lang, cause)
+		want := dirFailedMessage(lang, "relative-base")
+		if got == nil || got.Error() != want {
+			t.Fatalf("%s: message = %v, want %q", lang, got, want)
+		}
 	}
 }
 

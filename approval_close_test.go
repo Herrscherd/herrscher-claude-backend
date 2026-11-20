@@ -3,7 +3,6 @@ package claude
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -19,8 +18,8 @@ func TestRelayCloseDropsOnlyItsOwnStop(t *testing.T) {
 		want     error
 	}{
 		{name: "own stop", serveErr: context.Canceled, want: nil},
-		{name: "wrapped own stop", serveErr: fmt.Errorf("serve: %w", context.Canceled), want: nil},
 		{name: "real failure", serveErr: boom, want: boom},
+		{name: "joined with own stop", serveErr: errors.Join(boom, context.Canceled), want: boom},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
