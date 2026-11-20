@@ -217,8 +217,13 @@ func (r *approvalRelay) close() error {
 	return errors.Join(withoutOwnStop(r.serveErr), os.RemoveAll(r.dir))
 }
 
+type multiUnwrapper interface {
+	error
+	Unwrap() []error
+}
+
 func withoutOwnStop(err error) error {
-	if joined, ok := err.(interface{ Unwrap() []error }); ok {
+	if joined, ok := errors.AsType[multiUnwrapper](err); ok {
 		var kept []error
 		for _, part := range joined.Unwrap() {
 			if rest := withoutOwnStop(part); rest != nil {
@@ -227,7 +232,7 @@ func withoutOwnStop(err error) error {
 		}
 		return errors.Join(kept...)
 	}
-	if errors.Unwrap(err) == nil && errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 	return err

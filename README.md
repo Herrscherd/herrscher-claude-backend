@@ -236,7 +236,7 @@ process receives in `HERRSCHER_APPROVAL_SOCKET` never depends on the directory t
 claude process runs in. When the absolute `TMPDIR` is too long for
 that limit, the socket directory is created under `/tmp` instead, with the same
 mode 0700, and the socket lives there. On Windows there is no fallback, so a
-`TMPDIR` too long for the limit fails the turn. If even `/tmp` cannot hold the
+`TMPDIR` too long for the limit fails the turn. A relative `TMPDIR` whose working directory has been deleted cannot be made absolute, so it gives the same `approval.dir_failed` error as an unusable directory. If even `/tmp` cannot hold the
 path, the turn fails before any claude process is launched, with a
 message in its language (`approval.path_too_long` in the catalog) that asks for a
 shorter `TMPDIR`, and the sentinel `ErrApprovalSocketPathTooLong` stays wrapped

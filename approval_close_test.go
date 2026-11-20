@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -20,6 +21,10 @@ func TestRelayCloseDropsOnlyItsOwnStop(t *testing.T) {
 		{name: "own stop", serveErr: context.Canceled, want: nil},
 		{name: "real failure", serveErr: boom, want: boom},
 		{name: "joined with own stop", serveErr: errors.Join(boom, context.Canceled), want: boom},
+		{name: "wrapped own stop", serveErr: fmt.Errorf("lock approval socket: %w", context.Canceled), want: nil},
+		{name: "wrapped join with real failure", serveErr: fmt.Errorf("serve: %w", errors.Join(boom, context.Canceled)), want: boom},
+		{name: "wrapped join of own stops", serveErr: fmt.Errorf("serve: %w", errors.Join(context.Canceled, context.Canceled)), want: nil},
+		{name: "nested join", serveErr: errors.Join(errors.Join(boom, context.Canceled), context.Canceled), want: boom},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
