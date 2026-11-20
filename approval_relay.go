@@ -223,7 +223,7 @@ type multiUnwrapper interface {
 }
 
 func withoutOwnStop(err error) error {
-	if err != nil && onlyOwnStop(err) {
+	if onlyOwnStop(err) {
 		return nil
 	}
 	return err
