@@ -30,7 +30,6 @@ type turnParser struct {
 	agents               map[string]bool
 	openCalls            map[string]string
 	seenCalls            map[string]struct{}
-	refusedTasks         map[string]struct{}
 	openBound            onceWarning
 	seenBound            onceWarning
 	flagWarning          onceWarning
@@ -44,10 +43,9 @@ type turnParser struct {
 
 func newTurnParser() *turnParser {
 	return &turnParser{
-		agents:       make(map[string]bool),
-		openCalls:    make(map[string]string),
-		seenCalls:    make(map[string]struct{}),
-		refusedTasks: make(map[string]struct{}),
+		agents:    make(map[string]bool),
+		openCalls: make(map[string]string),
+		seenCalls: make(map[string]struct{}),
 	}
 }
 
@@ -223,7 +221,7 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 		}
 	case "Task":
 		if p.callIDSeen(block.ID) {
-			p.refuseDuplicateTask(block.ID)
+			p.warnDuplicateTask()
 			return
 		}
 		agent := parseAgent(block.ID, block.Input)
@@ -251,9 +249,6 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 		if p.agents[block.ToolUseID] {
 			delete(p.agents, block.ToolUseID)
 			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
-			continue
-		}
-		if p.swallowRefusedTask(block.ToolUseID) {
 			continue
 		}
 		if done, ok := p.toolFinish(block); ok {

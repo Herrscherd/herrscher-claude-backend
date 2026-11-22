@@ -301,10 +301,39 @@ func TestTaskReusingAnOpenCallIDStartsNoSubagent(t *testing.T) {
 	}
 }
 
-func TestResultOfATaskReusingAnOpenCallIDClosesNoCall(t *testing.T) {
+func TestResultOfATaskReusingAnOpenCallIDClosesThatCall(t *testing.T) {
 	got := collectLines(t, bashStartLine, taskStartWithID("toolu_01"), bashOKLine)
-	if len(got) != 1 || got[0].Kind != contracts.BackendKindTool || got[0].ToolCall == nil {
-		t.Fatalf("want only the start of the Bash call, the Task result must close nothing, got %+v", got)
+	if len(got) != 2 || got[0].ToolCall == nil || got[0].ToolCall.State != contracts.ToolCallStarted {
+		t.Fatalf("want the start of the Bash call first, got %+v", got)
+	}
+	want := contracts.BackendEvent{
+		Kind:     contracts.BackendKindToolDone,
+		ToolCall: &contracts.ToolCall{ID: "toolu_01", Tool: "Bash", State: contracts.ToolCallSucceeded},
+	}
+	if !sameEvent(t, got[1], want) {
+		t.Fatalf("done = %+v, want the first result to close the Bash call: %+v", got[1], want)
+	}
+}
+
+func TestSecondResultAfterADuplicateTaskEmitsNothing(t *testing.T) {
+	got := collectLines(t, bashStartLine, taskStartWithID("toolu_01"), bashOKLine, bashOKLine)
+	if len(got) != 2 || got[1].Kind != contracts.BackendKindToolDone {
+		t.Fatalf("want the start and one done, the second result must emit nothing, got %+v", got)
+	}
+}
+
+func TestTodoWriteOnAnOpenCallIDLetsItsResultClose(t *testing.T) {
+	todo := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_01","name":"TodoWrite","input":{"todos":[{"content":"lire","status":"pending"}]}}]},"session_id":"s"}`
+	got := collectLines(t, bashStartLine, todo, bashOKLine)
+	if len(got) != 3 || got[1].Kind != "todos" || got[2].Kind != contracts.BackendKindToolDone || got[2].ToolCall == nil || got[2].ToolCall.ID != "toolu_01" {
+		t.Fatalf("want the start, the todos and the done of toolu_01, got %+v", got)
+	}
+}
+
+func TestTaskWithEmptyIDStartsASubagentThatNeverCloses(t *testing.T) {
+	got := collectLines(t, taskStartWithID(""), taskEndWithID(""))
+	if len(got) != 1 || got[0].Kind != "subagent" || got[0].Subagent == nil || got[0].Subagent.State != "active" {
+		t.Fatalf("want only the subagent start for an empty ID, got %+v", got)
 	}
 }
 

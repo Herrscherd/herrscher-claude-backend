@@ -209,20 +209,20 @@ A subagent started by `Task` keeps the `subagent` events and gets no call. A
 `tool_result` whose `ID` belongs to a claimed `Task` takes the subagent path:
 its first result emits the `subagent` event in the `done` state, and a repeat
 emits nothing. A `Task` whose `ID` the bounds refuse keeps its `subagent` start
-and closes nothing. A `Task` whose `ID` is already seen in the turn emits
-nothing: it starts no subagent, and the one `tool_result` of that `ID` is
-swallowed, so an open call with the same `ID` stays `started` and is not closed
-by it. The first such `Task` of a turn logs one `slog.Warn` with no value. A
-result that matches no call started in the same turn emits nothing, so a call
-started before a `reset` is never closed after it. A call still open at the end
-of a turn, after an error, an interruption or a cancelled context, stays
-`started` with no `tool_done`.
+and closes nothing. A `Task` with an empty `ID` also keeps its `subagent` start
+and closes nothing, since an empty `ID` is never claimed and no result can match
+it. A `Task` whose `ID` is already seen in the turn starts no subagent, under
+the rule for repeated `ID`s below. A result that matches no call started in the
+same turn emits nothing, so a call started before a `reset` is never closed
+after it. A call still open at the end of a turn, after an error, an
+interruption or a cancelled context, stays `started` with no `tool_done`.
 
 A `TodoWrite` `tool_use` is not a tool call. When its input holds at least one
 item, it emits one `todos` event whose `Todos` carry each item's `Text` and a
 `State` of `done`, `active` or `pending`. When its input holds none, it emits
 nothing. It gives no `tool` event, no `ToolCall` and no `tool_done`, and its
-`ID` is never claimed, so its `tool_result` emits nothing.
+`ID` is never claimed. Its `tool_result` closes the open call of the same `ID`
+if there is one, as any result does, and emits nothing otherwise.
 
 Each turn, which is one `readTurn`, keeps two tables. The first holds the `ID`s
 claimed in the turn (`maxSeenToolCalls`, 4096). An `ID` is claimed when it is
@@ -234,13 +234,24 @@ or too long `ID`, the `ID` of a `TodoWrite` and an `ID` refused by a full first
 table are not recorded. The second holds the open calls (`maxOpenToolCalls`,
 256) with their tool name. A `tool_use` whose `ID` is already seen emits a
 plain `tool` event with no `ToolCall`, whatever its state: an open call keeps
-its first tool name, and a finished call never starts again. A `Task` is the
-exception: its repeated `ID` emits nothing, as described above.
+its first tool name, and a finished call never starts again. A `Task` follows
+the same rule: its repeated `ID` starts no subagent, and it emits nothing except
+the one-time warning described below.
 
 A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
 moves it out of the second table, which frees one open slot, and keeps its `ID`
 seen. The first table never frees a place: a closed `ID` stays seen for the rest
 of the turn.
+
+A repeated `ID` follows one rule for every tool, `Task` and `TodoWrite`
+included. A `tool_use` whose `ID` is already seen opens nothing and is recorded
+nowhere: a `Task` starts no subagent, and any other tool emits its plain `tool`
+event. A repeated `TodoWrite` still emits its `todos` event, which the repeat
+does not change.
+A `tool_result` closes the open call under its `ID`, or the subagent of a
+claimed `Task`, and the first result of an open `ID` does so even when the
+start it answers was a repeat, because the stream does not say which start a
+result answers. Any later result of that `ID` emits nothing.
 
 Once the open bound is reached, a start with a new `ID` emits a plain `tool`
 event with no `ToolCall`, and its result emits nothing. A start refused by the
@@ -260,7 +271,8 @@ the turn, later starts carry no lifecycle`, with the attribute `bound`, which is
 turn that reaches both bounds logs two warnings. The first `Task` whose `ID` is
 already seen logs one `slog.Warn` per turn too, with the message `a Task reuses
 the ID of an earlier tool_use of the turn, it starts no subagent` and no
-attribute, so the warning never quotes the `ID`.
+attribute, so the warning never quotes the `ID`. Each of these warnings is
+logged at most once per turn.
 
 ## Resume and memory
 

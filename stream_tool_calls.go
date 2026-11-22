@@ -100,19 +100,10 @@ func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, 
 	return contracts.BackendEvent{Kind: contracts.BackendKindToolDone, ToolCall: call}, true
 }
 
-func (p *turnParser) refuseDuplicateTask(callID string) {
-	p.refusedTasks[callID] = struct{}{}
+func (p *turnParser) warnDuplicateTask() {
 	if p.duplicateTaskWarning.claim() {
 		slog.Warn(duplicateTaskMessage)
 	}
-}
-
-func (p *turnParser) swallowRefusedTask(callID string) bool {
-	if _, refused := p.refusedTasks[callID]; !refused {
-		return false
-	}
-	delete(p.refusedTasks, callID)
-	return true
 }
 
 func toolResultText(content json.RawMessage) string {
