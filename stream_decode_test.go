@@ -124,7 +124,7 @@ func TestAssistantBlocksSurviveAStrayFieldOfAnotherType(t *testing.T) {
 	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"bonjour"},{"type":"thinking","thinking":"reflexion"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"},"is_error":"yes","content":{"k":"v"}}]},"session_id":"s"}`
 	got := collectLines(t, line)
 	if len(got) != 3 {
-		t.Fatalf("attendu texte, pensee et outil, obtenu %+v", got)
+		t.Fatalf("want text, thinking and tool, got %+v", got)
 	}
 	if got[0].Kind != "text" || got[0].Detail != "bonjour" {
 		t.Fatalf("texte = %+v", got[0])
