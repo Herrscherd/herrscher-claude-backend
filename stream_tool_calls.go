@@ -13,19 +13,32 @@ const (
 	maxSeenToolCalls  = 4096
 	maxToolErrorRunes = 200
 	maxCallIDBytes    = 256
+	maxToolNameBytes  = 256
 )
+
+type boundReport struct {
+	name     string
+	limit    int
+	reported bool
+}
+
+func (b *boundReport) warnOnce() {
+	if b.reported {
+		return
+	}
+	b.reported = true
+	slog.Warn("tool calls reach a bound of the turn, later starts carry no lifecycle", "bound", b.name, "limit", b.limit)
+}
 
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	detail := toolDetail(block.Input)
 	event := contracts.BackendEvent{Kind: contracts.BackendKindTool, Tool: block.Name, Detail: detail}
-	if !p.claimCallID(block.ID) {
-		return event
-	}
-	if block.Name == "" {
+	reserved := p.reserveCallID(block.ID)
+	if !reserved || !openableToolName(block.Name) {
 		return event
 	}
 	if len(p.openCalls) >= maxOpenToolCalls {
-		p.reportOpenBound()
+		p.openBound.warnOnce()
 		return event
 	}
 	event.ToolCall = &contracts.ToolCall{ID: block.ID, Tool: block.Name, Detail: detail, State: contracts.ToolCallStarted}
@@ -33,7 +46,11 @@ func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	return event
 }
 
-func (p *turnParser) claimCallID(callID string) bool {
+func openableToolName(name string) bool {
+	return name != "" && len(name) <= maxToolNameBytes
+}
+
+func (p *turnParser) reserveCallID(callID string) bool {
 	if callID == "" || len(callID) > maxCallIDBytes {
 		return false
 	}
@@ -41,27 +58,11 @@ func (p *turnParser) claimCallID(callID string) bool {
 		return false
 	}
 	if len(p.seenCalls) >= maxSeenToolCalls {
-		p.reportSeenBound()
+		p.seenBound.warnOnce()
 		return false
 	}
 	p.seenCalls[callID] = struct{}{}
 	return true
-}
-
-func (p *turnParser) reportOpenBound() {
-	if p.openBoundReported {
-		return
-	}
-	p.openBoundReported = true
-	slog.Warn("tool calls reach the open bound of the turn, later starts carry no lifecycle", "max_open", maxOpenToolCalls)
-}
-
-func (p *turnParser) reportSeenBound() {
-	if p.seenBoundReported {
-		return
-	}
-	p.seenBoundReported = true
-	slog.Warn("tool calls reach the seen bound of the turn, later starts carry no lifecycle", "max_seen", maxSeenToolCalls)
 }
 
 func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, bool) {

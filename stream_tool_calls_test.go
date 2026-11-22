@@ -301,8 +301,8 @@ func TestOpenBoundIsReportedOncePerTurn(t *testing.T) {
 		lines = append(lines, bashStartWithID(callID(i)))
 	}
 	collectLines(t, lines...)
-	if n := strings.Count(logs.String(), "open bound"); n != 1 {
-		t.Fatalf("open bound reported %d times, want once: %s", n, logs.String())
+	if n := strings.Count(logs.String(), "bound=max_open"); n != 1 {
+		t.Fatalf("max_open reported %d times, want once: %s", n, logs.String())
 	}
 }
 
@@ -313,8 +313,48 @@ func TestSeenBoundIsReportedOncePerTurn(t *testing.T) {
 		lines = append(lines, bashStartWithID(callID(i)))
 	}
 	collectLines(t, lines...)
-	if n := strings.Count(logs.String(), "seen bound"); n != 1 {
-		t.Fatalf("seen bound reported %d times, want once: %s", n, logs.String())
+	if n := strings.Count(logs.String(), "bound=max_seen"); n != 1 {
+		t.Fatalf("max_seen reported %d times, want once: %s", n, logs.String())
+	}
+}
+
+func TestBoundWarningsAreReportedOncePerAttemptOfARetriedTurn(t *testing.T) {
+	logs := captureDefaultLog(t)
+	starts := boundStartLines(maxSeenToolCalls + 1)
+	runTurn(t, starts...)
+	runTurn(t, starts...)
+	for _, bound := range []string{"max_open", "max_seen"} {
+		if n := strings.Count(logs.String(), "bound="+bound); n != 2 {
+			t.Fatalf("%s reported %d times over two attempts, want once per attempt: %s", bound, n, logs.String())
+		}
+	}
+}
+
+func boundStartLines(n int) []string {
+	lines := make([]string, 0, n)
+	for i := range n {
+		lines = append(lines, bashStartWithID(callID(i)))
+	}
+	return lines
+}
+
+func toolStartWithName(id, name string) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":%q,"name":%q,"input":{"command":"x"}}]},"session_id":"s"}`, id, name)
+}
+
+func TestToolNameBeyondTheLengthBoundNeverOpensACall(t *testing.T) {
+	longName := strings.Repeat("x", maxToolNameBytes+1)
+	got := collectLines(t, toolStartWithName("toolu_long", longName), bashResultWithID("toolu_long"))
+	if len(got) != 1 || got[0].Kind != contracts.BackendKindTool || got[0].ToolCall != nil {
+		t.Fatalf("events = %+v, want one plain tool event for a name over %d bytes", got, maxToolNameBytes)
+	}
+}
+
+func TestToolNameAtTheLengthBoundOpensACall(t *testing.T) {
+	boundName := strings.Repeat("x", maxToolNameBytes)
+	got := collectLines(t, toolStartWithName("toolu_edge", boundName), bashResultWithID("toolu_edge"))
+	if len(got) != 2 || got[0].ToolCall == nil || got[1].Kind != contracts.BackendKindToolDone || got[1].ToolCall == nil || got[1].ToolCall.ID != "toolu_edge" {
+		t.Fatalf("events = %+v, want a started call and its done for a name of %d bytes", got, maxToolNameBytes)
 	}
 }
 

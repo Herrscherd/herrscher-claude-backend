@@ -30,8 +30,8 @@ type turnParser struct {
 	agents            map[string]bool
 	openCalls         map[string]string
 	seenCalls         map[string]struct{}
-	openBoundReported bool
-	seenBoundReported bool
+	openBound         boundReport
+	seenBound         boundReport
 	onSessionID       func(string)
 	apiError          string
 	textEmitted       bool
@@ -40,7 +40,13 @@ type turnParser struct {
 }
 
 func newTurnParser() *turnParser {
-	return &turnParser{agents: make(map[string]bool), openCalls: make(map[string]string), seenCalls: make(map[string]struct{})}
+	return &turnParser{
+		agents:    make(map[string]bool),
+		openCalls: make(map[string]string),
+		seenCalls: make(map[string]struct{}),
+		openBound: boundReport{name: "max_open", limit: maxOpenToolCalls},
+		seenBound: boundReport{name: "max_seen", limit: maxSeenToolCalls},
+	}
 }
 
 func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
@@ -215,7 +221,8 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 		}
 	case "Task":
 		agent := parseAgent(block.ID, block.Input)
-		if p.claimCallID(block.ID) {
+		reserved := p.reserveCallID(block.ID)
+		if reserved {
 			p.agents[block.ID] = true
 		}
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
