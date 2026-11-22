@@ -127,13 +127,13 @@ func TestAssistantBlocksSurviveAStrayFieldOfAnotherType(t *testing.T) {
 		t.Fatalf("want text, thinking and tool, got %+v", got)
 	}
 	if got[0].Kind != "text" || got[0].Detail != "bonjour" {
-		t.Fatalf("texte = %+v", got[0])
+		t.Fatalf("text event: got %+v, want kind text with detail %q", got[0], "bonjour")
 	}
 	if got[1].Kind != "thinking" || got[1].Detail != "reflexion" {
-		t.Fatalf("pensee = %+v", got[1])
+		t.Fatalf("thinking event: got %+v, want kind thinking with detail %q", got[1], "reflexion")
 	}
 	if got[2].Kind != contracts.BackendKindTool || got[2].ToolCall == nil || got[2].ToolCall.ID != "toolu_01" {
-		t.Fatalf("outil = %+v", got[2])
+		t.Fatalf("tool event: got %+v, want a started call with ID %q", got[2], "toolu_01")
 	}
 }
 

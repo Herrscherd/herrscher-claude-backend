@@ -286,6 +286,59 @@ func TestTaskBeyondTheSeenBoundNeverClosesAsASubagent(t *testing.T) {
 	}
 }
 
+func taskStartWithID(id string) string {
+	return fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","id":%q,"name":"Task","input":{"description":"look","subagent_type":"Explore"}}]},"session_id":"s"}`, id)
+}
+
+func taskEndWithID(id string) string {
+	return fmt.Sprintf(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":%q,"content":"done"}]},"session_id":"s"}`, id)
+}
+
+func TestTaskReusingAnOpenCallIDStartsNoSubagent(t *testing.T) {
+	got := collectLines(t, bashStartLine, taskStartWithID("toolu_01"))
+	if len(got) != 1 || got[0].Kind != contracts.BackendKindTool || got[0].ToolCall == nil {
+		t.Fatalf("want only the start of the Bash call, got %+v", got)
+	}
+}
+
+func TestResultOfATaskReusingAnOpenCallIDClosesNoCall(t *testing.T) {
+	got := collectLines(t, bashStartLine, taskStartWithID("toolu_01"), bashOKLine)
+	if len(got) != 1 || got[0].Kind != contracts.BackendKindTool || got[0].ToolCall == nil {
+		t.Fatalf("want only the start of the Bash call, the Task result must close nothing, got %+v", got)
+	}
+}
+
+func TestTaskReusingAFinishedCallIDStartsNoSubagent(t *testing.T) {
+	got := collectLines(t, bashStartLine, bashOKLine, taskStartWithID("toolu_01"))
+	if len(got) != 2 || got[0].Kind != contracts.BackendKindTool || got[1].Kind != contracts.BackendKindToolDone {
+		t.Fatalf("want the start and the end of the Bash call and nothing for the Task, got %+v", got)
+	}
+}
+
+func TestFirstTaskKeepsItsSubagentWhenAnotherTaskReusesItsID(t *testing.T) {
+	got := collectLines(t, taskStartWithID("agent_01"), taskStartWithID("agent_01"), taskEndWithID("agent_01"))
+	if len(got) != 2 {
+		t.Fatalf("want the start and the end of the first Task, got %+v", got)
+	}
+	if got[0].Kind != "subagent" || got[0].Subagent == nil || got[0].Subagent.State != "active" {
+		t.Fatalf("subagent start: got %+v, want active agent_01", got[0])
+	}
+	if got[1].Kind != "subagent" || got[1].Subagent == nil || got[1].Subagent.State != "done" {
+		t.Fatalf("subagent end: got %+v, want done agent_01", got[1])
+	}
+}
+
+func TestDuplicateTaskWarnsOncePerTurnWithoutItsID(t *testing.T) {
+	logs := captureDefaultLog(t)
+	collectLines(t, bashStartLine, taskStartWithID("toolu_01"), taskStartWithID("toolu_01"))
+	if n := strings.Count(logs.String(), "reuses the ID of an earlier tool_use"); n != 1 {
+		t.Fatalf("duplicate Task warning reported %d times, want once: %s", n, logs.String())
+	}
+	if strings.Contains(logs.String(), "toolu_01") {
+		t.Fatalf("the warning quotes the ID: %s", logs.String())
+	}
+}
+
 func TestOpenBoundIsReportedOncePerTurn(t *testing.T) {
 	logs := captureDefaultLog(t)
 	var lines []string
@@ -310,14 +363,14 @@ func TestSeenBoundIsReportedOncePerTurn(t *testing.T) {
 	}
 }
 
-func TestBoundWarningsAreReportedOncePerAttemptOfARetriedTurn(t *testing.T) {
+func TestEachReadTurnReportsItsOwnBoundWarnings(t *testing.T) {
 	logs := captureDefaultLog(t)
 	starts := boundStartLines(maxSeenToolCalls + 1)
 	runTurn(t, starts...)
 	runTurn(t, starts...)
 	for _, bound := range []string{"max_open", "max_seen"} {
 		if n := strings.Count(logs.String(), "bound="+bound); n != 2 {
-			t.Fatalf("%s reported %d times over two attempts, want once per attempt: %s", bound, n, logs.String())
+			t.Fatalf("%s reported %d times over two turns, want once per turn: %s", bound, n, logs.String())
 		}
 	}
 }
