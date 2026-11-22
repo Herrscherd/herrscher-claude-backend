@@ -141,10 +141,10 @@ func decodeOrSkip(data []byte, into any) bool {
 	return json.Unmarshal(data, into) == nil
 }
 
-func decodeElements[T any](raws []json.RawMessage) []T {
-	items := make([]T, 0, len(raws))
+func decodeElements[Element any](raws []json.RawMessage) []Element {
+	items := make([]Element, 0, len(raws))
 	for _, raw := range raws {
-		var item T
+		var item Element
 		if json.Unmarshal(raw, &item) == nil {
 			items = append(items, item)
 		}
