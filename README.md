@@ -183,58 +183,61 @@ shows the call. A `tool_done` event ends the call under the same `ID`, with
 `Tool` in the call and `Tool` and `Detail` empty on the event. Its state is
 `succeeded`, or `failed` when the `tool_result` has `is_error` set to true, and
 only then does `Error` carry the text of the result, cut to 200 characters with
-an ellipsis. A `tool_result` with `is_error` true and no text gives a `tool_done`
-in the `failed` state whose `Error` is empty.
+an ellipsis. A `tool_result` with `is_error` true and no text gives a
+`tool_done` in the `failed` state whose `Error` is empty.
 
 `is_error` is read with the same rule as `isApiErrorMessage`: only the JSON
 literal `true` marks a failure. Any other value, such as the string `"true"`, a
 number, `null`, or no field at all, reads as not failed, so a string `"true"`
-gives a `succeeded` call with no `Error`. The content of a `user` line is decoded
-one element at a time: an element that is not an object, or whose fields do not
-decode, is skipped on its own, and the other tool results of the line still
-close their calls. A line whose `message` or `content` is not of the expected
-shape is still skipped whole.
+gives a `succeeded` call with no `Error`. The content of a `user` line is
+decoded one element at a time: an element that is not an object, or whose fields
+do not decode, is skipped on its own, and the other tool results of the line
+still close their calls. A line whose `message` or `content` is not of the
+expected shape is still skipped whole.
 
 The rule above is local to the `tool_result` blocks. The `is_error` of the
 closing `result` line is a strict JSON boolean: a string such as `"true"` there
 fails the decoding of that line, and the turn reports it as `ErrStreamDrift`.
 
 A subagent started by `Task` keeps the `subagent` events and gets no call. A
-`tool_result` whose `ID` belongs to a claimed `Task` takes the subagent path: its
-first result emits the `subagent` event in the `done` state, and a repeat emits
-nothing. A `Task` whose `ID` the bounds refuse keeps its `subagent` start and
-closes nothing. A result that matches no call started in the same attempt emits
-nothing, so a call started before a `reset` is never closed after it. A call still open at
-the end of a turn, after an error, an interruption or a cancelled context, stays
-`started` with no `tool_done`.
+`tool_result` whose `ID` belongs to a claimed `Task` takes the subagent path:
+its first result emits the `subagent` event in the `done` state, and a repeat
+emits nothing. A `Task` whose `ID` the bounds refuse keeps its `subagent` start
+and closes nothing. A result that matches no call started in the same turn emits
+nothing, so a call started before a `reset` is never closed after it. A call
+still open at the end of a turn, after an error, an interruption or a cancelled
+context, stays `started` with no `tool_done`.
 
-Each attempt, which is one `readTurn`, keeps two tables. The first holds the
-`ID`s seen in the attempt (`maxSeenToolCalls`, 4096): the `ID` of every
-`tool_use`, open or finished, and the `Task` ids too, so a `Task` id cannot be
-reused by a later `tool_use`. An `ID` is seen when it is claimed for the first
-time. The second holds the open calls (`maxOpenToolCalls`, 256) with their tool
-name. A `tool_use` whose `ID` is already seen emits a plain `tool` event with no
+Each turn, which is one `readTurn`, keeps two tables. The first holds the `ID`s
+seen in the turn (`maxSeenToolCalls`, 4096): the `ID` of every `tool_use`, open
+or finished, and the `Task` ids too, so a `Task` id cannot be reused by a later
+`tool_use`. An `ID` is seen when it is claimed for the first time. The second
+holds the open calls (`maxOpenToolCalls`, 256) with their tool name. A
+`tool_use` whose `ID` is already seen emits a plain `tool` event with no
 `ToolCall`, whatever its state: an open call keeps its first tool name, and a
 finished call never starts again.
 
 A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
 moves it out of the second table, which frees one open slot, and keeps its `ID`
 seen. The first table never frees a place: a closed `ID` stays seen for the rest
-of the attempt.
+of the turn.
 
 Once the open bound is reached, a start with a new `ID` emits a plain `tool`
 event with no `ToolCall`, and its result emits nothing. A start refused by the
 open bound keeps its `ID` seen, so it never starts later, even after a slot
-frees. The seen bound refuses a new `ID` the same way, and a `Task` refused by it
-keeps its `subagent` start and closes nothing. A repeated `ID` never starts a
-call, and neither does an `ID` longer than 256 bytes (`maxCallIDBytes`): its
-start is a plain `tool` event and its result emits nothing. Every event passes `BackendEvent.ValidateToolCall`.
+frees. The seen bound refuses a new `ID` the same way, and a `Task` refused by
+it keeps its `subagent` start and closes nothing. A repeated `ID` never starts a
+call. Neither does an `ID` longer than 256 bytes (`maxCallIDBytes`), nor a tool
+name that is empty or longer than 256 bytes (`maxToolNameBytes`): such a start
+is a plain `tool` event and its result emits nothing. The name is checked after
+the `ID` is claimed, so the `ID` of a refused name is seen too. Every event
+passes `BackendEvent.ValidateToolCall`.
 
-When a bound first refuses a start in an attempt, the parser logs one `slog.Warn`
-with the message `tool calls reach the open bound of the turn, later starts carry
-no lifecycle` and the attribute `max_open`, or the same message about the seen
-bound with `max_seen`. Each bound logs at most once per attempt, so an attempt
-that reaches both bounds logs twice.
+The first start refused by each bound in a turn logs one `slog.Warn`, and a turn
+retried after a reset is a new turn. The message is `tool calls reach a bound of
+the turn, later starts carry no lifecycle`, with the attribute `bound`, which is
+`max_open` or `max_seen`, and the attribute `limit`, which is 256 or 4096. A
+turn that reaches both bounds logs two warnings.
 
 ## Resume and memory
 
