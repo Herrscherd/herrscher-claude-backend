@@ -160,8 +160,8 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	if onEvent == nil {
 		return
 	}
-	for _, b := range event.Message.Content {
-		p.emitBlock(b, onEvent)
+	for i := range event.Message.Content {
+		p.emitBlock(event.Message.Content[i], onEvent)
 	}
 	if u := event.Message.Usage; u != nil {
 		onEvent(contracts.BackendEvent{Kind: "usage", InTokens: u.InputTokens, OutTokens: u.OutputTokens, CacheRead: u.CacheReadInputTokens, CacheCreate: u.CacheCreationInputTokens})
@@ -170,8 +170,8 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 
 func (p *turnParser) recordAPIError(content []contentBlock) {
 	var texts []string
-	for _, b := range content {
-		if t := strings.TrimSpace(b.Text); b.Type == blockText && t != "" {
+	for i := range content {
+		if t := strings.TrimSpace(content[i].Text); content[i].Type == blockText && t != "" {
 			texts = append(texts, t)
 		}
 	}
@@ -226,7 +226,8 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	if !decodeOrSkip(line, &event) {
 		return
 	}
-	for _, block := range event.Message.Content {
+	for i := range event.Message.Content {
+		block := event.Message.Content[i]
 		if block.Type != blockToolResult {
 			continue
 		}

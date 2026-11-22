@@ -183,12 +183,17 @@ shows the call. A `tool_done` event ends the call under the same `ID`, with
 `Tool` in the call and `Tool` and `Detail` empty on the event. Its state is
 `succeeded`, or `failed` when the `tool_result` is an error, and only then does
 `Error` carry the text of the result, cut to 200 characters with an ellipsis.
+A failure whose result has no text leaves `Error` empty.
 
 A subagent started by `Task` keeps the `subagent` events and gets no call. A
 result that matches no call started in the same attempt emits nothing, so a
 call started before a `reset` is never closed after it, and a second result for
-a call is ignored. A call whose start is not tracked, once 256 calls are open,
-emits its start only. Every event passes `BackendEvent.ValidateToolCall`.
+a call is ignored. A call still open at the end of a turn, after an error, an
+interruption or a cancelled context, stays `started` with no `tool_done`. A
+second start with the `ID` of an open call emits a plain `tool` event with no
+`ToolCall`, and the open call keeps its first tool name. A call whose start is
+not tracked, once 256 calls are open, emits its start only, and its result emits
+nothing. Every event passes `BackendEvent.ValidateToolCall`.
 
 ## Resume and memory
 
