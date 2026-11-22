@@ -31,13 +31,18 @@ type contentBlock struct {
 	Input     json.RawMessage `json:"input"`
 	ID        string          `json:"id"`
 	ToolUseID string          `json:"tool_use_id"`
+}
+
+type toolResultBlock struct {
+	Type      string          `json:"type"`
+	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
 	IsError   bool            `json:"is_error"`
 }
 
 type toolResultLine struct {
 	Message struct {
-		Content []contentBlock `json:"content"`
+		Content []toolResultBlock `json:"content"`
 	} `json:"message"`
 }
 

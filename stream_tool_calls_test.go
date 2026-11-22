@@ -100,7 +100,7 @@ func TestResultOfACallStartedBeforeAResetEmitsNothing(t *testing.T) {
 	}
 }
 
-func TestCallBeyondTheOpenBoundStartsButNeverCloses(t *testing.T) {
+func TestCallBeyondTheOpenBoundEmitsNoToolCall(t *testing.T) {
 	var lines []string
 	for i := range maxOpenToolCalls + 1 {
 		lines = append(lines, bashStartWithID(callID(i)))
@@ -111,21 +111,48 @@ func TestCallBeyondTheOpenBoundStartsButNeverCloses(t *testing.T) {
 	got := collectLines(t, lines...)
 	const overflow = maxOpenToolCalls
 	if len(got) != 2*maxOpenToolCalls+1 {
-		t.Fatalf("attendu %d evenements (257 debuts, 256 fins), obtenu %d", 2*maxOpenToolCalls+1, len(got))
+		t.Fatalf("attendu %d evenements (256 debuts, un simple evenement tool, 256 fins), obtenu %d", 2*maxOpenToolCalls+1, len(got))
 	}
-	want := contracts.BackendEvent{
-		Kind:     contracts.BackendKindTool,
-		Tool:     "Bash",
-		Detail:   "x",
-		ToolCall: &contracts.ToolCall{ID: callID(overflow), Tool: "Bash", Detail: "x", State: contracts.ToolCallStarted},
-	}
+	want := contracts.BackendEvent{Kind: contracts.BackendKindTool, Tool: "Bash", Detail: "x"}
 	if !sameEvent(t, got[overflow], want) {
-		t.Fatalf("257e debut = %+v, want %+v", got[overflow], want)
+		t.Fatalf("257e debut = %+v, want un simple evenement tool %+v", got[overflow], want)
+	}
+	for i := range overflow {
+		if got[i].ToolCall == nil || got[i].ToolCall.ID != callID(i) || got[i].ToolCall.State != contracts.ToolCallStarted {
+			t.Fatalf("debut %d = %+v, attendu le debut de %s", i, got[i], callID(i))
+		}
 	}
 	for i, ev := range got[overflow+1:] {
 		if ev.Kind != contracts.BackendKindToolDone || ev.ToolCall == nil || ev.ToolCall.ID != callID(i) {
 			t.Fatalf("fin %d = %+v, attendu la fin de %s seule", i, ev, callID(i))
 		}
+	}
+}
+
+func TestRepeatedIDBeyondTheOpenBoundNeverStarts(t *testing.T) {
+	var lines []string
+	for i := range maxOpenToolCalls {
+		lines = append(lines, bashStartWithID(callID(i)))
+	}
+	overflowID := callID(maxOpenToolCalls)
+	lines = append(lines, bashStartWithID(overflowID), bashStartWithID(overflowID))
+	got := collectLines(t, lines...)
+	if len(got) != maxOpenToolCalls+2 {
+		t.Fatalf("attendu %d evenements, obtenu %d", maxOpenToolCalls+2, len(got))
+	}
+	for i, ev := range got[maxOpenToolCalls:] {
+		if ev.Kind != contracts.BackendKindTool || ev.ToolCall != nil {
+			t.Fatalf("debut %d au-dela de la borne = %+v, attendu un simple evenement tool", i, ev)
+		}
+	}
+	var starts int
+	for _, ev := range got {
+		if ev.ToolCall != nil && ev.ToolCall.State == contracts.ToolCallStarted {
+			starts++
+		}
+	}
+	if starts != maxOpenToolCalls {
+		t.Fatalf("debuts = %d, want %d: un ID au-dela de la borne ne doit jamais demarrer", starts, maxOpenToolCalls)
 	}
 }
 

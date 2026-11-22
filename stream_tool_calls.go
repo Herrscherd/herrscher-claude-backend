@@ -15,11 +15,11 @@ const (
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	detail := toolDetail(block.Input)
 	event := contracts.BackendEvent{Kind: contracts.BackendKindTool, Tool: block.Name, Detail: detail}
-	if block.ID == "" || block.Name == "" || p.isOpen(block.ID) {
+	if block.ID == "" || block.Name == "" || p.isOpen(block.ID) || len(p.openCalls) >= maxOpenToolCalls {
 		return event
 	}
 	event.ToolCall = &contracts.ToolCall{ID: block.ID, Tool: block.Name, Detail: detail, State: contracts.ToolCallStarted}
-	p.openToolCall(block.ID, block.Name)
+	p.openCalls[block.ID] = block.Name
 	return event
 }
 
@@ -28,13 +28,7 @@ func (p *turnParser) isOpen(callID string) bool {
 	return open
 }
 
-func (p *turnParser) openToolCall(callID, tool string) {
-	if len(p.openCalls) < maxOpenToolCalls {
-		p.openCalls[callID] = tool
-	}
-}
-
-func (p *turnParser) toolFinish(block contentBlock) (contracts.BackendEvent, bool) {
+func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, bool) {
 	tool, open := p.openCalls[block.ToolUseID]
 	if !open {
 		return contracts.BackendEvent{}, false
@@ -58,9 +52,9 @@ func toolResultText(content json.RawMessage) string {
 		return ""
 	}
 	texts := make([]string, 0, len(blocks))
-	for idx := range blocks {
-		if blocks[idx].Type == blockText && blocks[idx].Text != "" {
-			texts = append(texts, blocks[idx].Text)
+	for _, part := range blocks {
+		if part.Type == blockText && part.Text != "" {
+			texts = append(texts, part.Text)
 		}
 	}
 	return strings.Join(texts, "\n")

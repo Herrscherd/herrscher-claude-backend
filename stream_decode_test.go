@@ -120,6 +120,23 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 	}
 }
 
+func TestAssistantBlocksSurviveAStrayFieldOfAnotherType(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"bonjour"},{"type":"thinking","thinking":"reflexion"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"},"is_error":"yes","content":{"k":"v"}}]},"session_id":"s"}`
+	got := collectLines(t, line)
+	if len(got) != 3 {
+		t.Fatalf("attendu texte, pensee et outil, obtenu %+v", got)
+	}
+	if got[0].Kind != "text" || got[0].Detail != "bonjour" {
+		t.Fatalf("texte = %+v", got[0])
+	}
+	if got[1].Kind != "thinking" || got[1].Detail != "reflexion" {
+		t.Fatalf("pensee = %+v", got[1])
+	}
+	if got[2].Kind != contracts.BackendKindTool || got[2].ToolCall == nil || got[2].ToolCall.ID != "toolu_01" {
+		t.Fatalf("outil = %+v", got[2])
+	}
+}
+
 func TestReadTurnSurfacesCacheTokens(t *testing.T) {
 	canned := `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":30,"output_tokens":20,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}},"session_id":"s"}
 {"type":"result","is_error":false,"result":"hi","total_cost_usd":0.004,"session_id":"s","usage":{"input_tokens":30,"output_tokens":55,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}
