@@ -227,7 +227,8 @@ event with no `ToolCall`, and its result emits nothing. A start refused by the
 open bound keeps its `ID` seen, so it never starts later, even after a slot
 frees. The seen bound refuses a new `ID` the same way, and a `Task` refused by it
 keeps its `subagent` start and closes nothing. A repeated `ID` never starts a
-call. Every event passes `BackendEvent.ValidateToolCall`.
+call, and neither does an `ID` longer than 256 bytes (`maxCallIDBytes`): its
+start is a plain `tool` event and its result emits nothing. Every event passes `BackendEvent.ValidateToolCall`.
 
 When a bound first refuses a start in an attempt, the parser logs one `slog.Warn`
 with the message `tool calls reach the open bound of the turn, later starts carry

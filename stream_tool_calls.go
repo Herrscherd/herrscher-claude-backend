@@ -12,6 +12,7 @@ const (
 	maxOpenToolCalls  = 256
 	maxSeenToolCalls  = 4096
 	maxToolErrorRunes = 200
+	maxCallIDBytes    = 256
 )
 
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
@@ -33,7 +34,7 @@ func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 }
 
 func (p *turnParser) claimCallID(callID string) bool {
-	if callID == "" {
+	if callID == "" || len(callID) > maxCallIDBytes {
 		return false
 	}
 	if _, seen := p.seenCalls[callID]; seen {

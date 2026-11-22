@@ -255,6 +255,22 @@ func TestStartRefusedByTheOpenBoundStaysBareAfterASlotFrees(t *testing.T) {
 	}
 }
 
+func TestCallIDBeyondTheLengthBoundNeverOpensACall(t *testing.T) {
+	longID := strings.Repeat("x", maxCallIDBytes+1)
+	got := collectLines(t, bashStartWithID(longID), bashResultWithID(longID))
+	if len(got) != 1 || got[0].Kind != contracts.BackendKindTool || got[0].Detail != "x" || got[0].ToolCall != nil {
+		t.Fatalf("events = %+v, want one plain tool event for an id over %d bytes", got, maxCallIDBytes)
+	}
+}
+
+func TestCallIDAtTheLengthBoundOpensACall(t *testing.T) {
+	boundID := strings.Repeat("x", maxCallIDBytes)
+	got := collectLines(t, bashStartWithID(boundID), bashResultWithID(boundID))
+	if len(got) != 2 || got[0].ToolCall == nil || got[1].Kind != contracts.BackendKindToolDone || got[1].ToolCall == nil || got[1].ToolCall.ID != boundID {
+		t.Fatalf("events = %+v, want a started call and its done for an id of %d bytes", got, maxCallIDBytes)
+	}
+}
+
 func TestTaskBeyondTheSeenBoundNeverClosesAsASubagent(t *testing.T) {
 	var lines []string
 	for i := range maxSeenToolCalls {
