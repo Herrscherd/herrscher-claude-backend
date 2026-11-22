@@ -238,9 +238,8 @@ A `tool_use` whose `ID` is already seen opens nothing and is recorded nowhere.
 Its event is a plain `tool` event with no `ToolCall`, whatever the state of the
 earlier call: an open call keeps its first tool name, and a finished call never
 starts again. Two tools differ. A repeated `TodoWrite` still emits its `todos`
-event. A repeated `Task` starts no subagent and emits nothing, and the turn logs
-one `slog.Warn` for the first `Task` of the turn that starts no subagent, and
-the message carries no `ID`.
+event. A repeated `Task` starts no subagent and emits nothing. It is one of the
+causes of the unclaimed `Task` warning described below.
 
 A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
 moves it out of the second table, which frees one open slot, and keeps its `ID`
@@ -255,23 +254,31 @@ answers. Any later result of that `ID` emits nothing.
 Once the open bound is reached, a start with a new `ID` emits a plain `tool`
 event with no `ToolCall`, and its result emits nothing. A start refused by the
 open bound keeps its `ID` seen, so it never starts later, even after a slot
-frees. The seen bound refuses a new `ID` the same way, and a `Task` refused by
-it keeps its `subagent` start and closes nothing. A repeated `ID` never starts a
-call. Neither does an `ID` longer than 256 bytes (`maxCallIDBytes`), nor a tool
-name that is empty or longer than 256 bytes (`maxToolNameBytes`): such a start
-is a plain `tool` event and its result emits nothing. The name is checked after
-the `ID` is claimed, so the `ID` of a refused name is seen too. Every event
-passes `BackendEvent.ValidateToolCall`.
+frees. The seen bound refuses a new `ID` the same way. A `Task` refused by it
+starts no subagent and emits nothing, as an empty or too long `ID` does. A
+repeated `ID` never starts a call. Neither does an empty `ID`, nor an `ID`
+longer than 256 bytes (`maxCallIDBytes`), nor a tool name that is empty or
+longer than 256 bytes
+(`maxToolNameBytes`): such a start is a plain `tool` event and its result emits
+nothing. The name is checked after the `ID` is claimed, so the `ID` of a refused
+name is seen too. The tests check every event with
+`BackendEvent.ValidateToolCall`.
 
 The first start refused by each bound in a turn logs one `slog.Warn`, and a turn
-retried after a reset is a new turn. The message is `tool calls reach a bound of
-the turn, later starts carry no lifecycle`, with the attribute `bound`, which is
-`max_open` or `max_seen`, and the attribute `limit`, which is 256 or 4096. A
-turn that reaches both bounds logs two warnings. The first `Task` whose `ID` is
-already seen logs one `slog.Warn` per turn too, with the message `a Task reuses
-the ID of an earlier tool_use of the turn, it starts no subagent` and no
-attribute, so the warning never quotes the `ID`. Each of these warnings is
-logged at most once per turn.
+retried after a reset is a new turn. The message is
+`tool calls reach a bound of the turn, later starts carry no lifecycle`, with
+the attribute `bound`, which is `max_open` or `max_seen`, and the attribute
+`limit`, which is 256 or 4096. A turn that reaches both bounds logs two
+warnings. A `Task` refused by the seen bound logs this `max_seen` warning too,
+when it is the first refusal of that bound in the turn.
+
+A `Task` whose `ID` is not claimed logs one `slog.Warn` per turn. That single
+warning covers every cause of an unclaimed `Task`, and its message does not say
+which one applies: an empty `ID`, an `ID` longer than 256 bytes, an `ID` refused
+by the seen bound, or an `ID` already seen. The message is
+`a Task has an ID the turn cannot record or already holds, it starts no subagent`
+with no attribute, so it never quotes the `ID`. Each of these warnings is logged
+at most once per turn.
 
 ## Resume and memory
 
