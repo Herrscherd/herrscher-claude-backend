@@ -109,13 +109,13 @@ func TestSubagentWithStringErrorFlagClosesLikeMaster(t *testing.T) {
 	if len(got) != 3 {
 		t.Fatalf("want subagent start, subagent done and result, got %+v", got)
 	}
-	start := contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: "agent_01", Name: "look", Kind: "Explore", State: "active"}}
-	if !sameEvent(t, got[0], start) {
-		t.Fatalf("subagent start = %+v, want %+v", got[0], start)
+	wantStart := contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: "agent_01", Name: "look", Kind: "Explore", State: "active"}}
+	if !sameEvent(t, got[0], wantStart) {
+		t.Fatalf("subagent start = %+v, want %+v", got[0], wantStart)
 	}
-	done := contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: "agent_01", State: "done"}}
-	if !sameEvent(t, got[1], done) {
-		t.Fatalf("subagent done = %+v, want %+v", got[1], done)
+	wantDone := contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: "agent_01", State: "done"}}
+	if !sameEvent(t, got[1], wantDone) {
+		t.Fatalf("subagent done = %+v, want %+v", got[1], wantDone)
 	}
 	if got[2].Kind != "result" {
 		t.Fatalf("last event = %+v, want result", got[2])
