@@ -27,16 +27,16 @@ type turnResult struct {
 }
 
 type turnParser struct {
-	agents            map[string]bool
-	openCalls         map[string]string
-	seenCalls         map[string]struct{}
-	openBound         boundReport
-	seenBound         boundReport
-	onSessionID       func(string)
-	apiError          string
-	textEmitted       bool
-	acted             bool
-	sessionID         string
+	agents      map[string]bool
+	openCalls   map[string]string
+	seenCalls   map[string]struct{}
+	openBound   boundReport
+	seenBound   boundReport
+	onSessionID func(string)
+	apiError    string
+	textEmitted bool
+	acted       bool
+	sessionID   string
 }
 
 func newTurnParser() *turnParser {
