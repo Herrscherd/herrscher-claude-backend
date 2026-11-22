@@ -358,6 +358,13 @@ func TestToolNameAtTheLengthBoundOpensACall(t *testing.T) {
 	}
 }
 
+func TestIDOfARefusedToolNameStaysSeen(t *testing.T) {
+	got := collectLines(t, toolStartWithName("toolu_refused", ""), toolStartWithName("toolu_refused", "Bash"))
+	if len(got) != 2 || got[0].ToolCall != nil || got[1].ToolCall != nil {
+		t.Fatalf("events = %+v, want two plain tool events: the refused name claims its ID, so the valid restart never opens a call", got)
+	}
+}
+
 func captureDefaultLog(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var logs bytes.Buffer
