@@ -44,14 +44,10 @@ type turnParser struct {
 
 func newTurnParser() *turnParser {
 	return &turnParser{
-		agents:               make(map[string]bool),
-		openCalls:            make(map[string]string),
-		seenCalls:            make(map[string]struct{}),
-		refusedTasks:         make(map[string]struct{}),
-		openBound:            boundWarning("max_open", maxOpenToolCalls),
-		seenBound:            boundWarning("max_seen", maxSeenToolCalls),
-		flagWarning:          onceWarning{message: "tool_result is_error is not a boolean, its call keeps only its start"},
-		duplicateTaskWarning: onceWarning{message: "a Task reuses the ID of an earlier tool_use of the turn, it starts no subagent"},
+		agents:       make(map[string]bool),
+		openCalls:    make(map[string]string),
+		seenCalls:    make(map[string]struct{}),
+		refusedTasks: make(map[string]struct{}),
 	}
 }
 
