@@ -19,6 +19,7 @@ const (
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"
 	stateActive     = "active"
+	jsonTrue        = "true"
 
 	textBlockSeparator = "\n\n"
 )
@@ -31,6 +32,36 @@ type contentBlock struct {
 	Input     json.RawMessage `json:"input"`
 	ID        string          `json:"id"`
 	ToolUseID string          `json:"tool_use_id"`
+}
+
+type toolResultBlock struct {
+	Type      string          `json:"type"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	IsError   toolErrorFlag   `json:"is_error"`
+}
+
+type toolErrorFlag struct {
+	failed    bool
+	malformed bool
+}
+
+func (f *toolErrorFlag) UnmarshalJSON(data []byte) error {
+	switch string(data) {
+	case jsonTrue:
+		*f = toolErrorFlag{failed: true}
+	case "false", "null":
+		*f = toolErrorFlag{}
+	default:
+		*f = toolErrorFlag{malformed: true}
+	}
+	return nil
+}
+
+type toolResultLine struct {
+	Message struct {
+		Content []json.RawMessage `json:"content"`
+	} `json:"message"`
 }
 
 func parseTodos(input json.RawMessage) []contracts.TodoItem {
@@ -94,7 +125,7 @@ func toolDetail(input json.RawMessage) string {
 type apiErrorFlag bool
 
 func (f *apiErrorFlag) UnmarshalJSON(data []byte) error {
-	*f = string(data) == "true"
+	*f = string(data) == jsonTrue
 	return nil
 }
 
@@ -102,8 +133,8 @@ type streamEvent struct {
 	TotalCostUSD float64      `json:"total_cost_usd"`
 	IsAPIError   apiErrorFlag `json:"isApiErrorMessage"`
 	Message      struct {
-		Content []contentBlock `json:"content"`
-		Usage   *usage         `json:"usage"`
+		Content []json.RawMessage `json:"content"`
+		Usage   *usage            `json:"usage"`
 	} `json:"message"`
 	Usage      *usage                `json:"usage"`
 	ModelUsage map[string]modelUsage `json:"modelUsage"`
@@ -126,6 +157,17 @@ type usage struct {
 
 func decodeOrSkip(data []byte, into any) bool {
 	return json.Unmarshal(data, into) == nil
+}
+
+func decodeElements[Element any](raws []json.RawMessage) []Element {
+	items := make([]Element, 0, len(raws))
+	for _, raw := range raws {
+		var item Element
+		if json.Unmarshal(raw, &item) == nil {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 type resultControl struct {

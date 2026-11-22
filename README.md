@@ -174,6 +174,112 @@ retried attempt, is the first text of that attempt and has no prefix. After an
 over-bound line, the text already emitted stays with the consumer, with no
 `reset`, and the error follows it.
 
+## Tool call events
+
+A `tool` event starts a tool call and carries its `ToolCall` in the started
+state, with `ID` set to the `tool_use` id of the protocol. `Tool` and `Detail`
+are set on the event too, so a consumer that only knows the `tool` kind still
+shows the call. A `tool_done` event ends the call under the same `ID`, with
+`Tool` in the call and `Tool` and `Detail` empty on the event. Its state is
+`succeeded`, or `failed` when the `tool_result` has `is_error` set to true, and
+only then does `Error` carry the text of the result, cut to at most 200 runes,
+ellipsis included. A `tool_result` with `is_error` true and no text gives a
+`tool_done` in the `failed` state whose `Error` is empty.
+
+`is_error` of a `tool_result` has three readings. The JSON literal `true` marks
+a failure. The literal `false`, the literal `null` and a missing field all mark
+a success, so `null` reads as absent. Any other value, such as the string
+`"true"` or the number `1`, does not tell the outcome. Such a result gets no
+`tool_done`, its open slot is freed and its `ID` stays seen, and the turn logs
+one `slog.Warn` the first time it happens, with neither the value nor the
+content of the result. The `is_error` of `isApiErrorMessage` keeps its own rule:
+only the JSON literal `true` marks an error line, and any other value reads as
+not failed.
+
+The content of a `user` line is decoded one element at a time: an element that
+is not an object, or whose fields do not decode, is skipped on its own, and the
+other tool results of the line still close their calls. A line whose `message`
+or `content` is not of the expected shape is still skipped whole.
+
+The rule above is local to the `tool_result` blocks. The `is_error` of the
+closing `result` line is a strict JSON boolean: a string such as `"true"` there
+fails the decoding of that line, and the turn reports it as `ErrStreamDrift`.
+
+A subagent started by `Task` keeps the `subagent` events and gets no call. A
+`Task` starts a subagent only when its `ID` is claimed, and the `subagent` event
+starts in the `active` state. Its first `tool_result` emits the `subagent` event
+in the `done` state, and a repeat emits nothing. A `Task` whose `ID` is not
+claimed, because it is empty, longer than 256 bytes, or refused by a full table
+of seen `ID`s, starts no subagent and emits nothing, and its `tool_result` emits
+nothing either, since no call is open under an `ID` never seen. A repeated
+`Task` follows the same path, as described below. A result that matches no call
+started in the same turn emits nothing, so a call started before a `reset` is
+never closed after it. A call still open at the end of a turn, after an error,
+an interruption or a cancelled context, stays `started` with no `tool_done`.
+
+A `TodoWrite` `tool_use` is not a tool call. When its input holds at least one
+item, it emits one `todos` event whose `Todos` carry each item's `Text` and a
+`State` of `done`, `active` or `pending`. When its input holds none, it emits
+nothing. It gives no `tool` event, no `ToolCall` and no `tool_done`, and its
+`ID` is never claimed. Its `tool_result` closes the open call of the same `ID`
+if there is one, as any result does, and emits nothing otherwise.
+
+Each turn, which is one `readTurn`, keeps two tables. The first holds the `ID`s
+claimed in the turn (`maxSeenToolCalls`, 4096). An `ID` is claimed when it is
+not empty, is at most 256 bytes long (`maxCallIDBytes`), is not yet seen and
+the table has room. Every `tool_use` except a `TodoWrite` claims its `ID` this
+way, a `Task` included, whether or not its call opens: a name refused by the
+length bound, or a start refused by the open bound, still claims it. An empty
+or too long `ID`, the `ID` of a `TodoWrite` and an `ID` refused by a full first
+table are not recorded. The second holds the open calls (`maxOpenToolCalls`,
+256) with their tool name.
+
+A `tool_use` whose `ID` is already seen opens nothing and is recorded nowhere.
+Its event is a plain `tool` event with no `ToolCall`, whatever the state of the
+earlier call: an open call keeps its first tool name, and a finished call never
+starts again. Two tools differ. A repeated `TodoWrite` still emits its `todos`
+event. A repeated `Task` starts no subagent and emits nothing. It is one of the
+causes of the unclaimed `Task` warning described below.
+
+A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
+moves it out of the second table, which frees one open slot, and keeps its `ID`
+seen. The first table never frees a place: a closed `ID` stays seen for the rest
+of the turn.
+
+A `tool_result` closes the open call under its `ID`, or the subagent of a
+claimed `Task`. The first result of an open `ID` does so even when the start it
+answers was a repeat, because the stream does not say which start a result
+answers. Any later result of that `ID` emits nothing.
+
+Once the open bound is reached, a start with a new `ID` emits a plain `tool`
+event with no `ToolCall`, and its result emits nothing. A start refused by the
+open bound keeps its `ID` seen, so it never starts later, even after a slot
+frees. The seen bound refuses a new `ID` the same way. A `Task` refused by it
+starts no subagent and emits nothing, as an empty or too long `ID` does. A
+repeated `ID` never starts a call. Neither does an empty `ID`, nor an `ID`
+longer than 256 bytes (`maxCallIDBytes`), nor a tool name that is empty or
+longer than 256 bytes (`maxToolNameBytes`): such a start is a plain `tool` event
+and its result emits nothing. The name is checked after the `ID` is claimed, so
+the `ID` of a refused name is seen too. One test,
+`TestEveryEmittedToolCallIsValid`, checks the events of a fixed stream with
+`BackendEvent.ValidateToolCall`.
+
+The first start refused by each bound in a turn logs one `slog.Warn`, and a turn
+retried after a reset is a new turn. The message is
+`tool calls reach a bound of the turn, later starts carry no lifecycle`, with
+the attribute `bound`, which is `max_open` or `max_seen`, and the attribute
+`limit`, which is 256 or 4096. A turn that reaches both bounds logs two
+warnings. A `Task` refused by the seen bound logs this `max_seen` warning too,
+when it is the first refusal of that bound in the turn.
+
+A `Task` whose `ID` is not claimed logs one `slog.Warn` per turn. That single
+warning covers every cause of an unclaimed `Task`, and its message does not say
+which one applies: an empty `ID`, an `ID` longer than 256 bytes, an `ID` refused
+by the seen bound, or an `ID` already seen. The message is
+`a Task has an ID the turn cannot record or already holds, it starts no subagent`
+with no attribute, so it never quotes the `ID`. Each of these warnings is logged
+at most once per turn.
+
 ## Resume and memory
 
 The current claude session id is exposed through `ResumeToken()`. The host
@@ -322,8 +428,9 @@ most likely describes the context before compaction, so the size after it is
 measured on the next turn. Its note is English, as the host reads it today. Its
 `Notice` is `compaction.done`, with no argument, and a failure is a
 `compact.unavailable` notice whose `Reason` is the first non blank line of the
-cause, cut to 200 runes with `…` when longer. `Error()` keeps the full cause for
-the logs. A `Compact` interrupted by `Close`, or made after it, fails with
+cause, cut to at most 200 runes, ellipsis included, when longer. `Error()` keeps
+the full cause for the logs. A `Compact` interrupted by `Close`, or made after
+it, fails with
 `ErrResponderClosed` as its cause. The closed and stream-ended texts of a failed
 compaction are in the language of `CompactRequest.Session`, English when that
 language is unknown.

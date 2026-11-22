@@ -1,12 +1,10 @@
 package claude
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"slices"
 	"strings"
 	"testing"
@@ -97,10 +95,7 @@ func TestRespondClosesRestartedSessionWhenItsSendFails(t *testing.T) {
 }
 
 func TestRespondLogsOldSessionCloseErrorOnRestart(t *testing.T) {
-	var logs bytes.Buffer
-	previous := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	logs := captureDefaultLog(t)
 
 	dead := newStreamSession(&spyWriteCloser{closeErr: errors.New("close failed")}, strings.NewReader(""))
 	r := newStreamResponder(context.Background(), nil, "", "", "", nil)

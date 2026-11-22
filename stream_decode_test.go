@@ -120,6 +120,23 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 	}
 }
 
+func TestAssistantBlocksSurviveAStrayFieldOfAnotherType(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"bonjour"},{"type":"thinking","thinking":"reflexion"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"}},{"type":"tool_result","tool_use_id":7}]},"session_id":"s"}`
+	got := collectLines(t, line)
+	if len(got) != 3 {
+		t.Fatalf("want text, thinking and tool, got %+v", got)
+	}
+	if got[0].Kind != "text" || got[0].Detail != "bonjour" {
+		t.Fatalf("text event: got %+v, want kind text with detail %q", got[0], "bonjour")
+	}
+	if got[1].Kind != "thinking" || got[1].Detail != "reflexion" {
+		t.Fatalf("thinking event: got %+v, want kind thinking with detail %q", got[1], "reflexion")
+	}
+	if got[2].Kind != contracts.BackendKindTool || got[2].ToolCall == nil || got[2].ToolCall.ID != "toolu_01" {
+		t.Fatalf("tool event: got %+v, want a started call with ID %q", got[2], "toolu_01")
+	}
+}
+
 func TestReadTurnSurfacesCacheTokens(t *testing.T) {
 	canned := `{"type":"assistant","message":{"content":[{"type":"text","text":"hi"}],"usage":{"input_tokens":30,"output_tokens":20,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}},"session_id":"s"}
 {"type":"result","is_error":false,"result":"hi","total_cost_usd":0.004,"session_id":"s","usage":{"input_tokens":30,"output_tokens":55,"cache_read_input_tokens":12,"cache_creation_input_tokens":3}}

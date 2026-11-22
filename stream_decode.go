@@ -27,15 +27,27 @@ type turnResult struct {
 }
 
 type turnParser struct {
-	agents      map[string]bool
-	onSessionID func(string)
-	apiError    string
-	textEmitted bool
-	acted       bool
-	sessionID   string
+	agents               map[string]bool
+	openCalls            map[string]string
+	seenCalls            map[string]struct{}
+	openBound            onceWarning
+	seenBound            onceWarning
+	flagWarning          onceWarning
+	unclaimedTaskWarning onceWarning
+	onSessionID          func(string)
+	apiError             string
+	textEmitted          bool
+	acted                bool
+	sessionID            string
 }
 
-func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
+func newTurnParser() *turnParser {
+	return &turnParser{
+		agents:    make(map[string]bool),
+		openCalls: make(map[string]string),
+		seenCalls: make(map[string]struct{}),
+	}
+}
 
 func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
 	parser := newTurnParser()
@@ -150,14 +162,15 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	if !decodeOrSkip(line, &event) {
 		return
 	}
+	blocks := decodeElements[contentBlock](event.Message.Content)
 	if event.IsAPIError {
-		p.recordAPIError(event.Message.Content)
+		p.recordAPIError(blocks)
 		return
 	}
 	if onEvent == nil {
 		return
 	}
-	for _, b := range event.Message.Content {
+	for _, b := range blocks {
 		p.emitBlock(b, onEvent)
 	}
 	if u := event.Message.Usage; u != nil {
@@ -207,11 +220,15 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 			onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
 		}
 	case "Task":
-		agent := parseAgent(block.ID, block.Input)
+		if !p.reserveCallID(block.ID) {
+			p.warnUnclaimedTask()
+			return
+		}
 		p.agents[block.ID] = true
+		agent := parseAgent(block.ID, block.Input)
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
-		onEvent(contracts.BackendEvent{Kind: "tool", Tool: block.Name, Detail: toolDetail(block.Input)})
+		onEvent(p.toolStart(block))
 	}
 }
 
@@ -219,16 +236,22 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	if onEvent == nil {
 		return
 	}
-	var event streamEvent
+	var event toolResultLine
 	if !decodeOrSkip(line, &event) {
 		return
 	}
-	for _, block := range event.Message.Content {
-		if block.Type != blockToolResult || !p.agents[block.ToolUseID] {
+	for _, block := range decodeElements[toolResultBlock](event.Message.Content) {
+		if block.Type != blockToolResult {
 			continue
 		}
-		delete(p.agents, block.ToolUseID)
-		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
+		if p.agents[block.ToolUseID] {
+			delete(p.agents, block.ToolUseID)
+			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
+			continue
+		}
+		if done, ok := p.toolFinish(block); ok {
+			onEvent(done)
+		}
 	}
 }
 
