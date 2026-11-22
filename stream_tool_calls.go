@@ -16,18 +16,25 @@ const (
 	maxToolNameBytes  = 256
 )
 
-type boundReport struct {
-	name     string
-	limit    int
+type onceWarning struct {
+	message  string
+	attrs    []any
 	reported bool
 }
 
-func (b *boundReport) warnOnce() {
-	if b.reported {
+func (w *onceWarning) warnOnce() {
+	if w.reported {
 		return
 	}
-	b.reported = true
-	slog.Warn("tool calls reach a bound of the turn, later starts carry no lifecycle", "bound", b.name, "limit", b.limit)
+	w.reported = true
+	slog.Warn(w.message, w.attrs...)
+}
+
+func boundWarning(name string, limit int) onceWarning {
+	return onceWarning{
+		message: "tool calls reach a bound of the turn, later starts carry no lifecycle",
+		attrs:   []any{"bound", name, "limit", limit},
+	}
 }
 
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
@@ -50,11 +57,16 @@ func openableToolName(name string) bool {
 	return name != "" && len(name) <= maxToolNameBytes
 }
 
+func (p *turnParser) callIDSeen(callID string) bool {
+	_, seen := p.seenCalls[callID]
+	return seen
+}
+
 func (p *turnParser) reserveCallID(callID string) bool {
 	if callID == "" || len(callID) > maxCallIDBytes {
 		return false
 	}
-	if _, seen := p.seenCalls[callID]; seen {
+	if p.callIDSeen(callID) {
 		return false
 	}
 	if len(p.seenCalls) >= maxSeenToolCalls {
@@ -72,7 +84,7 @@ func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, 
 	}
 	delete(p.openCalls, block.ToolUseID)
 	if block.IsError.malformed {
-		p.warnFlagOnce()
+		p.flagWarning.warnOnce()
 		return contracts.BackendEvent{}, false
 	}
 	call := &contracts.ToolCall{ID: block.ToolUseID, Tool: tool, State: contracts.ToolCallSucceeded}
@@ -83,12 +95,17 @@ func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, 
 	return contracts.BackendEvent{Kind: contracts.BackendKindToolDone, ToolCall: call}, true
 }
 
-func (p *turnParser) warnFlagOnce() {
-	if p.flagWarned {
-		return
+func (p *turnParser) refuseDuplicateTask(callID string) {
+	p.refusedTasks[callID] = struct{}{}
+	p.duplicateTaskWarning.warnOnce()
+}
+
+func (p *turnParser) swallowRefusedTask(callID string) bool {
+	if _, refused := p.refusedTasks[callID]; !refused {
+		return false
 	}
-	p.flagWarned = true
-	slog.Warn("tool_result is_error is not a boolean, its call keeps only its start")
+	delete(p.refusedTasks, callID)
+	return true
 }
 
 func toolResultText(content json.RawMessage) string {

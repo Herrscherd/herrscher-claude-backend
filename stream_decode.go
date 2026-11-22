@@ -27,26 +27,31 @@ type turnResult struct {
 }
 
 type turnParser struct {
-	agents      map[string]bool
-	openCalls   map[string]string
-	seenCalls   map[string]struct{}
-	openBound   boundReport
-	seenBound   boundReport
-	onSessionID func(string)
-	apiError    string
-	flagWarned  bool
-	textEmitted bool
-	acted       bool
-	sessionID   string
+	agents               map[string]bool
+	openCalls            map[string]string
+	seenCalls            map[string]struct{}
+	refusedTasks         map[string]struct{}
+	openBound            onceWarning
+	seenBound            onceWarning
+	flagWarning          onceWarning
+	duplicateTaskWarning onceWarning
+	onSessionID          func(string)
+	apiError             string
+	textEmitted          bool
+	acted                bool
+	sessionID            string
 }
 
 func newTurnParser() *turnParser {
 	return &turnParser{
-		agents:    make(map[string]bool),
-		openCalls: make(map[string]string),
-		seenCalls: make(map[string]struct{}),
-		openBound: boundReport{name: "max_open", limit: maxOpenToolCalls},
-		seenBound: boundReport{name: "max_seen", limit: maxSeenToolCalls},
+		agents:               make(map[string]bool),
+		openCalls:            make(map[string]string),
+		seenCalls:            make(map[string]struct{}),
+		refusedTasks:         make(map[string]struct{}),
+		openBound:            boundWarning("max_open", maxOpenToolCalls),
+		seenBound:            boundWarning("max_seen", maxSeenToolCalls),
+		flagWarning:          onceWarning{message: "tool_result is_error is not a boolean, its call keeps only its start"},
+		duplicateTaskWarning: onceWarning{message: "a Task reuses the ID of an earlier tool_use of the turn, it starts no subagent"},
 	}
 }
 
@@ -221,9 +226,12 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 			onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
 		}
 	case "Task":
+		if p.callIDSeen(block.ID) {
+			p.refuseDuplicateTask(block.ID)
+			return
+		}
 		agent := parseAgent(block.ID, block.Input)
-		reserved := p.reserveCallID(block.ID)
-		if reserved {
+		if p.reserveCallID(block.ID) {
 			p.agents[block.ID] = true
 		}
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
@@ -247,6 +255,9 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 		if p.agents[block.ToolUseID] {
 			delete(p.agents, block.ToolUseID)
 			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
+			continue
+		}
+		if p.swallowRefusedTask(block.ToolUseID) {
 			continue
 		}
 		if done, ok := p.toolFinish(block); ok {
