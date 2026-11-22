@@ -264,6 +264,7 @@ func TestCallIDAtTheLengthBoundOpensACall(t *testing.T) {
 }
 
 func TestTaskBeyondTheSeenBoundStartsNoSubagent(t *testing.T) {
+	logs := captureDefaultLog(t)
 	var lines []string
 	for i := range maxSeenToolCalls {
 		lines = append(lines, bashStartWithID(callID(i)), bashResultWithID(callID(i)))
@@ -277,6 +278,20 @@ func TestTaskBeyondTheSeenBoundStartsNoSubagent(t *testing.T) {
 		if ev.Kind == "subagent" {
 			t.Fatalf("a Task beyond the seen bound started a subagent: %+v", ev)
 		}
+	}
+	requireUnclaimedTaskWarning(t, logs)
+	if n := strings.Count(logs.String(), "bound=max_seen"); n != 1 {
+		t.Fatalf("max_seen reported %d times, want once: %s", n, logs.String())
+	}
+	if strings.Contains(logs.String(), "agent_over") {
+		t.Fatalf("the warning quotes the ID: %s", logs.String())
+	}
+}
+
+func requireUnclaimedTaskWarning(t *testing.T, logs *bytes.Buffer) {
+	t.Helper()
+	if n := strings.Count(logs.String(), unclaimedTaskMessage); n != 1 {
+		t.Fatalf("unclaimed Task warning reported %d times, want once: %s", n, logs.String())
 	}
 }
 
@@ -325,17 +340,28 @@ func TestTodoWriteOnAnOpenCallIDLetsItsResultClose(t *testing.T) {
 }
 
 func TestTaskWithEmptyIDStartsNoSubagent(t *testing.T) {
+	logs := captureDefaultLog(t)
 	got := collectLines(t, taskStartWithID(""), taskEndWithID(""))
 	if len(got) != 0 {
 		t.Fatalf("want no event for a Task with an empty ID, got %+v", got)
 	}
+	requireUnclaimedTaskWarning(t, logs)
+	if strings.Contains(logs.String(), "id=") {
+		t.Fatalf("the warning carries an ID attribute: %s", logs.String())
+	}
 }
 
 func TestTaskWithTooLongIDStartsNoSubagent(t *testing.T) {
-	id := strings.Repeat("a", maxCallIDBytes+1)
+	logs := captureDefaultLog(t)
+	const distinctive = "toolu_oversized_"
+	id := distinctive + strings.Repeat("a", maxCallIDBytes)
 	got := collectLines(t, taskStartWithID(id), taskEndWithID(id))
 	if len(got) != 0 {
 		t.Fatalf("want no event for a Task whose ID is %d bytes, got %+v", len(id), got)
+	}
+	requireUnclaimedTaskWarning(t, logs)
+	if strings.Contains(logs.String(), distinctive) {
+		t.Fatalf("the warning quotes the ID: %s", logs.String())
 	}
 }
 
