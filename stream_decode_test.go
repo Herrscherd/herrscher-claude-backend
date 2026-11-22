@@ -121,7 +121,7 @@ func TestReadTurnEmitsEvents(t *testing.T) {
 }
 
 func TestAssistantBlocksSurviveAStrayFieldOfAnotherType(t *testing.T) {
-	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"bonjour"},{"type":"thinking","thinking":"reflexion"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"},"is_error":"yes","content":{"k":"v"}}]},"session_id":"s"}`
+	line := `{"type":"assistant","message":{"content":[{"type":"text","text":"bonjour"},{"type":"thinking","thinking":"reflexion"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"ls"}},{"type":"tool_result","tool_use_id":7}]},"session_id":"s"}`
 	got := collectLines(t, line)
 	if len(got) != 3 {
 		t.Fatalf("want text, thinking and tool, got %+v", got)

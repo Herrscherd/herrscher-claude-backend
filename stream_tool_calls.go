@@ -71,12 +71,24 @@ func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, 
 		return contracts.BackendEvent{}, false
 	}
 	delete(p.openCalls, block.ToolUseID)
+	if block.IsError.malformed {
+		p.warnFlagOnce()
+		return contracts.BackendEvent{}, false
+	}
 	call := &contracts.ToolCall{ID: block.ToolUseID, Tool: tool, State: contracts.ToolCallSucceeded}
-	if block.IsError {
+	if block.IsError.failed {
 		call.State = contracts.ToolCallFailed
 		call.Error = truncateRunes(strings.TrimSpace(toolResultText(block.Content)), maxToolErrorRunes)
 	}
 	return contracts.BackendEvent{Kind: contracts.BackendKindToolDone, ToolCall: call}, true
+}
+
+func (p *turnParser) warnFlagOnce() {
+	if p.flagWarned {
+		return
+	}
+	p.flagWarned = true
+	slog.Warn("tool_result is_error is not a boolean, its call keeps only its start")
 }
 
 func toolResultText(content json.RawMessage) string {

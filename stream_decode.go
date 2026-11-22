@@ -34,6 +34,7 @@ type turnParser struct {
 	seenBound   boundReport
 	onSessionID func(string)
 	apiError    string
+	flagWarned  bool
 	textEmitted bool
 	acted       bool
 	sessionID   string

@@ -186,14 +186,20 @@ only then does `Error` carry the text of the result, cut to 200 characters with
 an ellipsis. A `tool_result` with `is_error` true and no text gives a
 `tool_done` in the `failed` state whose `Error` is empty.
 
-`is_error` is read with the same rule as `isApiErrorMessage`: only the JSON
-literal `true` marks a failure. Any other value, such as the string `"true"`, a
-number, `null`, or no field at all, reads as not failed, so a string `"true"`
-gives a `succeeded` call with no `Error`. The content of a `user` line is
-decoded one element at a time: an element that is not an object, or whose fields
-do not decode, is skipped on its own, and the other tool results of the line
-still close their calls. A line whose `message` or `content` is not of the
-expected shape is still skipped whole.
+`is_error` of a `tool_result` has three readings. The JSON literal `true` marks
+a failure. The literal `false`, the literal `null` and a missing field all mark
+a success, so `null` reads as absent. Any other value, such as the string
+`"true"` or the number `1`, does not tell the outcome. Such a result gets no
+`tool_done`, its open slot is freed and its `ID` stays seen, and the turn logs
+one `slog.Warn` the first time it happens, with neither the value nor the
+content of the result. The `is_error` of `isApiErrorMessage` keeps its own rule:
+only the JSON literal `true` marks an error line, and any other value reads as
+not failed.
+
+The content of a `user` line is decoded one element at a time: an element that
+is not an object, or whose fields do not decode, is skipped on its own, and the
+other tool results of the line still close their calls. A line whose `message`
+or `content` is not of the expected shape is still skipped whole.
 
 The rule above is local to the `tool_result` blocks. The `is_error` of the
 closing `result` line is a strict JSON boolean: a string such as `"true"` there
@@ -207,6 +213,12 @@ and closes nothing. A result that matches no call started in the same turn emits
 nothing, so a call started before a `reset` is never closed after it. A call
 still open at the end of a turn, after an error, an interruption or a cancelled
 context, stays `started` with no `tool_done`.
+
+A `TodoWrite` `tool_use` is not a tool call. When its input holds at least one
+item, it emits one `todos` event whose `Todos` carry each item's `Text` and a
+`State` of `done`, `active` or `pending`. When its input holds none, it emits
+nothing. It gives no `tool` event, no `ToolCall` and no `tool_done`, and its
+`ID` is never claimed, so its `tool_result` emits nothing.
 
 Each turn, which is one `readTurn`, keeps two tables. The first holds the `ID`s
 seen in the turn (`maxSeenToolCalls`, 4096): the `ID` of every `tool_use`, open

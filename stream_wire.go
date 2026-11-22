@@ -19,6 +19,7 @@ const (
 	blockToolUse    = "tool_use"
 	blockToolResult = "tool_result"
 	stateActive     = "active"
+	jsonTrue        = "true"
 
 	textBlockSeparator = "\n\n"
 )
@@ -37,7 +38,24 @@ type toolResultBlock struct {
 	Type      string          `json:"type"`
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
-	IsError   apiErrorFlag    `json:"is_error"`
+	IsError   toolErrorFlag   `json:"is_error"`
+}
+
+type toolErrorFlag struct {
+	failed    bool
+	malformed bool
+}
+
+func (f *toolErrorFlag) UnmarshalJSON(data []byte) error {
+	switch string(data) {
+	case jsonTrue:
+		*f = toolErrorFlag{failed: true}
+	case "false", "null":
+		*f = toolErrorFlag{}
+	default:
+		*f = toolErrorFlag{malformed: true}
+	}
+	return nil
 }
 
 type toolResultLine struct {
@@ -107,7 +125,7 @@ func toolDetail(input json.RawMessage) string {
 type apiErrorFlag bool
 
 func (f *apiErrorFlag) UnmarshalJSON(data []byte) error {
-	*f = string(data) == "true"
+	*f = string(data) == jsonTrue
 	return nil
 }
 

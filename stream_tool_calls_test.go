@@ -74,6 +74,9 @@ func TestFailedToolResultReasonIsBoundedOnARuneBoundary(t *testing.T) {
 	if !utf8.ValidString(reason) {
 		t.Fatalf("reason cut in the middle of a character: %q", reason)
 	}
+	if got[1].Kind != contracts.BackendKindToolDone || got[1].ToolCall.ID != "toolu_01" || got[1].ToolCall.State != contracts.ToolCallFailed {
+		t.Fatalf("done = %+v, want the failure of toolu_01", got[1])
+	}
 	if n := utf8.RuneCountInString(reason); n == 0 || n > maxToolErrorRunes {
 		t.Fatalf("reason of %d characters, want between 1 and %d", n, maxToolErrorRunes)
 	}
@@ -90,17 +93,6 @@ func TestFailedToolResultReadsItsTextPastAStrayElement(t *testing.T) {
 	}
 	if got[1].ToolCall.State != contracts.ToolCallFailed || got[1].ToolCall.Error != "permission denied" {
 		t.Fatalf("failure = %+v, want the text block as its reason", got[1].ToolCall)
-	}
-}
-
-func TestStringErrorFlagKeepsTheToolDone(t *testing.T) {
-	stringFlag := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"exit status 1","is_error":"true"}]},"session_id":"s"}`
-	got := collectLines(t, bashStartLine, stringFlag)
-	if len(got) != 2 || got[1].Kind != contracts.BackendKindToolDone || got[1].ToolCall == nil {
-		t.Fatalf("the tool_done must survive a string is_error, got %+v", got)
-	}
-	if got[1].ToolCall.State != contracts.ToolCallSucceeded || got[1].ToolCall.Error != "" {
-		t.Fatalf("only the JSON literal true marks an error, got %+v", got[1].ToolCall)
 	}
 }
 
