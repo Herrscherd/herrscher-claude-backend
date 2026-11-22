@@ -29,6 +29,7 @@ type turnResult struct {
 type turnParser struct {
 	agents      map[string]bool
 	openCalls   map[string]string
+	seenCalls   map[string]struct{}
 	onSessionID func(string)
 	apiError    string
 	textEmitted bool
@@ -37,7 +38,7 @@ type turnParser struct {
 }
 
 func newTurnParser() *turnParser {
-	return &turnParser{agents: make(map[string]bool), openCalls: make(map[string]string)}
+	return &turnParser{agents: make(map[string]bool), openCalls: make(map[string]string), seenCalls: make(map[string]struct{})}
 }
 
 func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
@@ -212,6 +213,7 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 	case "Task":
 		agent := parseAgent(block.ID, block.Input)
 		p.agents[block.ID] = true
+		p.recordCallID(block.ID)
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
 		onEvent(p.toolStart(block))
@@ -226,7 +228,7 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	if !decodeOrSkip(line, &event) {
 		return
 	}
-	for _, block := range event.Message.Content {
+	for _, block := range decodeElements[toolResultBlock](event.Message.Content) {
 		if block.Type != blockToolResult {
 			continue
 		}

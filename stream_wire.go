@@ -37,12 +37,12 @@ type toolResultBlock struct {
 	Type      string          `json:"type"`
 	ToolUseID string          `json:"tool_use_id"`
 	Content   json.RawMessage `json:"content"`
-	IsError   bool            `json:"is_error"`
+	IsError   apiErrorFlag    `json:"is_error"`
 }
 
 type toolResultLine struct {
 	Message struct {
-		Content []toolResultBlock `json:"content"`
+		Content []json.RawMessage `json:"content"`
 	} `json:"message"`
 }
 
@@ -139,6 +139,17 @@ type usage struct {
 
 func decodeOrSkip(data []byte, into any) bool {
 	return json.Unmarshal(data, into) == nil
+}
+
+func decodeElements[T any](raws []json.RawMessage) []T {
+	items := make([]T, 0, len(raws))
+	for _, raw := range raws {
+		var item T
+		if json.Unmarshal(raw, &item) == nil {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 type resultControl struct {

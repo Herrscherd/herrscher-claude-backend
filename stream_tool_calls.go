@@ -9,13 +9,14 @@ import (
 
 const (
 	maxOpenToolCalls  = 256
+	maxSeenToolCalls  = 4096
 	maxToolErrorRunes = 200
 )
 
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	detail := toolDetail(block.Input)
 	event := contracts.BackendEvent{Kind: contracts.BackendKindTool, Tool: block.Name, Detail: detail}
-	if block.ID == "" || block.Name == "" || p.isOpen(block.ID) || len(p.openCalls) >= maxOpenToolCalls {
+	if !p.recordCallID(block.ID) || block.Name == "" || len(p.openCalls) >= maxOpenToolCalls {
 		return event
 	}
 	event.ToolCall = &contracts.ToolCall{ID: block.ID, Tool: block.Name, Detail: detail, State: contracts.ToolCallStarted}
@@ -23,9 +24,15 @@ func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	return event
 }
 
-func (p *turnParser) isOpen(callID string) bool {
-	_, open := p.openCalls[callID]
-	return open
+func (p *turnParser) recordCallID(callID string) bool {
+	if callID == "" || len(p.seenCalls) >= maxSeenToolCalls {
+		return false
+	}
+	if _, seen := p.seenCalls[callID]; seen {
+		return false
+	}
+	p.seenCalls[callID] = struct{}{}
+	return true
 }
 
 func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, bool) {
@@ -47,12 +54,12 @@ func toolResultText(content json.RawMessage) string {
 	if json.Unmarshal(content, &text) == nil {
 		return text
 	}
-	var blocks []contentBlock
-	if json.Unmarshal(content, &blocks) != nil {
+	var parts []json.RawMessage
+	if json.Unmarshal(content, &parts) != nil {
 		return ""
 	}
-	texts := make([]string, 0, len(blocks))
-	for _, part := range blocks {
+	var texts []string
+	for _, part := range decodeElements[contentBlock](parts) {
 		if part.Type == blockText && part.Text != "" {
 			texts = append(texts, part.Text)
 		}

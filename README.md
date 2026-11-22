@@ -186,16 +186,34 @@ only then does `Error` carry the text of the result, cut to 200 characters with
 an ellipsis. A `tool_result` with `is_error` true and no text gives a `tool_done`
 in the `failed` state whose `Error` is empty.
 
+`is_error` is read with the same rule as `isApiErrorMessage`: only the JSON
+literal `true` marks a failure. Any other value, such as the string `"true"`, a
+number, `null`, or no field at all, reads as not failed, so a string `"true"`
+gives a `succeeded` call with no `Error`. The content of a `user` line is decoded
+one element at a time: an element that is not an object, or whose fields do not
+decode, is skipped on its own, and the other tool results of the line still
+close their calls. A line whose `message` or `content` is not of the expected
+shape is still skipped whole.
+
 A subagent started by `Task` keeps the `subagent` events and gets no call. A
 result that matches no call started in the same attempt emits nothing, so a
-call started before a `reset` is never closed after it, and a second result for
-a call is ignored. A call still open at the end of a turn, after an error, an
-interruption or a cancelled context, stays `started` with no `tool_done`. A
-second start with the `ID` of an open call emits a plain `tool` event with no
-`ToolCall`, and the open call keeps its first tool name. Once 256 calls are open,
-a start with any other `ID` also emits a plain `tool` event with no `ToolCall`:
-no call is started for it, so its result emits nothing, and a repeated `ID`
-never starts a call. Every event passes `BackendEvent.ValidateToolCall`.
+call started before a `reset` is never closed after it. A call still open at
+the end of a turn, after an error, an interruption or a cancelled context, stays
+`started` with no `tool_done`.
+
+Each attempt, which is one `readTurn`, keeps two tables. The first holds the
+`ID` of every `tool_use` seen in the attempt, open or finished, and the `Task`
+ids too. The second holds the open calls with their tool name. A `tool_use`
+whose `ID` is already in the first table emits a plain `tool` event with no
+`ToolCall`, whatever its state: an open call keeps its first tool name, and a
+finished call never starts again. A `tool_result` emits only when its `ID` is
+open, and closing it moves the `ID` from the second table to the first, which
+frees one open slot and keeps the `ID` seen. Two bounds apply: 256 open calls
+(`maxOpenToolCalls`) and 4096 seen `ID`s (`maxSeenToolCalls`). Once either is
+reached, a start with a new `ID` emits a plain `tool` event with no `ToolCall`,
+its result emits nothing, and a repeated `ID` never starts a call. Closing a call
+frees its open slot for the next start, and no bound is ever released by the
+seen table. Every event passes `BackendEvent.ValidateToolCall`.
 
 ## Resume and memory
 
