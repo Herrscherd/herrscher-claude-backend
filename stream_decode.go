@@ -33,7 +33,7 @@ type turnParser struct {
 	openBound            onceWarning
 	seenBound            onceWarning
 	flagWarning          onceWarning
-	duplicateTaskWarning onceWarning
+	unclaimedTaskWarning onceWarning
 	onSessionID          func(string)
 	apiError             string
 	textEmitted          bool
@@ -220,14 +220,12 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 			onEvent(contracts.BackendEvent{Kind: "todos", Todos: todos})
 		}
 	case "Task":
-		if p.callIDSeen(block.ID) {
-			p.warnDuplicateTask()
+		if !p.reserveCallID(block.ID) {
+			p.warnUnclaimedTask()
 			return
 		}
+		p.agents[block.ID] = true
 		agent := parseAgent(block.ID, block.Input)
-		if p.reserveCallID(block.ID) {
-			p.agents[block.ID] = true
-		}
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
 		onEvent(p.toolStart(block))

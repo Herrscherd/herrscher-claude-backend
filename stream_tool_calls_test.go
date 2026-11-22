@@ -263,25 +263,19 @@ func TestCallIDAtTheLengthBoundOpensACall(t *testing.T) {
 	}
 }
 
-func TestTaskBeyondTheSeenBoundNeverClosesAsASubagent(t *testing.T) {
+func TestTaskBeyondTheSeenBoundStartsNoSubagent(t *testing.T) {
 	var lines []string
 	for i := range maxSeenToolCalls {
 		lines = append(lines, bashStartWithID(callID(i)), bashResultWithID(callID(i)))
 	}
-	task := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"agent_over","name":"Task","input":{"description":"look","subagent_type":"Explore"}}]},"session_id":"s"}`
-	taskEnd := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"agent_over","content":"done"}]},"session_id":"s"}`
-	lines = append(lines, task, taskEnd)
+	lines = append(lines, taskStartWithID("agent_over"), taskEndWithID("agent_over"))
 	got := collectLines(t, lines...)
-	if len(got) != 2*maxSeenToolCalls+1 {
-		t.Fatalf("want %d events, got %d", 2*maxSeenToolCalls+1, len(got))
-	}
-	start := got[2*maxSeenToolCalls]
-	if start.Kind != "subagent" || start.Subagent == nil || start.Subagent.ID != "agent_over" || start.Subagent.State != "active" {
-		t.Fatalf("subagent start = %+v, want the start of agent_over", start)
+	if len(got) != 2*maxSeenToolCalls {
+		t.Fatalf("want the %d events of the Bash calls and nothing for the Task, got %d", 2*maxSeenToolCalls, len(got))
 	}
 	for _, ev := range got {
-		if ev.Kind == "subagent" && ev.Subagent != nil && ev.Subagent.State == "done" {
-			t.Fatalf("a Task beyond the seen bound closed as a subagent: %+v", ev)
+		if ev.Kind == "subagent" {
+			t.Fatalf("a Task beyond the seen bound started a subagent: %+v", ev)
 		}
 	}
 }
@@ -330,10 +324,45 @@ func TestTodoWriteOnAnOpenCallIDLetsItsResultClose(t *testing.T) {
 	}
 }
 
-func TestTaskWithEmptyIDStartsASubagentThatNeverCloses(t *testing.T) {
+func TestTaskWithEmptyIDStartsNoSubagent(t *testing.T) {
 	got := collectLines(t, taskStartWithID(""), taskEndWithID(""))
-	if len(got) != 1 || got[0].Kind != "subagent" || got[0].Subagent == nil || got[0].Subagent.State != "active" {
-		t.Fatalf("want only the subagent start for an empty ID, got %+v", got)
+	if len(got) != 0 {
+		t.Fatalf("want no event for a Task with an empty ID, got %+v", got)
+	}
+}
+
+func TestTaskWithTooLongIDStartsNoSubagent(t *testing.T) {
+	id := strings.Repeat("a", maxCallIDBytes+1)
+	got := collectLines(t, taskStartWithID(id), taskEndWithID(id))
+	if len(got) != 0 {
+		t.Fatalf("want no event for a Task whose ID is %d bytes, got %+v", len(id), got)
+	}
+}
+
+func TestTodoWriteDoesNotClaimItsID(t *testing.T) {
+	todo := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"toolu_01","name":"TodoWrite","input":{"todos":[{"content":"lire","status":"pending"}]}}]},"session_id":"s"}`
+	got := collectLines(t, todo, bashStartLine, bashOKLine)
+	if len(got) != 3 {
+		t.Fatalf("want the todos, the start of the Bash call and its done, got %+v", got)
+	}
+	if got[0].Kind != "todos" {
+		t.Fatalf("first event: got %+v, want the todos", got[0])
+	}
+	startWant := contracts.BackendEvent{
+		Kind:     contracts.BackendKindTool,
+		Tool:     "Bash",
+		Detail:   "go test ./...",
+		ToolCall: &contracts.ToolCall{ID: "toolu_01", Tool: "Bash", Detail: "go test ./...", State: contracts.ToolCallStarted},
+	}
+	if !sameEvent(t, got[1], startWant) {
+		t.Fatalf("start = %+v, want the Bash call to start under toolu_01: %+v", got[1], startWant)
+	}
+	doneWant := contracts.BackendEvent{
+		Kind:     contracts.BackendKindToolDone,
+		ToolCall: &contracts.ToolCall{ID: "toolu_01", Tool: "Bash", State: contracts.ToolCallSucceeded},
+	}
+	if !sameEvent(t, got[2], doneWant) {
+		t.Fatalf("done = %+v, want the Bash call to close under toolu_01: %+v", got[2], doneWant)
 	}
 }
 
@@ -360,7 +389,7 @@ func TestFirstTaskKeepsItsSubagentWhenAnotherTaskReusesItsID(t *testing.T) {
 func TestDuplicateTaskWarnsOncePerTurnWithoutItsID(t *testing.T) {
 	logs := captureDefaultLog(t)
 	collectLines(t, bashStartLine, taskStartWithID("toolu_01"), taskStartWithID("toolu_01"))
-	if n := strings.Count(logs.String(), "reuses the ID of an earlier tool_use"); n != 1 {
+	if n := strings.Count(logs.String(), unclaimedTaskMessage); n != 1 {
 		t.Fatalf("duplicate Task warning reported %d times, want once: %s", n, logs.String())
 	}
 	if strings.Contains(logs.String(), "toolu_01") {

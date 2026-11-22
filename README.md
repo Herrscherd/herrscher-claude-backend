@@ -206,16 +206,16 @@ closing `result` line is a strict JSON boolean: a string such as `"true"` there
 fails the decoding of that line, and the turn reports it as `ErrStreamDrift`.
 
 A subagent started by `Task` keeps the `subagent` events and gets no call. A
-`tool_result` whose `ID` belongs to a claimed `Task` takes the subagent path:
-its first result emits the `subagent` event in the `done` state, and a repeat
-emits nothing. A `Task` whose `ID` the bounds refuse keeps its `subagent` start
-and closes nothing. A `Task` with an empty `ID` also keeps its `subagent` start
-and closes nothing, since an empty `ID` is never claimed and no result can match
-it. A `Task` whose `ID` is already seen in the turn starts no subagent, under
-the rule for repeated `ID`s below. A result that matches no call started in the
-same turn emits nothing, so a call started before a `reset` is never closed
-after it. A call still open at the end of a turn, after an error, an
-interruption or a cancelled context, stays `started` with no `tool_done`.
+`Task` starts a subagent only when its `ID` is claimed, and the `subagent` event
+starts in the `active` state. Its first `tool_result` emits the `subagent` event
+in the `done` state, and a repeat emits nothing. A `Task` whose `ID` is not
+claimed, because it is empty, longer than 256 bytes, or refused by a full table
+of seen `ID`s, starts no subagent and emits nothing, and its `tool_result` emits
+nothing either, since no call is open under an `ID` never seen. A repeated
+`Task` follows the same path, as described below. A result that matches no call
+started in the same turn emits nothing, so a call started before a `reset` is
+never closed after it. A call still open at the end of a turn, after an error,
+an interruption or a cancelled context, stays `started` with no `tool_done`.
 
 A `TodoWrite` `tool_use` is not a tool call. When its input holds at least one
 item, it emits one `todos` event whose `Todos` carry each item's `Text` and a
@@ -232,26 +232,25 @@ way, a `Task` included, whether or not its call opens: a name refused by the
 length bound, or a start refused by the open bound, still claims it. An empty
 or too long `ID`, the `ID` of a `TodoWrite` and an `ID` refused by a full first
 table are not recorded. The second holds the open calls (`maxOpenToolCalls`,
-256) with their tool name. A `tool_use` whose `ID` is already seen emits a
-plain `tool` event with no `ToolCall`, whatever its state: an open call keeps
-its first tool name, and a finished call never starts again. A `Task` follows
-the same rule: its repeated `ID` starts no subagent, and it emits nothing except
-the one-time warning described below.
+256) with their tool name.
+
+A `tool_use` whose `ID` is already seen opens nothing and is recorded nowhere.
+Its event is a plain `tool` event with no `ToolCall`, whatever the state of the
+earlier call: an open call keeps its first tool name, and a finished call never
+starts again. Two tools differ. A repeated `TodoWrite` still emits its `todos`
+event. A repeated `Task` starts no subagent and emits nothing, and the turn logs
+one `slog.Warn` for the first `Task` of the turn that starts no subagent, and
+the message carries no `ID`.
 
 A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
 moves it out of the second table, which frees one open slot, and keeps its `ID`
 seen. The first table never frees a place: a closed `ID` stays seen for the rest
 of the turn.
 
-A repeated `ID` follows one rule for every tool, `Task` and `TodoWrite`
-included. A `tool_use` whose `ID` is already seen opens nothing and is recorded
-nowhere: a `Task` starts no subagent, and any other tool emits its plain `tool`
-event. A repeated `TodoWrite` still emits its `todos` event, which the repeat
-does not change.
 A `tool_result` closes the open call under its `ID`, or the subagent of a
-claimed `Task`, and the first result of an open `ID` does so even when the
-start it answers was a repeat, because the stream does not say which start a
-result answers. Any later result of that `ID` emits nothing.
+claimed `Task`. The first result of an open `ID` does so even when the start it
+answers was a repeat, because the stream does not say which start a result
+answers. Any later result of that `ID` emits nothing.
 
 Once the open bound is reached, a start with a new `ID` emits a plain `tool`
 event with no `ToolCall`, and its result emits nothing. A start refused by the

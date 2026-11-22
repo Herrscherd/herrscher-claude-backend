@@ -19,7 +19,7 @@ const (
 const (
 	boundMessage         = "tool calls reach a bound of the turn, later starts carry no lifecycle"
 	flagMessage          = "tool_result is_error is not a boolean, its call keeps only its start"
-	duplicateTaskMessage = "a Task reuses the ID of an earlier tool_use of the turn, it starts no subagent"
+	unclaimedTaskMessage = "a Task has an ID the turn cannot record or already holds, it starts no subagent"
 )
 
 type onceWarning struct {
@@ -100,9 +100,9 @@ func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, 
 	return contracts.BackendEvent{Kind: contracts.BackendKindToolDone, ToolCall: call}, true
 }
 
-func (p *turnParser) warnDuplicateTask() {
-	if p.duplicateTaskWarning.claim() {
-		slog.Warn(duplicateTaskMessage)
+func (p *turnParser) warnUnclaimedTask() {
+	if p.unclaimedTaskWarning.claim() {
+		slog.Warn(unclaimedTaskMessage)
 	}
 }
 
