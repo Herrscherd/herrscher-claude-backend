@@ -2,6 +2,7 @@ package claude
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	contracts "github.com/Herrscherd/herrscher-contracts"
@@ -16,7 +17,14 @@ const (
 func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	detail := toolDetail(block.Input)
 	event := contracts.BackendEvent{Kind: contracts.BackendKindTool, Tool: block.Name, Detail: detail}
-	if !p.recordCallID(block.ID) || block.Name == "" || len(p.openCalls) >= maxOpenToolCalls {
+	if !p.claimCallID(block.ID) {
+		return event
+	}
+	if block.Name == "" {
+		return event
+	}
+	if len(p.openCalls) >= maxOpenToolCalls {
+		p.reportOpenBound()
 		return event
 	}
 	event.ToolCall = &contracts.ToolCall{ID: block.ID, Tool: block.Name, Detail: detail, State: contracts.ToolCallStarted}
@@ -24,15 +32,35 @@ func (p *turnParser) toolStart(block contentBlock) contracts.BackendEvent {
 	return event
 }
 
-func (p *turnParser) recordCallID(callID string) bool {
-	if callID == "" || len(p.seenCalls) >= maxSeenToolCalls {
+func (p *turnParser) claimCallID(callID string) bool {
+	if callID == "" {
 		return false
 	}
 	if _, seen := p.seenCalls[callID]; seen {
 		return false
 	}
+	if len(p.seenCalls) >= maxSeenToolCalls {
+		p.reportSeenBound()
+		return false
+	}
 	p.seenCalls[callID] = struct{}{}
 	return true
+}
+
+func (p *turnParser) reportOpenBound() {
+	if p.openBoundReported {
+		return
+	}
+	p.openBoundReported = true
+	slog.Warn("tool calls reach the open bound of the turn, later starts carry no lifecycle", "max_open", maxOpenToolCalls)
+}
+
+func (p *turnParser) reportSeenBound() {
+	if p.seenBoundReported {
+		return
+	}
+	p.seenBoundReported = true
+	slog.Warn("tool calls reach the seen bound of the turn, later starts carry no lifecycle", "max_seen", maxSeenToolCalls)
 }
 
 func (p *turnParser) toolFinish(block toolResultBlock) (contracts.BackendEvent, bool) {

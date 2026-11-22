@@ -115,8 +115,8 @@ type streamEvent struct {
 	TotalCostUSD float64      `json:"total_cost_usd"`
 	IsAPIError   apiErrorFlag `json:"isApiErrorMessage"`
 	Message      struct {
-		Content []contentBlock `json:"content"`
-		Usage   *usage         `json:"usage"`
+		Content []json.RawMessage `json:"content"`
+		Usage   *usage            `json:"usage"`
 	} `json:"message"`
 	Usage      *usage                `json:"usage"`
 	ModelUsage map[string]modelUsage `json:"modelUsage"`

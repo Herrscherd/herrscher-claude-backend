@@ -27,14 +27,16 @@ type turnResult struct {
 }
 
 type turnParser struct {
-	agents      map[string]bool
-	openCalls   map[string]string
-	seenCalls   map[string]struct{}
-	onSessionID func(string)
-	apiError    string
-	textEmitted bool
-	acted       bool
-	sessionID   string
+	agents            map[string]bool
+	openCalls         map[string]string
+	seenCalls         map[string]struct{}
+	openBoundReported bool
+	seenBoundReported bool
+	onSessionID       func(string)
+	apiError          string
+	textEmitted       bool
+	acted             bool
+	sessionID         string
 }
 
 func newTurnParser() *turnParser {
@@ -154,14 +156,15 @@ func (p *turnParser) parseAssistant(line []byte, onEvent func(contracts.BackendE
 	if !decodeOrSkip(line, &event) {
 		return
 	}
+	blocks := decodeElements[contentBlock](event.Message.Content)
 	if event.IsAPIError {
-		p.recordAPIError(event.Message.Content)
+		p.recordAPIError(blocks)
 		return
 	}
 	if onEvent == nil {
 		return
 	}
-	for _, b := range event.Message.Content {
+	for _, b := range blocks {
 		p.emitBlock(b, onEvent)
 	}
 	if u := event.Message.Usage; u != nil {
@@ -212,8 +215,9 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 		}
 	case "Task":
 		agent := parseAgent(block.ID, block.Input)
-		p.agents[block.ID] = true
-		p.recordCallID(block.ID)
+		if p.claimCallID(block.ID) {
+			p.agents[block.ID] = true
+		}
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
 		onEvent(p.toolStart(block))

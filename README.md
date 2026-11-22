@@ -195,25 +195,45 @@ decode, is skipped on its own, and the other tool results of the line still
 close their calls. A line whose `message` or `content` is not of the expected
 shape is still skipped whole.
 
+The rule above is local to the `tool_result` blocks. The `is_error` of the
+closing `result` line is a strict JSON boolean: a string such as `"true"` there
+fails the decoding of that line, and the turn reports it as `ErrStreamDrift`.
+
 A subagent started by `Task` keeps the `subagent` events and gets no call. A
-result that matches no call started in the same attempt emits nothing, so a
-call started before a `reset` is never closed after it. A call still open at
+`tool_result` whose `ID` belongs to a claimed `Task` takes the subagent path: its
+first result emits the `subagent` event in the `done` state, and a repeat emits
+nothing. A `Task` whose `ID` the bounds refuse keeps its `subagent` start and
+closes nothing. A result that matches no call started in the same attempt emits
+nothing, so a call started before a `reset` is never closed after it. A call still open at
 the end of a turn, after an error, an interruption or a cancelled context, stays
 `started` with no `tool_done`.
 
 Each attempt, which is one `readTurn`, keeps two tables. The first holds the
-`ID` of every `tool_use` seen in the attempt, open or finished, and the `Task`
-ids too. The second holds the open calls with their tool name. A `tool_use`
-whose `ID` is already in the first table emits a plain `tool` event with no
+`ID`s seen in the attempt (`maxSeenToolCalls`, 4096): the `ID` of every
+`tool_use`, open or finished, and the `Task` ids too, so a `Task` id cannot be
+reused by a later `tool_use`. An `ID` is seen when it is claimed for the first
+time. The second holds the open calls (`maxOpenToolCalls`, 256) with their tool
+name. A `tool_use` whose `ID` is already seen emits a plain `tool` event with no
 `ToolCall`, whatever its state: an open call keeps its first tool name, and a
-finished call never starts again. A `tool_result` emits only when its `ID` is
-open, and closing it moves the `ID` from the second table to the first, which
-frees one open slot and keeps the `ID` seen. Two bounds apply: 256 open calls
-(`maxOpenToolCalls`) and 4096 seen `ID`s (`maxSeenToolCalls`). Once either is
-reached, a start with a new `ID` emits a plain `tool` event with no `ToolCall`,
-its result emits nothing, and a repeated `ID` never starts a call. Closing a call
-frees its open slot for the next start, and no bound is ever released by the
-seen table. Every event passes `BackendEvent.ValidateToolCall`.
+finished call never starts again.
+
+A `tool_result` emits a `tool_done` only when its `ID` is open. Closing a call
+moves it out of the second table, which frees one open slot, and keeps its `ID`
+seen. The first table never frees a place: a closed `ID` stays seen for the rest
+of the attempt.
+
+Once the open bound is reached, a start with a new `ID` emits a plain `tool`
+event with no `ToolCall`, and its result emits nothing. A start refused by the
+open bound keeps its `ID` seen, so it never starts later, even after a slot
+frees. The seen bound refuses a new `ID` the same way, and a `Task` refused by it
+keeps its `subagent` start and closes nothing. A repeated `ID` never starts a
+call. Every event passes `BackendEvent.ValidateToolCall`.
+
+When a bound first refuses a start in an attempt, the parser logs one `slog.Warn`
+with the message `tool calls reach the open bound of the turn, later starts carry
+no lifecycle` and the attribute `max_open`, or the same message about the seen
+bound with `max_seen`. Each bound logs at most once per attempt, so an attempt
+that reaches both bounds logs twice.
 
 ## Resume and memory
 

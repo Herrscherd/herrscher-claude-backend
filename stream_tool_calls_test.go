@@ -1,8 +1,10 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -80,6 +82,17 @@ func TestFailedToolResultReasonIsBoundedOnARuneBoundary(t *testing.T) {
 	}
 }
 
+func TestFailedToolResultReadsItsTextPastAStrayElement(t *testing.T) {
+	failure := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":["stray",{"type":"text","text":"permission denied"}],"is_error":true}]},"session_id":"s"}`
+	got := collectLines(t, bashStartLine, failure)
+	if len(got) != 2 || got[1].ToolCall == nil {
+		t.Fatalf("want a failure, got %+v", got)
+	}
+	if got[1].ToolCall.State != contracts.ToolCallFailed || got[1].ToolCall.Error != "permission denied" {
+		t.Fatalf("failure = %+v, want the text block as its reason", got[1].ToolCall)
+	}
+}
+
 func TestStringErrorFlagKeepsTheToolDone(t *testing.T) {
 	stringFlag := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"toolu_01","content":"exit status 1","is_error":"true"}]},"session_id":"s"}`
 	got := collectLines(t, bashStartLine, stringFlag)
@@ -99,6 +112,20 @@ func TestNonObjectContentElementKeepsTheToolDone(t *testing.T) {
 	}
 	if got[1].ToolCall.State != contracts.ToolCallSucceeded {
 		t.Fatalf("done = %+v, want succeeded", got[1].ToolCall)
+	}
+}
+
+func TestNonObjectAssistantElementKeepsTheTextAndToolUse(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":["stray",{"type":"text","text":"hello"},{"type":"tool_use","id":"toolu_01","name":"Bash","input":{"command":"go test ./..."}}]},"session_id":"s"}`
+	got := collectLines(t, line)
+	if len(got) != 2 {
+		t.Fatalf("want the text and the tool start, got %+v", got)
+	}
+	if got[0].Kind != "text" || got[0].Detail != "hello" {
+		t.Fatalf("text = %+v, want hello", got[0])
+	}
+	if got[1].ToolCall == nil || got[1].ToolCall.ID != "toolu_01" || got[1].ToolCall.State != contracts.ToolCallStarted {
+		t.Fatalf("tool start = %+v, want the start of toolu_01", got[1])
 	}
 }
 
@@ -196,6 +223,92 @@ func TestRepeatedIDBeyondTheOpenBoundNeverStarts(t *testing.T) {
 	if starts != maxOpenToolCalls {
 		t.Fatalf("starts = %d, want %d: an ID beyond the bound must never start", starts, maxOpenToolCalls)
 	}
+}
+
+func TestStartRefusedByTheOpenBoundStaysBareAfterASlotFrees(t *testing.T) {
+	var lines []string
+	for i := range maxOpenToolCalls {
+		lines = append(lines, bashStartWithID(callID(i)))
+	}
+	refused := callID(maxOpenToolCalls)
+	lines = append(lines, bashStartWithID(refused), bashResultWithID(callID(0)), bashStartWithID(refused), bashResultWithID(refused))
+	got := collectLines(t, lines...)
+	if len(got) != maxOpenToolCalls+3 {
+		t.Fatalf("want %d events, got %d", maxOpenToolCalls+3, len(got))
+	}
+	for _, index := range []int{maxOpenToolCalls, maxOpenToolCalls + 2} {
+		if got[index].Kind != contracts.BackendKindTool || got[index].Detail != "x" || got[index].ToolCall != nil {
+			t.Fatalf("start of %s at event %d = %+v, want a plain tool event with its detail", refused, index, got[index])
+		}
+	}
+	if got[maxOpenToolCalls+1].Kind != contracts.BackendKindToolDone || got[maxOpenToolCalls+1].ToolCall == nil || got[maxOpenToolCalls+1].ToolCall.ID != callID(0) {
+		t.Fatalf("event %d = %+v, want the done of %s", maxOpenToolCalls+1, got[maxOpenToolCalls+1], callID(0))
+	}
+	var dones int
+	for _, ev := range got {
+		if ev.Kind == contracts.BackendKindToolDone {
+			dones++
+		}
+	}
+	if dones != 1 {
+		t.Fatalf("dones = %d, want the done of %s alone", dones, callID(0))
+	}
+}
+
+func TestTaskBeyondTheSeenBoundNeverClosesAsASubagent(t *testing.T) {
+	var lines []string
+	for i := range maxSeenToolCalls {
+		lines = append(lines, bashStartWithID(callID(i)), bashResultWithID(callID(i)))
+	}
+	task := `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"agent_over","name":"Task","input":{"description":"look","subagent_type":"Explore"}}]},"session_id":"s"}`
+	taskEnd := `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"agent_over","content":"done"}]},"session_id":"s"}`
+	lines = append(lines, task, taskEnd)
+	got := collectLines(t, lines...)
+	if len(got) != 2*maxSeenToolCalls+1 {
+		t.Fatalf("want %d events, got %d", 2*maxSeenToolCalls+1, len(got))
+	}
+	start := got[2*maxSeenToolCalls]
+	if start.Kind != "subagent" || start.Subagent == nil || start.Subagent.ID != "agent_over" || start.Subagent.State != "active" {
+		t.Fatalf("subagent start = %+v, want the start of agent_over", start)
+	}
+	for _, ev := range got {
+		if ev.Kind == "subagent" && ev.Subagent != nil && ev.Subagent.State == "done" {
+			t.Fatalf("a Task beyond the seen bound closed as a subagent: %+v", ev)
+		}
+	}
+}
+
+func TestOpenBoundIsReportedOncePerTurn(t *testing.T) {
+	logs := captureDefaultLog(t)
+	var lines []string
+	for i := range maxOpenToolCalls + 2 {
+		lines = append(lines, bashStartWithID(callID(i)))
+	}
+	collectLines(t, lines...)
+	if n := strings.Count(logs.String(), "open bound"); n != 1 {
+		t.Fatalf("open bound reported %d times, want once: %s", n, logs.String())
+	}
+}
+
+func TestSeenBoundIsReportedOncePerTurn(t *testing.T) {
+	logs := captureDefaultLog(t)
+	var lines []string
+	for i := range maxSeenToolCalls + 2 {
+		lines = append(lines, bashStartWithID(callID(i)))
+	}
+	collectLines(t, lines...)
+	if n := strings.Count(logs.String(), "seen bound"); n != 1 {
+		t.Fatalf("seen bound reported %d times, want once: %s", n, logs.String())
+	}
+}
+
+func captureDefaultLog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	return &logs
 }
 
 func TestFinishedCallIDNeverRestarts(t *testing.T) {
