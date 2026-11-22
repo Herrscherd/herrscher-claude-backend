@@ -258,10 +258,10 @@ frees. The seen bound refuses a new `ID` the same way. A `Task` refused by it
 starts no subagent and emits nothing, as an empty or too long `ID` does. A
 repeated `ID` never starts a call. Neither does an empty `ID`, nor an `ID`
 longer than 256 bytes (`maxCallIDBytes`), nor a tool name that is empty or
-longer than 256 bytes
-(`maxToolNameBytes`): such a start is a plain `tool` event and its result emits
-nothing. The name is checked after the `ID` is claimed, so the `ID` of a refused
-name is seen too. The tests check every event with
+longer than 256 bytes (`maxToolNameBytes`): such a start is a plain `tool` event
+and its result emits nothing. The name is checked after the `ID` is claimed, so
+the `ID` of a refused name is seen too. One test,
+`TestEveryEmittedToolCallIsValid`, checks the events of a fixed stream with
 `BackendEvent.ValidateToolCall`.
 
 The first start refused by each bound in a turn logs one `slog.Warn`, and a turn
