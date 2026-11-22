@@ -28,6 +28,7 @@ type turnResult struct {
 
 type turnParser struct {
 	agents      map[string]bool
+	openCalls   map[string]string
 	onSessionID func(string)
 	apiError    string
 	textEmitted bool
@@ -35,7 +36,9 @@ type turnParser struct {
 	sessionID   string
 }
 
-func newTurnParser() *turnParser { return &turnParser{agents: make(map[string]bool)} }
+func newTurnParser() *turnParser {
+	return &turnParser{agents: make(map[string]bool), openCalls: make(map[string]string)}
+}
 
 func readTurn(ctx context.Context, lines <-chan readLine, done <-chan struct{}, onEvent func(contracts.BackendEvent), onSessionID func(string)) (turnResult, error) {
 	parser := newTurnParser()
@@ -211,7 +214,7 @@ func (p *turnParser) emitToolUse(block contentBlock, onEvent func(contracts.Back
 		p.agents[block.ID] = true
 		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &agent})
 	default:
-		onEvent(contracts.BackendEvent{Kind: "tool", Tool: block.Name, Detail: toolDetail(block.Input)})
+		onEvent(p.toolStart(block))
 	}
 }
 
@@ -219,16 +222,22 @@ func (p *turnParser) parseToolResults(line []byte, onEvent func(contracts.Backen
 	if onEvent == nil {
 		return
 	}
-	var event streamEvent
+	var event toolResultLine
 	if !decodeOrSkip(line, &event) {
 		return
 	}
 	for _, block := range event.Message.Content {
-		if block.Type != blockToolResult || !p.agents[block.ToolUseID] {
+		if block.Type != blockToolResult {
 			continue
 		}
-		delete(p.agents, block.ToolUseID)
-		onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
+		if p.agents[block.ToolUseID] {
+			delete(p.agents, block.ToolUseID)
+			onEvent(contracts.BackendEvent{Kind: "subagent", Subagent: &contracts.Subagent{ID: block.ToolUseID, State: "done"}})
+			continue
+		}
+		if done, ok := p.toolFinish(block); ok {
+			onEvent(done)
+		}
 	}
 }
 

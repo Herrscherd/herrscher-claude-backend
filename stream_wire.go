@@ -33,6 +33,19 @@ type contentBlock struct {
 	ToolUseID string          `json:"tool_use_id"`
 }
 
+type toolResultBlock struct {
+	Type      string          `json:"type"`
+	ToolUseID string          `json:"tool_use_id"`
+	Content   json.RawMessage `json:"content"`
+	IsError   bool            `json:"is_error"`
+}
+
+type toolResultLine struct {
+	Message struct {
+		Content []toolResultBlock `json:"content"`
+	} `json:"message"`
+}
+
 func parseTodos(input json.RawMessage) []contracts.TodoItem {
 	var todoList struct {
 		Todos []struct {

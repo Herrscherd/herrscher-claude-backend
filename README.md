@@ -174,6 +174,22 @@ retried attempt, is the first text of that attempt and has no prefix. After an
 over-bound line, the text already emitted stays with the consumer, with no
 `reset`, and the error follows it.
 
+## Tool call events
+
+A `tool` event starts a tool call and carries its `ToolCall` in the started
+state, with `ID` set to the `tool_use` id of the protocol. `Tool` and `Detail`
+are set on the event too, so a consumer that only knows the `tool` kind still
+shows the call. A `tool_done` event ends the call under the same `ID`, with
+`Tool` in the call and `Tool` and `Detail` empty on the event. Its state is
+`succeeded`, or `failed` when the `tool_result` is an error, and only then does
+`Error` carry the text of the result, cut to 200 characters with an ellipsis.
+
+A subagent started by `Task` keeps the `subagent` events and gets no call. A
+result that matches no call started in the same attempt emits nothing, so a
+call started before a `reset` is never closed after it, and a second result for
+a call is ignored. A call whose start is not tracked, once 256 calls are open,
+emits its start only. Every event passes `BackendEvent.ValidateToolCall`.
+
 ## Resume and memory
 
 The current claude session id is exposed through `ResumeToken()`. The host
