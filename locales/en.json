@@ -32,7 +32,7 @@
   {
     "id": "setting.skill_root",
     "description": "Help of the skill-root setting",
-    "other": "directory whose .claude/skills the agent loads, passed as --add-dir; host-supplied"
+    "other": "directory whose .claude/skills the agent loads, passed as --add-dir (stream only); host-supplied"
   },
   {
     "id": "gateway.pair_incomplete",

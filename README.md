@@ -35,7 +35,12 @@ child. It is never read from the daemon's own environment.
 directory that holds the skills a session learned, and the stream strategy
 passes it to every spawn as `--add-dir <root>`. The CLI then loads the skills
 under `<root>/.claude/skills` as native skills, beside the repository's own.
-The oneshot strategy ignores it.
+The CLI treats the root as one more working directory: it may also read
+`<root>/.claude/agents`, `<root>/.claude/commands` and the settings files
+there. The host writes only skills under it, and the root lies inside the
+session's working directory, so it grants no file access the CLI did not
+already have. The oneshot strategy ignores the setting, since its prompt is the
+last argument and a variadic `--add-dir` before it would swallow it.
 
 ## Two strategies
 

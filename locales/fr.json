@@ -32,7 +32,7 @@
   {
     "id": "setting.skill_root",
     "description": "Aide du réglage skill-root, fourni par l'hôte",
-    "other": "dossier dont l'agent charge les .claude/skills, passé en --add-dir ; fourni par l'hôte"
+    "other": "dossier dont l'agent charge les .claude/skills, passé en --add-dir (stream seulement) ; fourni par l'hôte"
   },
   {
     "id": "gateway.pair_incomplete",
