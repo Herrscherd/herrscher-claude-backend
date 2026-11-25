@@ -22,6 +22,7 @@ func init() {
 				{Key: "dir", Env: "CLAUDE_DIR", Help: texts.english(keySettingDir)},
 				{Key: "kind", Env: "CLAUDE_KIND", Help: texts.english(keySettingKind)},
 				{Key: "env", Env: "", Help: texts.english(keySettingEnv)},
+				{Key: "skill-root", Env: "", Help: texts.english(keySettingSkillRoot)},
 			},
 			Models:       Models(),
 			Capabilities: contracts.Capabilities{Gate: contracts.GrainTool, Compactor: true, HistoryEditor: true},
@@ -31,13 +32,14 @@ func init() {
 		Limits:   limits,
 		Backend: func(ctx context.Context, cfg contracts.PluginConfig) (contracts.Backend, error) {
 			return NewBackend(ctx, Config{
-				Kind:     cfg.Get("kind"),
-				Stream:   cfg.Get("stream") != "false",
-				Cmd:      cfg.Get("cmd"),
-				Model:    cfg.Get("model"),
-				Dir:      cfg.Get("dir"),
-				ResumeID: cfg.Get("resume"),
-				Env:      contracts.ParseEnvSetting(cfg.Get("env")),
+				Kind:      cfg.Get("kind"),
+				Stream:    cfg.Get("stream") != "false",
+				Cmd:       cfg.Get("cmd"),
+				Model:     cfg.Get("model"),
+				Dir:       cfg.Get("dir"),
+				ResumeID:  cfg.Get("resume"),
+				Env:       contracts.ParseEnvSetting(cfg.Get("env")),
+				SkillRoot: cfg.Get("skill-root"),
 			})
 		},
 	})

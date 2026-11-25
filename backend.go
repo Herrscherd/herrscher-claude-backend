@@ -42,6 +42,8 @@ type Config struct {
 	// carries gateway credentials and is NEVER persisted or logged: that is
 	// what distinguishes it from Cmd, which ends up in state.json and in `ps`.
 	Env map[string]string
+
+	SkillRoot string
 }
 
 func resolveBackend(kind string, stream bool) string {
@@ -109,7 +111,7 @@ func NewBackend(ctx context.Context, cfg Config) (contracts.Backend, error) {
 			return runOneShot(ctx, cmdStr, env, p)
 		}}, nil
 	default:
-		return newStreamResponder(ctx, streamBase(strings.Fields(cfg.Cmd)), cfg.Model, cfg.ResumeID, cfg.Dir, cfg.Env), nil
+		return newStreamResponder(ctx, withSkillRoot(streamBase(strings.Fields(cfg.Cmd)), cfg.SkillRoot), cfg.Model, cfg.ResumeID, cfg.Dir, cfg.Env), nil
 	}
 }
 

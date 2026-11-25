@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 
@@ -59,5 +60,35 @@ func TestStreamSessionSend(t *testing.T) {
 	}
 	if len(got) < 1 || got[0].Kind != "tool" || got[0].Tool != "Bash" {
 		t.Fatalf("expected a Bash tool event, got %+v", got)
+	}
+}
+
+func TestNewBackendAddsTheSkillRootAsOneArgument(t *testing.T) {
+	root := "/work/my repo/.herrscher"
+	backend, err := NewBackend(t.Context(), Config{Kind: "stream", Cmd: "claude --permission-mode acceptEdits", SkillRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responder, ok := backend.(*streamResponder)
+	if !ok {
+		t.Fatalf("backend %T, want a stream responder", backend)
+	}
+	want := []string{"claude", "--permission-mode", "acceptEdits", "--add-dir", root}
+	if strings.Join(responder.base, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("base %q, want %q so the learned skills under the root load as native skills", responder.base, want)
+	}
+}
+
+func TestNewBackendWithoutASkillRootAddsNoDirectory(t *testing.T) {
+	backend, err := NewBackend(t.Context(), Config{Kind: "stream", Cmd: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	responder, ok := backend.(*streamResponder)
+	if !ok {
+		t.Fatalf("backend %T, want a stream responder", backend)
+	}
+	if slices.Contains(responder.base, "--add-dir") {
+		t.Fatalf("base %q carries --add-dir with no skill root", responder.base)
 	}
 }
