@@ -31,6 +31,12 @@ There is one more setting, `env`, and it has no environment binding on purpose.
 The host injects it per session, `K=V` per line, merged onto every spawned
 child. It is never read from the daemon's own environment.
 
+`skill-root` has no environment binding either. The host sets it to the
+directory that holds the skills a session learned, and the stream strategy
+passes it to every spawn as `--add-dir <root>`. The CLI then loads the skills
+under `<root>/.claude/skills` as native skills, beside the repository's own.
+The oneshot strategy ignores it.
+
 ## Two strategies
 
 `stream`, the default, keeps one persistent `claude` process alive per session

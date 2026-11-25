@@ -30,6 +30,11 @@
     "other": "per-session env injected at spawn (K=V per line); host-supplied, never from the environment"
   },
   {
+    "id": "setting.skill_root",
+    "description": "Help of the skill-root setting",
+    "other": "directory whose .claude/skills the agent loads, passed as --add-dir; host-supplied"
+  },
+  {
     "id": "gateway.pair_incomplete",
     "description": "A session refused to spawn because a gateway base URL came without its API key",
     "other": "refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway"

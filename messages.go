@@ -19,6 +19,7 @@ const (
 	keySettingDir            = "setting.dir"
 	keySettingKind           = "setting.kind"
 	keySettingEnv            = "setting.env"
+	keySettingSkillRoot      = "setting.skill_root"
 	keyGatewayPairIncomplete = "gateway.pair_incomplete"
 	keyApprovalUnreachable   = "approval.unreachable"
 	keyApprovalNoTurn        = "approval.no_turn"

@@ -23,6 +23,13 @@ func streamBase(fields []string) []string {
 	return out
 }
 
+func withSkillRoot(base []string, root string) []string {
+	if root == "" {
+		return base
+	}
+	return append(append([]string{}, base...), "--add-dir", root)
+}
+
 func withAttachments(text string, paths []string) string {
 	if len(paths) == 0 {
 		return text

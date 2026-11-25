@@ -19,7 +19,7 @@ const nonBreakingSpace = " "
 
 func allMessageKeys() []string {
 	return []string{
-		keySettingCmd, keySettingModel, keySettingStream, keySettingDir, keySettingKind, keySettingEnv,
+		keySettingCmd, keySettingModel, keySettingStream, keySettingDir, keySettingKind, keySettingEnv, keySettingSkillRoot,
 		keyGatewayPairIncomplete,
 		keyApprovalUnreachable, keyApprovalNoTurn, keyApprovalMismatch, keyApprovalOpenFailed, keyApprovalPathTooLong, keyApprovalDirFailed,
 		keyModelsRefused, keyModelsPagination, keyModelsTooMany, keyModelsRedirect,
@@ -187,6 +187,7 @@ func TestEnglishMessages(t *testing.T) {
 		keySettingDir:            "working directory",
 		keySettingKind:           "backend kind",
 		keySettingEnv:            "per-session env injected at spawn (K=V per line); host-supplied, never from the environment",
+		keySettingSkillRoot:      "directory whose .claude/skills the agent loads, passed as --add-dir; host-supplied",
 		keyGatewayPairIncomplete: "refusing to spawn: the session would run on the machine's own subscription while being routed through the gateway",
 		keyModelsRefused:         "models endpoint refused the request",
 		keyModelsPagination:      "models endpoint paginates without a cursor",
@@ -209,6 +210,7 @@ func TestFrenchMessages(t *testing.T) {
 		keySettingStream:         "mode stream-json (false pour le désactiver)",
 		keySettingDir:            "dossier de travail",
 		keySettingKind:           "type de backend",
+		keySettingSkillRoot:      "dossier dont l'agent charge les .claude/skills, passé en --add-dir" + nonBreakingSpace + "; fourni par l'hôte",
 		keySettingEnv:            "environnement propre à la session, injecté au lancement (K=V par ligne)" + nonBreakingSpace + "; fourni par l'hôte, jamais lu depuis l'environnement",
 		keyGatewayPairIncomplete: "lancement refusé" + nonBreakingSpace + ": la session tournerait sur l'abonnement de la machine alors qu'elle passe par la passerelle",
 		keyModelsRefused:         "le service de liste des modèles a refusé la requête",
@@ -277,12 +279,13 @@ func TestErrorsCarryTheCatalogEnglish(t *testing.T) {
 func TestSettingHelpEqualsEnglishCatalog(t *testing.T) {
 	t.Parallel()
 	keys := map[string]string{
-		"cmd":    keySettingCmd,
-		"model":  keySettingModel,
-		"stream": keySettingStream,
-		"dir":    keySettingDir,
-		"kind":   keySettingKind,
-		"env":    keySettingEnv,
+		"cmd":        keySettingCmd,
+		"model":      keySettingModel,
+		"stream":     keySettingStream,
+		"dir":        keySettingDir,
+		"kind":       keySettingKind,
+		"env":        keySettingEnv,
+		"skill-root": keySettingSkillRoot,
 	}
 	var found bool
 	for _, plugin := range contracts.Default.Backends() {
